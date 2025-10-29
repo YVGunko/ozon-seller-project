@@ -35,15 +35,30 @@ export default function Home() {
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
       <h1>OZON Seller Dashboard</h1>
-      
+
       <div style={{ marginBottom: '20px' }}>
-        <button 
+        <a
+          href="/products"
+          style={{
+            display: 'inline-block',
+            padding: '12px 24px',
+            backgroundColor: '#28a745',
+            color: 'white',
+            textDecoration: 'none',
+            borderRadius: '4px',
+            fontWeight: 'bold',
+            marginRight: '10px'
+          }}
+        >
+          📦 Управление товарами
+        </a>
+        <button
           onClick={() => setActiveTab('products')}
           style={{ marginRight: '10px', padding: '10px', backgroundColor: activeTab === 'products' ? '#0070f3' : '#ccc', color: 'white', border: 'none', borderRadius: '5px' }}
         >
           Products
         </button>
-        <button 
+        <button
           onClick={() => setActiveTab('orders')}
           style={{ padding: '10px', backgroundColor: activeTab === 'orders' ? '#0070f3' : '#ccc', color: 'white', border: 'none', borderRadius: '5px' }}
         >
@@ -53,14 +68,14 @@ export default function Home() {
 
       {activeTab === 'products' && (
         <div>
-          <button 
-            onClick={fetchProducts} 
+          <button
+            onClick={fetchProducts}
             disabled={loading}
             style={{ padding: '10px 20px', backgroundColor: '#0070f3', color: 'white', border: 'none', borderRadius: '5px', cursor: loading ? 'not-allowed' : 'pointer' }}
           >
             {loading ? 'Loading...' : 'Get Products'}
           </button>
-          
+
           {products.length > 0 && (
             <div style={{ marginTop: '20px' }}>
               <h2>Products ({products.length})</h2>
@@ -81,8 +96,8 @@ export default function Home() {
 
       {activeTab === 'orders' && (
         <div>
-          <button 
-            onClick={fetchOrders} 
+          <button
+            onClick={fetchOrders}
             disabled={loading}
             style={{ padding: '10px 20px', backgroundColor: '#0070f3', color: 'white', border: 'none', borderRadius: '5px', cursor: loading ? 'not-allowed' : 'pointer' }}
           >

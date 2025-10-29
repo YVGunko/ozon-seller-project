@@ -22,27 +22,29 @@ export default async function handler(req, res) {
       process.env.OZON_CLIENT_ID
     );
     
-    const { limit, last_id, offer_ids, product_ids } = req.query;
+    // const { limit, last_id, offer_ids, product_ids } = req.query;
+    const { limit, last_id, offer_id } = req.query;
     
     console.log('🔄 Fetching products from OZON API...');
+    console.log('📋 Query parameters:', { limit, last_id, offer_id });
     
     // Парсим query параметры
     const options = {
-      limit: limit ? parseInt(limit) : 10,
+      limit: limit ? parseInt(limit) : 20,
       last_id: last_id || "",
       filter: {
         visibility: "ALL"
       }
     };
 
-    // Добавляем массивы ID если они есть
-    if (offer_ids) {
-      options.filter.offer_id = Array.isArray(offer_ids) ? offer_ids : [offer_ids];
+    // Добавляем фильтр по offer_id если указан
+    if (offer_id) {
+      options.filter.offer_id = Array.isArray(offer_id) ? offer_id : [offer_id];
     }
     
-    if (product_ids) {
+/*     if (product_ids) {
       options.filter.product_id = Array.isArray(product_ids) ? product_ids : [product_ids];
-    }
+    } */
 
     const products = await service.getProducts(options);
     console.log('✅ Products fetched successfully');
