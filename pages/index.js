@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import Link from 'next/link';
 
 export default function Home() {
   const [products, setProducts] = useState([]);
@@ -37,6 +38,20 @@ export default function Home() {
       <h1>OZON Seller Dashboard</h1>
 
       <div style={{ marginBottom: '20px' }}>
+        <Link href="/import-excel" passHref>
+          <div style={{
+            padding: '20px 30px',
+            backgroundColor: '#ffc107',
+            color: 'black',
+            textDecoration: 'none',
+            borderRadius: '8px',
+            cursor: 'pointer',
+            minWidth: '200px'
+          }}>
+            <h3>📊 Импорт из Excel</h3>
+            <p>Массовое создание товаров</p>
+          </div>
+        </Link>
         <a
           href="/products"
           style={{

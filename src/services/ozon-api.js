@@ -203,4 +203,116 @@ export class OzonApiService {
       limit: limit
     });
   }
+
+  // Метод для массового создания товаров
+  async createProductsBatch(products) {
+    const body = {
+      items: products
+    };
+
+    console.log('🆕 Creating products batch:', JSON.stringify(body, null, 2));
+    return this.makeRequest('/v2/product/import', body);
+  }
+
+  // Метод для создания одного товара
+  async createProduct(productData) {
+    const body = {
+      items: [productData]
+    };
+
+    console.log('🆕 Creating product:', JSON.stringify(body, null, 2));
+    return this.makeRequest('/v2/product/import', body);
+  }
+
+  // Вспомогательный метод для формирования данных товара
+  prepareProductFromTemplate(baseData, excelRow, fieldMappings) {
+    const product = {
+      offer_id: this.generateFieldValue('offer_id', baseData, excelRow, fieldMappings),
+      name: this.generateFieldValue('name', baseData, excelRow, fieldMappings),
+      category_id: baseData.category_id,
+      price: baseData.price || "0",
+      old_price: baseData.old_price || "0",
+      vat: baseData.vat || "0",
+      attributes: []
+    };
+
+    // Добавляем атрибуты на основе fieldMappings
+    Object.keys(fieldMappings).forEach(fieldKey => {
+      const mapping = fieldMappings[fieldKey];
+      if (mapping.attributeId && mapping.enabled) {
+        const value = this.generateFieldValue(fieldKey, baseData, excelRow, fieldMappings);
+        if (value) {
+          product.attributes.push({
+            id: mapping.attributeId,
+            value: value
+          });
+        }
+      }
+    });
+
+    return product;
+  }
+
+  generateFieldValue(fieldKey, baseData, excelRow, fieldMappings) {
+    const mapping = fieldMappings[fieldKey];
+    if (!mapping) return '';
+
+    let value = mapping.template;
+
+    // Заменяем плейсхолдеры данными из Excel
+    if (value.includes('{colour_code}') && excelRow.colourCode) {
+      value = value.replace(/{colour_code}/g, excelRow.colourCode);
+    }
+    if (value.includes('{colour_name}') && excelRow.colourName) {
+      value = value.replace(/{colour_name}/g, excelRow.colourName);
+    }
+    if (value.includes('{car_brand}') && excelRow.carBrand) {
+      value = value.replace(/{car_brand}/g, excelRow.carBrand);
+    }
+    if (value.includes('{row_index}')) {
+      value = value.replace(/{row_index}/g, excelRow.index + 1);
+    }
+
+    return value;
+  }
+
+  // Метод для парсинга Excel файла
+  async parseExcelFile(file) {
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file); // 'file' should be a Buffer
+
+    const worksheet = workbook.worksheets[0]; // Get first sheet
+    const jsonData = [];
+
+    // Process rows. Note: ExcelJS rows are 1-indexed.
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // Skip header row if your file has one
+
+      // Access cell values by column number (1-indexed)
+      const processedRow = {
+        index: rowNumber - 1, // Adjust for zero-based index
+        colourCode: row.getCell(2).value?.toString(), // Assuming Colour Code is col A
+        colourName: row.getCell(3).value?.toString(), // Assuming Colour Name is col B
+        carBrand: row.getCell(5).value?.toString(),   // Assuming Car Brand is col C
+        rawData: row.values // Gets all values as an array
+      };
+
+      // Only push rows that have data
+      if (processedRow.colourCode) {
+        jsonData.push(processedRow);
+      }
+    });
+
+    return jsonData;
+  }
+
+  findColumnValue(row, possibleColumnNames) {
+    for (const colName of possibleColumnNames) {
+      if (row[colName] !== undefined) {
+        return row[colName];
+      }
+    }
+    return '';
+  }
 }
