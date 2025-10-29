@@ -1,12 +1,40 @@
 export class OzonApiService {
   constructor(apiKey, clientId) {
-    if (!apiKey || !clientId) {
-      throw new Error('OZON API credentials are required');
+    // Получаем ключи из LocalStorage при создании экземпляра
+    const config = this.getCurrentConfig();
+    
+    if (!config.clientId || !config.apiKey) {
+      throw new Error('OZON API credentials are required. Please add a profile in settings.');
     }
+
+/*     if (!apiKey || !clientId) {
+      throw new Error('OZON API credentials are required');
+    } */
 
     this.apiKey = apiKey;
     this.clientId = clientId;
     this.baseURL = 'https://api-seller.ozon.ru';
+  }
+
+  getCurrentConfig() {
+    if (typeof window === 'undefined') {
+      // На сервере - возвращаем пустые значения
+      return { clientId: '', apiKey: '' };
+    }
+    
+    const currentProfile = JSON.parse(localStorage.getItem('currentOzonProfile') || 'null');
+    if (currentProfile) {
+      return {
+        clientId: currentProfile.ozon_client_id,
+        apiKey: currentProfile.ozon_api_key
+      };
+    }
+    
+    // Пробуем взять из env переменных (для fallback)
+    return {
+      clientId: process.env.NEXT_PUBLIC_OZON_CLIENT_ID || '',
+      apiKey: process.env.NEXT_PUBLIC_OZON_API_KEY || ''
+    };
   }
 
   async makeRequest(endpoint, body = {}) {

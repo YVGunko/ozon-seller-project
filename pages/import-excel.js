@@ -1,11 +1,21 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { OzonApiService } from '../src/services/ozon-api';
+import { ProfileManager } from '../src/utils/profileManager'; // Добавляем импорт
 
 export default function ImportExcelPage() {
   const [excelData, setExcelData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
   const fileInputRef = useRef(null);
+  
+  // Добавляем состояние для профиля
+  const [currentProfile, setCurrentProfile] = useState(null);
+
+  // Загружаем текущий профиль при монтировании
+  useEffect(() => {
+    const profile = ProfileManager.getCurrentProfile();
+    setCurrentProfile(profile);
+  }, []);
 
   // Настройки полей для OZON
   const [fieldMappings, setFieldMappings] = useState({
@@ -161,8 +171,9 @@ export default function ImportExcelPage() {
 
   // Импорт товаров в OZON
   const importToOzon = async () => {
-    if (!process.env.OZON_API_KEY || !process.env.OZON_CLIENT_ID) {
-      alert('Не настроены API ключи OZON');
+    // Проверяем наличие профиля вместо env переменных
+    if (!currentProfile) {
+      alert('Профиль OZON не выбран. Пожалуйста, выберите профиль на главной странице.');
       return;
     }
 
@@ -170,9 +181,10 @@ export default function ImportExcelPage() {
     setImportProgress({ current: 0, total: excelData.length });
 
     try {
+      // Используем credentials из текущего профиля
       const service = new OzonApiService(
-        process.env.OZON_API_KEY,
-        process.env.OZON_CLIENT_ID
+        currentProfile.ozon_api_key,
+        currentProfile.ozon_client_id
       );
 
       const products = excelData.map((row, index) => {
@@ -202,10 +214,46 @@ export default function ImportExcelPage() {
 
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif', maxWidth: '1400px', margin: '0 auto' }}>
-      <div style={{ marginBottom: '20px' }}>
-        <a href="/" style={{ color: '#0070f3', textDecoration: 'none' }}>← На главную</a>
-        <a href="/products" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px' }}>📦 Товары</a>
-        <h1>Импорт товаров из Excel</h1>
+      {/* Заголовок и навигация */}
+      <div style={{ marginBottom: '15px' }}>
+        <a href="/" style={{ color: '#0070f3', textDecoration: 'none', fontSize: '14px' }}>← На главную</a>
+        <a href="/products" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px', fontSize: '14px' }}>📦 Товары</a>
+      </div>
+
+      {/* Компактное отображение профиля */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'flex-start',
+        marginBottom: '20px'
+      }}>
+        <h1 style={{ margin: 0 }}>Импорт товаров из Excel</h1>
+        
+        {currentProfile ? (
+          <div style={{ 
+            fontSize: '14px', 
+            color: '#666',
+            textAlign: 'right'
+          }}>
+            <div style={{ fontWeight: 'bold', color: '#28a745' }}>
+              ✅ {currentProfile.name}
+            </div>
+            <div style={{ fontSize: '12px' }}>
+              Client ID: {currentProfile.ozon_client_id?.slice(0, 8)}...
+            </div>
+          </div>
+        ) : (
+          <div style={{ 
+            fontSize: '14px', 
+            color: '#dc3545',
+            textAlign: 'right'
+          }}>
+            <div>⚠️ Профиль не выбран</div>
+            <a href="/" style={{ fontSize: '12px', color: '#0070f3' }}>
+              Выбрать на главной
+            </a>
+          </div>
+        )}
       </div>
 
       {/* Загрузка файла */}
@@ -384,20 +432,25 @@ export default function ImportExcelPage() {
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
             <button
               onClick={importToOzon}
-              disabled={loading}
+              disabled={loading || !currentProfile}
               style={{
                 padding: '15px 30px',
-                backgroundColor: loading ? '#6c757d' : '#28a745',
+                backgroundColor: loading || !currentProfile ? '#6c757d' : '#28a745',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: loading ? 'not-allowed' : 'pointer',
+                cursor: loading || !currentProfile ? 'not-allowed' : 'pointer',
                 fontSize: '16px',
                 fontWeight: 'bold'
               }}
             >
               {loading ? 'Импорт...' : `Импортировать ${excelData.length} товаров в OZON`}
             </button>
+            {!currentProfile && (
+              <p style={{ color: '#dc3545', marginTop: '10px' }}>
+                Для импорта необходимо выбрать профиль OZON
+              </p>
+            )}
           </div>
         </>
       )}

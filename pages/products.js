@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { ProfileManager } from '../src/utils/profileManager'; // Добавлен импорт
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([]);
@@ -21,7 +22,7 @@ export default function ProductsPage() {
   const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
-  // НОВОЕ: Состояния для копирования товара
+  // Состояния для копирования товара
   const [copyModalOpen, setCopyModalOpen] = useState(false);
   const [copyLoading, setCopyLoading] = useState(false);
   const [copyForm, setCopyForm] = useState({
@@ -32,6 +33,15 @@ export default function ProductsPage() {
     price: '',
     old_price: ''
   });
+  
+  // Состояния для профиля
+  const [currentProfile, setCurrentProfile] = useState(null);
+
+  // Загружаем текущий профиль при монтировании
+  useEffect(() => {
+    const profile = ProfileManager.getCurrentProfile();
+    setCurrentProfile(profile);
+  }, []);
 
   // Функция для получения атрибутов товара
   const fetchAttributes = async (offerId) => {
@@ -209,7 +219,46 @@ export default function ProductsPage() {
 
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif', maxWidth: '1200px', margin: '0 auto' }}>
-      <h1>Управление товарами OZON</h1>
+      {/* Заголовок и навигация */}
+      <div style={{ marginBottom: '15px' }}>
+        <a href="/" style={{ color: '#0070f3', textDecoration: 'none', fontSize: '14px' }}>← На главную</a>
+      </div>
+
+      {/* Компактное отображение профиля */}
+      <div style={{ 
+        display: 'flex', 
+        justifyContent: 'space-between', 
+        alignItems: 'flex-start',
+        marginBottom: '20px'
+      }}>
+        <h1 style={{ margin: 0 }}>Управление товарами OZON</h1>
+        
+        {currentProfile ? (
+          <div style={{ 
+            fontSize: '14px', 
+            color: '#666',
+            textAlign: 'right'
+          }}>
+            <div style={{ fontWeight: 'bold', color: '#28a745' }}>
+              ✅ {currentProfile.name}
+            </div>
+            <div style={{ fontSize: '12px' }}>
+              Client ID: {currentProfile.ozon_client_id?.slice(0, 8)}...
+            </div>
+          </div>
+        ) : (
+          <div style={{ 
+            fontSize: '14px', 
+            color: '#dc3545',
+            textAlign: 'right'
+          }}>
+            <div>⚠️ Профиль не выбран</div>
+            <a href="/" style={{ fontSize: '12px', color: '#0070f3' }}>
+              Выбрать на главной
+            </a>
+          </div>
+        )}
+      </div>
 
       {/* Фильтры */}
       <div style={{
@@ -221,6 +270,7 @@ export default function ProductsPage() {
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         gap: '15px'
       }}>
+        {/* ... существующие фильтры без изменений ... */}
         <div>
           <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
             Артикул (offer_id):
@@ -409,36 +459,37 @@ export default function ProductsPage() {
                   </span>
                 </td>
                 <td style={{ padding: '12px' }}>
-                  <button
-                    onClick={() => fetchAttributes(product.offer_id)}
-                    disabled={loadingAttributes && selectedProduct === product.offer_id}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: '#17a2b8',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: loadingAttributes && selectedProduct === product.offer_id ? 'not-allowed' : 'pointer',
-                      fontSize: '12px'
-                    }}
-                  >
-                    {loadingAttributes && selectedProduct === product.offer_id ? 'Загрузка...' : 'Атрибуты'}
-                  </button>
-                  {/* НОВАЯ КНОПКА: Копировать */}
-                  <button
-                    onClick={() => openCopyModal(product)}
-                    style={{
-                      padding: '6px 12px',
-                      backgroundColor: '#28a745',
-                      color: 'white',
-                      border: 'none',
-                      borderRadius: '4px',
-                      cursor: 'pointer',
-                      fontSize: '12px'
-                    }}
-                  >
-                    Копировать
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px' }}>
+                    <button
+                      onClick={() => fetchAttributes(product.offer_id)}
+                      disabled={loadingAttributes && selectedProduct === product.offer_id}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#17a2b8',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: loadingAttributes && selectedProduct === product.offer_id ? 'not-allowed' : 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      {loadingAttributes && selectedProduct === product.offer_id ? 'Загрузка...' : 'Атрибуты'}
+                    </button>
+                    <button
+                      onClick={() => openCopyModal(product)}
+                      style={{
+                        padding: '6px 12px',
+                        backgroundColor: '#28a745',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer',
+                        fontSize: '12px'
+                      }}
+                    >
+                      Копировать
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -488,6 +539,8 @@ export default function ProductsPage() {
           Все товары загружены
         </div>
       )}
+
+      {/* Модальные окна (остаются без изменений) */}
       {/* Модальное окно с атрибутами */}
       {attributes && (
         <div style={{
@@ -616,6 +669,7 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
+
       {/* Модальное окно для копирования товара */}
       {copyModalOpen && (
         <div style={{
