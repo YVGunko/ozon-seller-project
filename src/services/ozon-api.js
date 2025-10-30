@@ -2,14 +2,14 @@ export class OzonApiService {
   constructor(apiKey, clientId) {
     // Получаем ключи из LocalStorage при создании экземпляра
     const config = this.getCurrentConfig();
-    
+
     if (!config.clientId || !config.apiKey) {
       throw new Error('OZON API credentials are required. Please add a profile in settings.');
     }
 
-/*     if (!apiKey || !clientId) {
-      throw new Error('OZON API credentials are required');
-    } */
+    /*     if (!apiKey || !clientId) {
+          throw new Error('OZON API credentials are required');
+        } */
 
     this.apiKey = apiKey;
     this.clientId = clientId;
@@ -21,7 +21,7 @@ export class OzonApiService {
       // На сервере - возвращаем пустые значения
       return { clientId: '', apiKey: '' };
     }
-    
+
     const currentProfile = JSON.parse(localStorage.getItem('currentOzonProfile') || 'null');
     if (currentProfile) {
       return {
@@ -29,7 +29,7 @@ export class OzonApiService {
         apiKey: currentProfile.ozon_api_key
       };
     }
-    
+
     // Пробуем взять из env переменных (для fallback)
     return {
       clientId: process.env.NEXT_PUBLIC_OZON_CLIENT_ID || '',
@@ -281,25 +281,24 @@ export class OzonApiService {
     return product;
   }
 
-  generateFieldValue(fieldKey, baseData, excelRow, fieldMappings) {
-    const mapping = fieldMappings[fieldKey];
-    if (!mapping) return '';
+  generateFieldValue(fieldKey, baseData, row, fieldMappings) {
+    const config = fieldMappings[fieldKey];
+    if (!config || !config.enabled) return '';
 
-    let value = mapping.template;
+    let value = config.template;
 
-    // Заменяем плейсхолдеры данными из Excel
-    if (value.includes('{colour_code}') && excelRow.colourCode) {
-      value = value.replace(/{colour_code}/g, excelRow.colourCode);
-    }
-    if (value.includes('{colour_name}') && excelRow.colourName) {
-      value = value.replace(/{colour_name}/g, excelRow.colourName);
-    }
-    if (value.includes('{car_brand}') && excelRow.carBrand) {
-      value = value.replace(/{car_brand}/g, excelRow.carBrand);
-    }
-    if (value.includes('{row_index}')) {
-      value = value.replace(/{row_index}/g, excelRow.index + 1);
-    }
+    // Заменяем плейсхолдеры на реальные значения
+    value = value.replace(/{(\w+)}/g, (match, placeholder) => {
+      // Сначала проверяем данные из строки Excel
+      if (placeholder in row) {
+        return row[placeholder] || '';
+      }
+      // Затем базовые данные товара
+      if (placeholder in baseData) {
+        return baseData[placeholder] || '';
+      }
+      return '';
+    });
 
     return value;
   }

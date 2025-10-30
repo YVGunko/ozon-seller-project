@@ -1,0 +1,79 @@
+{
+  "offer_id": {
+    "name": "Артикул",
+    "template": "PL-ko {brand_code} {car_brand} {colour_code}",
+    "attributeId": null,
+    "enabled": true,
+    "required": true
+  },
+  "name": {
+    "name": "Название товара",
+    "template": "{colour_code} Краска для {car_brand} ({ru_car_brand}) {colour_name} {ru_color_name}, 30 мл Эмаль автомобильная, ремонтная, с кисточкой, для сколов и царапин",
+    "attributeId": null,
+    "enabled": true,
+    "required": true
+  },
+  "brand": {
+    "name": "Бренд",
+    "template": "Plasti kote",
+    "attributeId": 85,
+    "enabled": true,
+    "required": true
+  },
+  "model_name": {
+    "name": "Название модели",
+    "template": "Plasti kote {car_brand}",
+    "attributeId": 9048,
+    "enabled": true,
+    "required": false
+  },
+  "color_code": {
+    "name": "Цвет товара",
+    "template": "{ru_color_name}",
+    "attributeId": 10096,
+    "enabled": true,
+    "required": false
+  },
+  "color_name": {
+    "name": "Название цвета",
+    "template": "{colour_name}",
+    "attributeId": 10097,
+    "enabled": true,
+    "required": false
+  },
+  "car_brand": {
+    "name": "Марка ТС",
+    "template": "{car_brand}",
+    "attributeId": 7204,
+    "enabled": true,
+    "required": false
+  },
+  "part_number": {
+    "name": "Партномер",
+    "template": "{colour_code}",
+    "attributeId": 7236,
+    "enabled": true,
+    "required": false
+  },
+  "alternative_offers": {
+    "name": "Альтернативные артикулы",
+    "template": "{car_brand} {colour_code}",
+    "attributeId": 11031,
+    "enabled": true,
+    "required": false
+  },
+  "brand_code": {
+    "name": "Код бренда",
+    "template": "{brand_code}",
+    "attributeId": null,
+    "enabled": true,
+    "required": false
+  },
+  "ru_color_name": {
+    "name": "Русское название цвета",
+    "template": "{ru_color_name}",
+    "attributeId": null,
+    "enabled": true,
+    "required": false
+  }
+}
