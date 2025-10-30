@@ -281,27 +281,37 @@ export class OzonApiService {
     return product;
   }
 
-  generateFieldValue(fieldKey, baseData, row, fieldMappings) {
-    const config = fieldMappings[fieldKey];
-    if (!config || !config.enabled) return '';
+// В классе OzonApiService, добавим отладку
+generateFieldValue(fieldKey, baseData, row, fieldMappings) {
+  const config = fieldMappings[fieldKey];
+  if (!config || !config.enabled) return '';
 
-    let value = config.template;
+  let value = config.template;
 
-    // Заменяем плейсхолдеры на реальные значения
-    value = value.replace(/{(\w+)}/g, (match, placeholder) => {
-      // Сначала проверяем данные из строки Excel
-      if (placeholder in row) {
-        return row[placeholder] || '';
-      }
-      // Затем базовые данные товара
-      if (placeholder in baseData) {
-        return baseData[placeholder] || '';
-      }
-      return '';
-    });
+  console.log(`Processing field: ${fieldKey}, template: ${value}`);
+  console.log('Available row fields:', Object.keys(row));
+  console.log('Available baseData fields:', Object.keys(baseData));
 
-    return value;
-  }
+  // Заменяем плейсхолдеры на реальные значения
+  value = value.replace(/{(\w+)}/g, (match, placeholder) => {
+    let replacement = '';
+    
+    // Сначала проверяем данные из строки Excel
+    if (placeholder in row) {
+      replacement = row[placeholder] || '';
+    }
+    // Затем базовые данные товара
+    else if (placeholder in baseData) {
+      replacement = baseData[placeholder] || '';
+    }
+    
+    console.log(`Replacing {${placeholder}} with: "${replacement}"`);
+    return replacement;
+  });
+
+  console.log(`Final value for ${fieldKey}: ${value}`);
+  return value;
+}
 
   // Метод для парсинга Excel файла
   async parseExcelFile(file) {

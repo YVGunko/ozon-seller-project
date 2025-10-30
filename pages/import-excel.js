@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { OzonApiService } from '../src/services/ozon-api';
 import { ProfileManager } from '../src/utils/profileManager';
+import translationService from '../src/services/TranslationService';
 
 // Сервис для работы с шаблонами
 const TemplateService = {
@@ -48,6 +49,42 @@ const TemplateService = {
     }
   },
 
+  // Загрузка шаблонов из файла (игнорируя localStorage)
+  async loadTemplatesFromFile(templateName = 'ozon-templates') {
+    try {
+      console.log('Принудительная загрузка шаблонов из файла...');
+      const templates = await this.loadTemplates(templateName);
+      // Сохраняем в localStorage для будущего использования
+      this.saveTemplatesToLocal(templates, templateName);
+      return templates;
+    } catch (error) {
+      console.error('Ошибка загрузки шаблонов из файла:', error);
+      throw error;
+    }
+  },
+
+  // Сохранение пользовательских значений brand_code и ru_color_name
+  saveUserValues(userValues) {
+    try {
+      localStorage.setItem('user_template_values', JSON.stringify(userValues));
+      return true;
+    } catch (error) {
+      console.error('Ошибка сохранения пользовательских значений:', error);
+      return false;
+    }
+  },
+
+  // Загрузка пользовательских значений
+  loadUserValues() {
+    try {
+      const saved = localStorage.getItem('user_template_values');
+      return saved ? JSON.parse(saved) : {};
+    } catch (error) {
+      console.error('Ошибка загрузки пользовательских значений:', error);
+      return {};
+    }
+  },
+
   // Экспорт шаблонов в файл
   exportTemplates(templates, filename = 'ozon-templates.json') {
     const dataStr = JSON.stringify(templates, null, 2);
@@ -68,9 +105,11 @@ const useFieldTemplates = () => {
   const [templatesLoading, setTemplatesLoading] = useState(true);
   const [templatesError, setTemplatesError] = useState(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [userValues, setUserValues] = useState({});
 
   useEffect(() => {
     loadTemplates();
+    loadUserValues();
   }, []);
 
   const loadTemplates = async () => {
@@ -98,76 +137,34 @@ const useFieldTemplates = () => {
       
       // Запасной вариант - базовые шаблоны
       console.log('Используем запасные шаблоны...');
-      const fallbackTemplates = {
-        offer_id: {
-          name: 'Артикул',
-          template: 'MOTIP-{colour_code}-{row_index}',
-          attributeId: null,
-          enabled: true,
-          required: true
-        },
-        name: {
-          name: 'Название товара',
-          template: 'Краска Motip {colour_name} {car_brand}',
-          attributeId: null,
-          enabled: true,
-          required: true
-        },
-        brand: {
-          name: 'Бренд',
-          template: 'Motip',
-          attributeId: 85,
-          enabled: true,
-          required: true
-        },
-        model_name: {
-          name: 'Название модели',
-          template: '{colour_name}',
-          attributeId: 9048,
-          enabled: true,
-          required: false
-        },
-        color_code: {
-          name: 'Цвет товара',
-          template: '{colour_code}',
-          attributeId: 10096,
-          enabled: true,
-          required: false
-        },
-        color_name: {
-          name: 'Название цвета',
-          template: '{colour_name}',
-          attributeId: 10097,
-          enabled: true,
-          required: false
-        },
-        car_brand: {
-          name: 'Марка ТС',
-          template: '{car_brand}',
-          attributeId: 7204,
-          enabled: true,
-          required: false
-        },
-        part_number: {
-          name: 'Партномер',
-          template: 'MOTIP-{colour_code}',
-          attributeId: 7236,
-          enabled: true,
-          required: false
-        },
-        alternative_offers: {
-          name: 'Альтернативные артикулы',
-          template: '{colour_code}',
-          attributeId: 11031,
-          enabled: true,
-          required: false
-        }
-      };
+      const fallbackTemplates = getFallbackTemplates();
       setFieldMappings(fallbackTemplates);
     } finally {
       setTemplatesLoading(false);
       console.log('Загрузка шаблонов завершена, loading:', false);
     }
+  };
+
+  const loadTemplatesFromFile = async () => {
+    try {
+      setTemplatesLoading(true);
+      setTemplatesError(null);
+      console.log('Принудительная загрузка шаблонов из файла...');
+      
+      const templates = await TemplateService.loadTemplatesFromFile('ozon-templates');
+      setFieldMappings(templates);
+      setHasUnsavedChanges(false);
+    } catch (error) {
+      console.error('Ошибка загрузки шаблонов из файла:', error);
+      setTemplatesError(error.message);
+    } finally {
+      setTemplatesLoading(false);
+    }
+  };
+
+  const loadUserValues = () => {
+    const savedValues = TemplateService.loadUserValues();
+    setUserValues(savedValues);
   };
 
   const updateFieldTemplate = (fieldKey, template) => {
@@ -190,6 +187,17 @@ const useFieldTemplates = () => {
       }
     }));
     setHasUnsavedChanges(true);
+  };
+
+  const updateUserValue = (key, value) => {
+    setUserValues(prev => {
+      const newValues = {
+        ...prev,
+        [key]: value
+      };
+      TemplateService.saveUserValues(newValues);
+      return newValues;
+    });
   };
 
   const saveTemplates = () => {
@@ -225,14 +233,98 @@ const useFieldTemplates = () => {
     templatesLoading,
     templatesError,
     hasUnsavedChanges,
+    userValues,
     updateFieldTemplate,
     toggleField,
+    updateUserValue,
     saveTemplates,
     exportTemplates,
     resetToDefault,
+    loadTemplatesFromFile,
     reloadTemplates: loadTemplates
   };
 };
+
+// Запасные шаблоны вынесены в отдельную функцию для переиспользования
+const getFallbackTemplates = () => ({
+  "offer_id": {
+    "name": "Артикул",
+    "template": "PL-ko {brand_code} {car_brand} {colour_code}",
+    "attributeId": null,
+    "enabled": true,
+    "required": true
+  },
+  "name": {
+    "name": "Название товара",
+    "template": "{colour_code} Краска для {car_brand} ({ru_car_brand}) {colour_name} {ru_color_name}, 30 мл Эмаль автомобильная, ремонтная, с кисточкой, для сколов и царапин",
+    "attributeId": null,
+    "enabled": true,
+    "required": true
+  },
+  "brand": {
+    "name": "Бренд",
+    "template": "Plasti kote",
+    "attributeId": 85,
+    "enabled": true,
+    "required": true
+  },
+  "model_name": {
+    "name": "Название модели",
+    "template": "Plasti kote {car_brand}",
+    "attributeId": 9048,
+    "enabled": true,
+    "required": false
+  },
+  "color_code": {
+    "name": "Цвет товара",
+    "template": "{ru_color_name}",
+    "attributeId": 10096,
+    "enabled": true,
+    "required": false
+  },
+  "color_name": {
+    "name": "Название цвета",
+    "template": "{colour_name}",
+    "attributeId": 10097,
+    "enabled": true,
+    "required": false
+  },
+  "car_brand": {
+    "name": "Марка ТС",
+    "template": "{car_brand}",
+    "attributeId": 7204,
+    "enabled": true,
+    "required": false
+  },
+  "part_number": {
+    "name": "Партномер",
+    "template": "{colour_code}",
+    "attributeId": 7236,
+    "enabled": true,
+    "required": false
+  },
+  "alternative_offers": {
+    "name": "Альтернативные артикулы",
+    "template": "{car_brand} {colour_code}",
+    "attributeId": 11031,
+    "enabled": true,
+    "required": false
+  },
+  "brand_code": {
+    "name": "Код бренда",
+    "template": "{brand_code}",
+    "attributeId": null,
+    "enabled": true,
+    "required": false
+  },
+  "ru_color_name": {
+    "name": "Русское название цвета",
+    "template": "{ru_color_name}",
+    "attributeId": null,
+    "enabled": true,
+    "required": false
+  }
+});
 
 export default function ImportExcelPage() {
   const [excelData, setExcelData] = useState([]);
@@ -249,11 +341,14 @@ export default function ImportExcelPage() {
     templatesLoading,
     templatesError,
     hasUnsavedChanges,
+    userValues,
     updateFieldTemplate,
     toggleField,
+    updateUserValue,
     saveTemplates,
     exportTemplates,
     resetToDefault,
+    loadTemplatesFromFile,
     reloadTemplates
   } = useFieldTemplates();
 
@@ -292,11 +387,37 @@ export default function ImportExcelPage() {
     try {
       const service = new OzonApiService('dummy', 'dummy');
       const data = await service.parseExcelFile(file);
-      setExcelData(data);
+      
+      // Добавляем переводы для car_brand и все необходимые поля
+      const dataWithTranslations = await Promise.all(
+        data.map(async (row) => {
+          const ru_car_brand = await translationService.findBrand(row.carBrand);
+          
+          // Создаем полный объект со всеми полями
+          return {
+            // Оригинальные поля из Excel
+            colourCode: row.colourCode,
+            colourName: row.colourName,
+            carBrand: row.carBrand,
+            
+            // Поля в формате snake_case для шаблонов
+            colour_code: row.colourCode,
+            colour_name: row.colourName,
+            car_brand: row.carBrand,
+            
+            // Добавленные поля
+            ru_car_brand: ru_car_brand || row.carBrand,
+            brand_code: userValues.brand_code || '',
+            ru_color_name: userValues.ru_color_name || ''
+          };
+        })
+      );
+
+      setExcelData(dataWithTranslations);
       
       // Инициализируем данные для редактирования
       const initialRowData = {};
-      data.forEach((row, index) => {
+      dataWithTranslations.forEach((row, index) => {
         initialRowData[index] = {};
         Object.keys(fieldMappings).forEach(fieldKey => {
           initialRowData[index][fieldKey] = service.generateFieldValue(
@@ -328,20 +449,31 @@ export default function ImportExcelPage() {
   };
 
   // Применение шаблонов ко всем строкам
-  const applyTemplatesToAll = () => {
+  const applyTemplatesToAll = async () => {
     const service = new OzonApiService('dummy', 'dummy');
     const newRowData = { ...rowData };
     
-    excelData.forEach((row, index) => {
+    for (let index = 0; index < excelData.length; index++) {
+      const originalRow = excelData[index];
+      
+      // Обновляем перевод для каждой строки
+      const ru_car_brand = await translationService.findBrand(originalRow.carBrand);
+      const updatedRow = {
+        ...originalRow,
+        ru_car_brand: ru_car_brand || originalRow.carBrand,
+        brand_code: userValues.brand_code || '',
+        ru_color_name: userValues.ru_color_name || ''
+      };
+
       Object.keys(fieldMappings).forEach(fieldKey => {
         newRowData[index][fieldKey] = service.generateFieldValue(
           fieldKey, 
           baseProductData, 
-          row, 
+          updatedRow, 
           fieldMappings
         );
       });
-    });
+    }
     
     setRowData(newRowData);
   };
@@ -353,6 +485,15 @@ export default function ImportExcelPage() {
       setSaveMessage('✅ Шаблоны успешно сохранены!');
     } else {
       setSaveMessage('❌ Ошибка сохранения шаблонов');
+    }
+  };
+
+  // Обновление пользовательских значений
+  const handleUserValueChange = (key, value) => {
+    updateUserValue(key, value);
+    // Применяем шаблоны ко всем строкам при изменении brand_code или ru_color_name
+    if (excelData.length > 0) {
+      setTimeout(() => applyTemplatesToAll(), 100);
     }
   };
 
@@ -372,9 +513,20 @@ export default function ImportExcelPage() {
         currentProfile.ozon_client_id
       );
 
-      const products = excelData.map((row, index) => {
-        return service.prepareProductFromTemplate(baseProductData, row, fieldMappings);
-      });
+      // Подготавливаем данные с актуальными переводами
+      const products = await Promise.all(
+        excelData.map(async (row, index) => {
+          const ru_car_brand = await translationService.findBrand(row.carBrand);
+          const updatedRow = {
+            ...row,
+            ru_car_brand: ru_car_brand || row.carBrand,
+            brand_code: userValues.brand_code || '',
+            ru_color_name: userValues.ru_color_name || '',
+            ...rowData[index]
+          };
+          return service.prepareProductFromTemplate(baseProductData, updatedRow, fieldMappings);
+        })
+      );
 
       const batchSize = 10;
       for (let i = 0; i < products.length; i += batchSize) {
@@ -401,7 +553,8 @@ export default function ImportExcelPage() {
     templatesError,
     fieldMappingsCount: Object.keys(fieldMappings).length,
     excelDataCount: excelData.length,
-    hasUnsavedChanges
+    hasUnsavedChanges,
+    userValues
   });
 
   return (
@@ -483,7 +636,7 @@ export default function ImportExcelPage() {
             public/field-templates/ozon-templates.json
           </p>
           <button 
-            onClick={reloadTemplates}
+            onClick={loadTemplatesFromFile}
             style={{
               marginTop: '10px',
               padding: '5px 10px',
@@ -528,11 +681,74 @@ export default function ImportExcelPage() {
         </p>
       </div>
 
+      {/* Пользовательские значения - показываем когда шаблоны загружены */}
+      {!templatesLoading && Object.keys(fieldMappings).length > 0 && (
+        <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+          <h2>2. Пользовательские значения</h2>
+          <div style={{ 
+            display: 'grid', 
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+            gap: '15px',
+            marginBottom: '15px'
+          }}>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Код бренда (brand_code):
+              </label>
+              <input
+                type="text"
+                value={userValues.brand_code || ''}
+                onChange={(e) => handleUserValueChange('brand_code', e.target.value)}
+                style={{ 
+                  width: '100%', 
+                  padding: '8px', 
+                  border: '1px solid #ddd', 
+                  borderRadius: '4px' 
+                }}
+                placeholder="Например: MOTIP"
+              />
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                Используется в шаблонах как {'{brand_code}'}
+              </div>
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Русское название цвета (ru_color_name):
+              </label>
+              <input
+                type="text"
+                value={userValues.ru_color_name || ''}
+                onChange={(e) => handleUserValueChange('ru_color_name', e.target.value)}
+                style={{ 
+                  width: '100%', 
+                  padding: '8px', 
+                  border: '1px solid #ddd', 
+                  borderRadius: '4px' 
+                }}
+                placeholder="Например: Красный металлик"
+              />
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                Используется в шаблонах как {'{ru_color_name}'}
+              </div>
+            </div>
+          </div>
+          <div style={{ fontSize: '12px', color: '#666', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
+            <strong>Доступные переменные в шаблонах:</strong><br/>
+            • {'{colour_code}'} - код цвета<br/>
+            • {'{colour_name}'} - название цвета<br/>
+            • {'{car_brand}'} - марка автомобиля<br/>
+            • {'{ru_car_brand}'} - русское название марки автомобиля<br/>
+            • {'{brand_code}'} - код бренда (задается выше)<br/>
+            • {'{ru_color_name}'} - русское название цвета (задается выше)
+          </div>
+        </div>
+      )}
+
       {/* Настройки шаблонов - показываем когда шаблоны загружены */}
       {!templatesLoading && Object.keys(fieldMappings).length > 0 && (
         <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h2 style={{ margin: 0 }}>2. Настройка шаблонов полей</h2>
+            <h2 style={{ margin: 0 }}>3. Настройка шаблонов полей</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {hasUnsavedChanges && (
                 <span style={{ 
@@ -590,7 +806,7 @@ export default function ImportExcelPage() {
                 🔄 Сброс
               </button>
               <button
-                onClick={reloadTemplates}
+                onClick={loadTemplatesFromFile}
                 style={{
                   padding: '6px 12px',
                   backgroundColor: '#6c757d',
@@ -601,7 +817,7 @@ export default function ImportExcelPage() {
                   fontSize: '12px'
                 }}
               >
-                ⟳ Обновить
+                📥 Загрузить
               </button>
               <span style={{ fontSize: '12px', color: '#28a745' }}>
                 ✅ {Object.keys(fieldMappings).length} полей
@@ -660,7 +876,7 @@ export default function ImportExcelPage() {
                   placeholder="Шаблон"
                 />
                 <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                  Доступные переменные: {'{colour_code}'}, {'{colour_name}'}, {'{car_brand}'}, {'{row_index}'}
+                  {fieldMappings[fieldKey].template}
                 </div>
               </div>
             ))}
@@ -689,7 +905,7 @@ export default function ImportExcelPage() {
         <>
           {/* Базовые настройки товара */}
           <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
-            <h2>3. Базовые настройки товара</h2>
+            <h2>4. Базовые настройки товара</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>ID категории:</label>
@@ -723,7 +939,7 @@ export default function ImportExcelPage() {
 
           {/* Предпросмотр данных */}
           <div style={{ marginBottom: '20px' }}>
-            <h2>4. Предпросмотр данных ({excelData.length} строк)</h2>
+            <h2>5. Предпросмотр данных ({excelData.length} строк)</h2>
             
             {/* Прогресс импорта */}
             {importProgress.total > 0 && (
@@ -760,6 +976,7 @@ export default function ImportExcelPage() {
                     <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Colour Code</th>
                     <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Colour Name</th>
                     <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Car Brand</th>
+                    <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Ru Car Brand</th>
                     {Object.keys(fieldMappings).map(fieldKey => (
                       <th key={fieldKey} style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>
                         {fieldMappings[fieldKey].name}
@@ -777,6 +994,7 @@ export default function ImportExcelPage() {
                       <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.colourCode}</td>
                       <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.colourName}</td>
                       <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.carBrand}</td>
+                      <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.ru_car_brand}</td>
                       {Object.keys(fieldMappings).map(fieldKey => (
                         <td key={fieldKey} style={{ 
                           padding: '8px', 

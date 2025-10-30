@@ -8,9 +8,21 @@ class TranslationService {
     // Загрузка таблиц из JSON-файлов
     async loadTranslations() {
         try {
+            // Проверяем, находимся ли мы в браузере
+            if (typeof window === 'undefined') {
+                console.log('Running on server, skipping translation load');
+                this.loadFallbackTranslations();
+                return;
+            }
+
+            console.log('Loading translation tables...');
+            
+            // Используем PUBLIC_URL для корректных путей
+            const basePath = process.env.PUBLIC_URL || '';
+            
             const [colorResponse, brandResponse] = await Promise.all([
-                fetch('/translations/colors.json'),
-                fetch('/translations/car-brands.json')
+                fetch(`${basePath}/translations/colors.json`),
+                fetch(`${basePath}/translations/car-brands.json`)
             ]);
 
             if (!colorResponse.ok || !brandResponse.ok) {
