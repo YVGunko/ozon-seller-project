@@ -1,9 +1,11 @@
 import { useState, useEffect } from 'react';
-import { ProfileManager } from '../src/utils/profileManager'; // Добавлен импорт
+import { ProfileManager } from '../src/utils/profileManager';
+import { apiClient } from '../src/services/api-client';
 
 export default function ProductsPage() {
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [currentProfile, setCurrentProfile] = useState(null);
   const [filters, setFilters] = useState({
     offer_id: '',
     archived: 'all',
@@ -33,15 +35,31 @@ export default function ProductsPage() {
     price: '',
     old_price: ''
   });
-  
-  // Состояния для профиля
-  const [currentProfile, setCurrentProfile] = useState(null);
 
   // Загружаем текущий профиль при монтировании
   useEffect(() => {
     const profile = ProfileManager.getCurrentProfile();
     setCurrentProfile(profile);
   }, []);
+
+  useEffect(() => {
+    if (!currentProfile) return;
+
+    const fetchProducts = async () => {
+      try {
+        setLoading(true);
+        const productsData = await apiClient.getProducts(20, currentProfile);
+        setProducts(productsData);
+      } catch (err) {
+        console.error('Error fetching products:', err);
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchProducts();
+  }, [currentProfile]);
 
   // Функция для получения атрибутов товара
   const fetchAttributes = async (offerId) => {
@@ -164,7 +182,17 @@ export default function ProductsPage() {
         ...(filters.offer_id && { offer_id: filters.offer_id })
       }).toString();
 
-      const response = await fetch(`/api/products?${queryParams}`);
+      const activeProfile = ProfileManager.getCurrentProfile();
+      if (!activeProfile) {
+        console.warn('⚠️ No active profile selected');
+        // Можно показать уведомление пользователю
+        alert('Пожалуйста, выберите профиль в настройках');
+        return;
+      }
+      
+      const profileParam = activeProfile ? `&profile=${encodeURIComponent(JSON.stringify(activeProfile))}` : '';
+      console.log(`✅ fetchProducts profileParam: ${profileParam}`);
+      const response = await fetch(`/api/products?${queryParams}${profileParam}`);
       const data = await response.json();
 
       if (data.result) {
@@ -225,17 +253,17 @@ export default function ProductsPage() {
       </div>
 
       {/* Компактное отображение профиля */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'flex-start',
         marginBottom: '20px'
       }}>
         <h1 style={{ margin: 0 }}>Управление товарами OZON</h1>
-        
+
         {currentProfile ? (
-          <div style={{ 
-            fontSize: '14px', 
+          <div style={{
+            fontSize: '14px',
             color: '#666',
             textAlign: 'right'
           }}>
@@ -247,8 +275,8 @@ export default function ProductsPage() {
             </div>
           </div>
         ) : (
-          <div style={{ 
-            fontSize: '14px', 
+          <div style={{
+            fontSize: '14px',
             color: '#dc3545',
             textAlign: 'right'
           }}>

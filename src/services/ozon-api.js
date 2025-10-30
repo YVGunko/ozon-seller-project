@@ -1,18 +1,25 @@
 export class OzonApiService {
   constructor(apiKey, clientId) {
-    // Получаем ключи из LocalStorage при создании экземпляра
-    const config = this.getCurrentConfig();
+    // 🔥 ЯВНО УКАЗЫВАЕМ, что на сервере используем только переданные аргументы
+    if (typeof window === 'undefined') {
+      // Серверная среда - используем только переданные аргументы
+      if (!apiKey || !clientId) {
+        throw new Error('OZON API credentials are required for server-side usage.');
+      }
+      this.apiKey = apiKey;
+      this.clientId = clientId;
+    } else {
+      // Клиентская среда - используем логику с localStorage
+      const config = this.getCurrentConfig();
 
-    if (!config.clientId || !config.apiKey) {
-      throw new Error('OZON API credentials are required. Please add a profile in settings.');
+      if (!config.clientId || !config.apiKey) {
+        throw new Error('OZON API credentials are required. Please add a profile in settings.');
+      }
+
+      this.apiKey = config.apiKey;
+      this.clientId = config.clientId;
     }
 
-    /*     if (!apiKey || !clientId) {
-          throw new Error('OZON API credentials are required');
-        } */
-
-    this.apiKey = apiKey;
-    this.clientId = clientId;
     this.baseURL = 'https://api-seller.ozon.ru';
   }
 
@@ -223,13 +230,53 @@ export class OzonApiService {
     );
   }
   // Упрощенный метод для быстрого получения продуктов
-  async getSimpleProducts(limit = 10) {
-    return this.getProducts({
-      filter: {
-        visibility: "ALL"
-      },
-      limit: limit
-    });
+  // В методе, который делает запрос к /v3/product/list
+  async getSimpleProducts(limit) {
+    try {
+      const url = `${this.baseURL}/v3/product/list`;
+      const body = {
+        filter: {
+          offer_id: [],
+          product_id: [],
+          visibility: "ALL"
+        },
+        last_id: "",
+        limit: limit
+      };
+
+      console.log('🚀 Sending request to OZON API...');
+
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Client-Id': this.clientId,
+          'Api-Key': this.apiKey,
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(body)
+      });
+
+      const responseText = await response.text();
+
+      if (!response.ok) {
+        throw new Error(`OZON API error: ${response.status} - ${responseText}`);
+      }
+
+      // Парсим JSON
+      const data = JSON.parse(responseText);
+
+      if (data.result && data.result.items && Array.isArray(data.result.items)) {
+        console.log(`✅ Extracted ${data.result.items.length} products from result.items`);
+        return data.result.items; // <- Возвращаем массив продуктов
+      } else {
+        console.warn('⚠️ Unexpected response structure, returning empty array');
+        return [];
+      }
+
+    } catch (error) {
+      console.error('❌ OZON API request failed:', error);
+      throw error;
+    }
   }
 
   // Метод для массового создания товаров
@@ -281,37 +328,37 @@ export class OzonApiService {
     return product;
   }
 
-// В классе OzonApiService, добавим отладку
-generateFieldValue(fieldKey, baseData, row, fieldMappings) {
-  const config = fieldMappings[fieldKey];
-  if (!config || !config.enabled) return '';
+  // В классе OzonApiService, добавим отладку
+  generateFieldValue(fieldKey, baseData, row, fieldMappings) {
+    const config = fieldMappings[fieldKey];
+    if (!config || !config.enabled) return '';
 
-  let value = config.template;
+    let value = config.template;
 
-  console.log(`Processing field: ${fieldKey}, template: ${value}`);
-  console.log('Available row fields:', Object.keys(row));
-  console.log('Available baseData fields:', Object.keys(baseData));
+    console.log(`Processing field: ${fieldKey}, template: ${value}`);
+    console.log('Available row fields:', Object.keys(row));
+    console.log('Available baseData fields:', Object.keys(baseData));
 
-  // Заменяем плейсхолдеры на реальные значения
-  value = value.replace(/{(\w+)}/g, (match, placeholder) => {
-    let replacement = '';
-    
-    // Сначала проверяем данные из строки Excel
-    if (placeholder in row) {
-      replacement = row[placeholder] || '';
-    }
-    // Затем базовые данные товара
-    else if (placeholder in baseData) {
-      replacement = baseData[placeholder] || '';
-    }
-    
-    console.log(`Replacing {${placeholder}} with: "${replacement}"`);
-    return replacement;
-  });
+    // Заменяем плейсхолдеры на реальные значения
+    value = value.replace(/{(\w+)}/g, (match, placeholder) => {
+      let replacement = '';
 
-  console.log(`Final value for ${fieldKey}: ${value}`);
-  return value;
-}
+      // Сначала проверяем данные из строки Excel
+      if (placeholder in row) {
+        replacement = row[placeholder] || '';
+      }
+      // Затем базовые данные товара
+      else if (placeholder in baseData) {
+        replacement = baseData[placeholder] || '';
+      }
+
+      console.log(`Replacing {${placeholder}} with: "${replacement}"`);
+      return replacement;
+    });
+
+    console.log(`Final value for ${fieldKey}: ${value}`);
+    return value;
+  }
 
   // Метод для парсинга Excel файла
   async parseExcelFile(file) {

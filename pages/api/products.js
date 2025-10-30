@@ -1,62 +1,88 @@
 import { OzonApiService } from '../../src/services/ozon-api';
 
 export default async function handler(req, res) {
-  console.log('🔍 API Route /api/products called');
-  
+  // Обрабатываем CORS preflight
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
   if (req.method !== 'GET') {
-    console.log('❌ Method not allowed:', req.method);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    console.log('🔑 Environment variables check:');
-    console.log('OZON_CLIENT_ID exists:', !!process.env.OZON_CLIENT_ID);
-    console.log('OZON_API_KEY exists:', !!process.env.OZON_API_KEY);
+    const { limit = 20, profile: profileData } = req.query;
 
-    if (!process.env.OZON_API_KEY || !process.env.OZON_CLIENT_ID) {
-      throw new Error('Missing OZON API credentials in environment variables');
-    }
+    let clientId, apiKey;
 
-    const service = new OzonApiService(
-      process.env.OZON_API_KEY,
-      process.env.OZON_CLIENT_ID
-    );
-    
-    // const { limit, last_id, offer_ids, product_ids } = req.query;
-    const { limit, last_id, offer_id } = req.query;
-    
-    console.log('🔄 Fetching products from OZON API...');
-    console.log('📋 Query parameters:', { limit, last_id, offer_id });
-    
-    // Парсим query параметры
-    const options = {
-      limit: limit ? parseInt(limit) : 20,
-      last_id: last_id || "",
-      filter: {
-        visibility: "ALL"
+    if (profileData) {
+      console.log(`🔍 Raw profileData:`, profileData); // Исправленный лог
+      
+      try {
+        // 🔥 УПРОЩЕННАЯ ОБРАБОТКА - убираем сложное декодирование
+        let profileJson = profileData;
+        
+        // Пробуем декодировать только один раз
+        try {
+          profileJson = decodeURIComponent(profileData);
+        } catch (e) {
+          // Оставляем как есть, если уже декодирован
+          console.log('Profile data already decoded');
+        }
+        
+        const profile = JSON.parse(profileJson);
+        clientId = profile.ozon_client_id;
+        apiKey = profile.ozon_api_key;
+        
+        console.log(`✅ Using profile: ${profile.name}`);
+        console.log(`🔑 Extracted - ClientID: ${clientId}, API Key: ${apiKey ? '***' + apiKey.slice(-4) : 'none'}`);
+        
+      } catch (error) {
+        console.error('❌ Error parsing profile data:', error);
+        return res.status(400).json({ error: 'Invalid profile data: ' + error.message });
       }
-    };
-
-    // Добавляем фильтр по offer_id если указан
-    if (offer_id) {
-      options.filter.offer_id = Array.isArray(offer_id) ? offer_id : [offer_id];
+    } else {
+      clientId = process.env.OZON_CLIENT_ID;
+      apiKey = process.env.OZON_API_KEY;
+      console.log('ℹ️ Using default profile from environment variables');
     }
-    
-/*     if (product_ids) {
-      options.filter.product_id = Array.isArray(product_ids) ? product_ids : [product_ids];
-    } */
 
-    const products = await service.getProducts(options);
+    // 🔥 ДЕТАЛЬНАЯ ПРОВЕРКА CREDENTIALS
+    console.log(`🔍 Final check - ClientID: "${clientId}", API Key: "${apiKey ? '***' + apiKey.slice(-4) : 'none'}"`);
+    
+    if (!clientId || !apiKey) {
+      console.log('❌ CREDENTIALS MISSING - ClientID:', !!clientId, 'API Key:', !!apiKey);
+      return res.status(400).json({ 
+        error: 'OZON API credentials are required',
+        details: {
+          hasClientId: !!clientId,
+          hasApiKey: !!apiKey,
+          profileDataReceived: !!profileData
+        }
+      });
+    }
+console.log('🔧 === API HANDLER DEBUG ===');
+console.log('📨 Incoming request query:', req.query);
+console.log('🔐 Extracted credentials:', {
+  clientId: clientId,
+  apiKey: apiKey ? '***' + apiKey.slice(-4) : 'MISSING'
+});
+    console.log('🚀 Calling OzonApiService...');
+    const service = new OzonApiService(apiKey, clientId);
+    console.log('🛠️ OzonApiService created successfully');
+
+console.log('🚀 Calling getSimpleProducts with limit:', limit);
+    const products = await service.getSimpleProducts(parseInt(limit));
+    
     console.log('✅ Products fetched successfully');
-    
     res.status(200).json(products);
-  } catch (error) {
-    console.error('❌ API Error details:', error);
-    console.error('❌ Error message:', error.message);
     
+  } catch (error) {
+    console.error('❌ Error in /api/products:', error.message);
+    console.error('Stack:', error.stack);
     res.status(500).json({ 
-      error: 'Failed to fetch products',
-      details: error.message 
+      error: error.message,
+      details: 'Check server console for more information'
     });
   }
 }

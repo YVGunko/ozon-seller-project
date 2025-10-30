@@ -5,8 +5,13 @@ export class ProfileManager {
   }
 
   static getCurrentProfile() {
-    if (typeof window === 'undefined') return null;
-    return JSON.parse(localStorage.getItem('currentOzonProfile') || 'null');
+    try {
+      const profile = localStorage.getItem('currentProfile');
+      return profile ? JSON.parse(profile) : null;
+    } catch (error) {
+      console.error('Error getting current profile:', error);
+      return null;
+    }
   }
 
   static saveProfiles(profiles) {
@@ -15,8 +20,15 @@ export class ProfileManager {
   }
 
   static setCurrentProfile(profile) {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem('currentOzonProfile', JSON.stringify(profile));
+    try {
+      if (profile) {
+        localStorage.setItem('currentProfile', JSON.stringify(profile));
+      } else {
+        localStorage.removeItem('currentProfile');
+      }
+    } catch (error) {
+      console.error('Error setting current profile:', error);
+    }
   }
 
   static exportProfiles() {
