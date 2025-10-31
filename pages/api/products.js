@@ -11,32 +11,42 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { limit = 20, profile: profileData } = req.query;
+    const { limit = 20, last_id, offer_id, profile: profileData } = req.query;
 
     let clientId, apiKey;
 
+    // 🔥 ВЫНЕСИТЕ СОЗДАНИЕ options ВНЕ БЛОКА if
+    const options = {
+      limit: limit ? parseInt(limit) : 20,
+      last_id: last_id || "",
+      filter: {
+        visibility: "ALL"
+      }
+    };
+
+    // Добавляем фильтр по offer_id если указан
+    if (offer_id) {
+      options.filter.offer_id = Array.isArray(offer_id) ? offer_id : [offer_id];
+    }
+
     if (profileData) {
-      console.log(`🔍 Raw profileData:`, profileData); // Исправленный лог
-      
+      console.log(`🔍 Raw profileData:`, profileData);
+
       try {
-        // 🔥 УПРОЩЕННАЯ ОБРАБОТКА - убираем сложное декодирование
         let profileJson = profileData;
-        
-        // Пробуем декодировать только один раз
         try {
           profileJson = decodeURIComponent(profileData);
         } catch (e) {
-          // Оставляем как есть, если уже декодирован
           console.log('Profile data already decoded');
         }
-        
+
         const profile = JSON.parse(profileJson);
         clientId = profile.ozon_client_id;
         apiKey = profile.ozon_api_key;
-        
+
         console.log(`✅ Using profile: ${profile.name}`);
         console.log(`🔑 Extracted - ClientID: ${clientId}, API Key: ${apiKey ? '***' + apiKey.slice(-4) : 'none'}`);
-        
+
       } catch (error) {
         console.error('❌ Error parsing profile data:', error);
         return res.status(400).json({ error: 'Invalid profile data: ' + error.message });
@@ -47,12 +57,12 @@ export default async function handler(req, res) {
       console.log('ℹ️ Using default profile from environment variables');
     }
 
-    // 🔥 ДЕТАЛЬНАЯ ПРОВЕРКА CREDENTIALS
+    // Проверка credentials
     console.log(`🔍 Final check - ClientID: "${clientId}", API Key: "${apiKey ? '***' + apiKey.slice(-4) : 'none'}"`);
-    
+
     if (!clientId || !apiKey) {
       console.log('❌ CREDENTIALS MISSING - ClientID:', !!clientId, 'API Key:', !!apiKey);
-      return res.status(400).json({ 
+      return res.status(400).json({
         error: 'OZON API credentials are required',
         details: {
           hasClientId: !!clientId,
@@ -61,26 +71,29 @@ export default async function handler(req, res) {
         }
       });
     }
-console.log('🔧 === API HANDLER DEBUG ===');
-console.log('📨 Incoming request query:', req.query);
-console.log('🔐 Extracted credentials:', {
-  clientId: clientId,
-  apiKey: apiKey ? '***' + apiKey.slice(-4) : 'MISSING'
-});
+
+    console.log('🔧 === API HANDLER DEBUG ===');
+    console.log('📨 Incoming request query:', req.query);
+    console.log('🔐 Extracted credentials:', {
+      clientId: clientId,
+      apiKey: apiKey ? '***' + apiKey.slice(-4) : 'MISSING'
+    });
     console.log('🚀 Calling OzonApiService...');
     const service = new OzonApiService(apiKey, clientId);
     console.log('🛠️ OzonApiService created successfully');
 
-console.log('🚀 Calling getSimpleProducts with limit:', limit);
-    const products = await service.getSimpleProducts(parseInt(limit));
+    console.log('🚀 Calling getProducts with options:', options);
     
+    // 🔥 ИСПРАВЬТЕ ВЫЗОВ МЕТОДА - убираем parseInt для объекта
+    const products = await service.getProducts(options);
+
     console.log('✅ Products fetched successfully');
     res.status(200).json(products);
-    
+
   } catch (error) {
     console.error('❌ Error in /api/products:', error.message);
     console.error('Stack:', error.stack);
-    res.status(500).json({ 
+    res.status(500).json({
       error: error.message,
       details: 'Check server console for more information'
     });

@@ -86,21 +86,6 @@ export class OzonApiService {
     });
   }
 
-  // НОВЫЙ МЕТОД: Получение списка продуктов
-  async getProducts(options = {}) {
-    const body = {
-      filter: {
-        offer_id: options.filter?.offer_id || [], // Should be an array
-        product_id: options.filter?.product_ids || [],
-        visibility: options.filter?.visibility || "ALL"
-      },
-      last_id: options.last_id || "",
-      limit: options.limit || 100
-    };
-    console.log('Sending request body to OZON:', JSON.stringify(body, null, 2));
-    return this.makeRequest('/v3/product/list', body);
-  }
-
   async getProductAttributes(offerId) {
     const body = {
       filter: {
@@ -231,17 +216,17 @@ export class OzonApiService {
   }
   // Упрощенный метод для быстрого получения продуктов
   // В методе, который делает запрос к /v3/product/list
-  async getSimpleProducts(limit) {
+  async getSimpleProducts(options = {}) {
     try {
       const url = `${this.baseURL}/v3/product/list`;
       const body = {
         filter: {
-          offer_id: [],
-          product_id: [],
-          visibility: "ALL"
+          offer_id: options.filter?.offer_id || [], // Should be an array
+          product_id: options.filter?.product_ids || [],
+          visibility: options.filter?.visibility || "ALL"
         },
-        last_id: "",
-        limit: limit
+        last_id: options.last_id || "",
+        limit: options.limit || 100
       };
 
       console.log('🚀 Sending request to OZON API...');
@@ -277,6 +262,21 @@ export class OzonApiService {
       console.error('❌ OZON API request failed:', error);
       throw error;
     }
+  }
+
+  // НОВЫЙ МЕТОД: Получение списка продуктов
+  async getProducts(options = {}) {
+    const body = {
+      filter: {
+        offer_id: options.filter?.offer_id || [], // Should be an array
+        product_id: options.filter?.product_ids || [],
+        visibility: options.filter?.visibility || "ALL"
+      },
+      last_id: options.last_id || "",
+      limit: options.limit || 100
+    };
+    console.log('Sending request body to OZON:', JSON.stringify(body, null, 2));
+    return this.makeRequest('/v3/product/list', body);
   }
 
   // Метод для массового создания товаров

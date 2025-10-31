@@ -9,11 +9,11 @@ const TemplateService = {
     try {
       console.log('Начинаем загрузку шаблонов...');
       const response = await fetch(`/field-templates/${templateName}.json`);
-      
+
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }
-      
+
       const templates = await response.json();
       console.log('Шаблоны успешно загружены:', templates);
       return templates;
@@ -89,12 +89,12 @@ const TemplateService = {
   exportTemplates(templates, filename = 'ozon-templates.json') {
     const dataStr = JSON.stringify(templates, null, 2);
     const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    
+
     const link = document.createElement('a');
     link.href = URL.createObjectURL(dataBlob);
     link.download = filename;
     link.click();
-    
+
     URL.revokeObjectURL(link.href);
   }
 };
@@ -117,10 +117,10 @@ const useFieldTemplates = () => {
       setTemplatesLoading(true);
       setTemplatesError(null);
       console.log('Запуск загрузки шаблонов...');
-      
+
       // Сначала пробуем загрузить из localStorage
       const savedTemplates = TemplateService.loadTemplatesFromLocal();
-      
+
       if (savedTemplates) {
         console.log('Загружены сохраненные шаблоны из localStorage');
         setFieldMappings(savedTemplates);
@@ -129,12 +129,12 @@ const useFieldTemplates = () => {
         const templates = await TemplateService.loadTemplates('ozon-templates');
         setFieldMappings(templates);
       }
-      
+
       setHasUnsavedChanges(false);
     } catch (error) {
       console.error('Ошибка в хуке useFieldTemplates:', error);
       setTemplatesError(error.message);
-      
+
       // Запасной вариант - базовые шаблоны
       console.log('Используем запасные шаблоны...');
       const fallbackTemplates = getFallbackTemplates();
@@ -150,7 +150,7 @@ const useFieldTemplates = () => {
       setTemplatesLoading(true);
       setTemplatesError(null);
       console.log('Принудительная загрузка шаблонов из файла...');
-      
+
       const templates = await TemplateService.loadTemplatesFromFile('ozon-templates');
       setFieldMappings(templates);
       setHasUnsavedChanges(false);
@@ -325,14 +325,30 @@ const getFallbackTemplates = () => ({
     "required": false
   }
 });
-
+const getFieldWidth = (fieldKey) => {
+  const widthMap = {
+    offer_id: '120px',
+    brand: '120px',
+    color_code: '100px',
+    color_name: '120px',
+    car_brand: '120px',
+    part_number: '100px',
+    brand_code: '100px',
+    ru_color_name: '150px',
+    model_name: '180px',
+    alternative_offers: '200px',
+    name: '400px',
+  };
+  
+  return widthMap[fieldKey] || '150px'; // Значение по умолчанию
+};
 export default function ImportExcelPage() {
   const [excelData, setExcelData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
   const [saveMessage, setSaveMessage] = useState('');
   const fileInputRef = useRef(null);
-  
+
   const [currentProfile, setCurrentProfile] = useState(null);
 
   // Используем хук для шаблонов
@@ -387,24 +403,24 @@ export default function ImportExcelPage() {
     try {
       const service = new OzonApiService('dummy', 'dummy');
       const data = await service.parseExcelFile(file);
-      
+
       // Добавляем переводы для car_brand и все необходимые поля
       const dataWithTranslations = await Promise.all(
         data.map(async (row) => {
           const ru_car_brand = await translationService.findBrand(row.carBrand);
-          
+
           // Создаем полный объект со всеми полями
           return {
             // Оригинальные поля из Excel
             colourCode: row.colourCode,
             colourName: row.colourName,
             carBrand: row.carBrand,
-            
+
             // Поля в формате snake_case для шаблонов
             colour_code: row.colourCode,
             colour_name: row.colourName,
             car_brand: row.carBrand,
-            
+
             // Добавленные поля
             ru_car_brand: ru_car_brand || row.carBrand,
             brand_code: userValues.brand_code || '',
@@ -414,16 +430,16 @@ export default function ImportExcelPage() {
       );
 
       setExcelData(dataWithTranslations);
-      
+
       // Инициализируем данные для редактирования
       const initialRowData = {};
       dataWithTranslations.forEach((row, index) => {
         initialRowData[index] = {};
         Object.keys(fieldMappings).forEach(fieldKey => {
           initialRowData[index][fieldKey] = service.generateFieldValue(
-            fieldKey, 
-            baseProductData, 
-            row, 
+            fieldKey,
+            baseProductData,
+            row,
             fieldMappings
           );
         });
@@ -452,10 +468,10 @@ export default function ImportExcelPage() {
   const applyTemplatesToAll = async () => {
     const service = new OzonApiService('dummy', 'dummy');
     const newRowData = { ...rowData };
-    
+
     for (let index = 0; index < excelData.length; index++) {
       const originalRow = excelData[index];
-      
+
       // Обновляем перевод для каждой строки
       const ru_car_brand = await translationService.findBrand(originalRow.carBrand);
       const updatedRow = {
@@ -467,14 +483,14 @@ export default function ImportExcelPage() {
 
       Object.keys(fieldMappings).forEach(fieldKey => {
         newRowData[index][fieldKey] = service.generateFieldValue(
-          fieldKey, 
-          baseProductData, 
-          updatedRow, 
+          fieldKey,
+          baseProductData,
+          updatedRow,
           fieldMappings
         );
       });
     }
-    
+
     setRowData(newRowData);
   };
 
@@ -533,7 +549,7 @@ export default function ImportExcelPage() {
         const batch = products.slice(i, i + batchSize);
         await service.createProductsBatch(batch);
         setImportProgress({ current: i + batch.length, total: products.length });
-        
+
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
@@ -566,17 +582,17 @@ export default function ImportExcelPage() {
       </div>
 
       {/* Компактное отображение профиля */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'flex-start',
         marginBottom: '20px'
       }}>
         <h1 style={{ margin: 0 }}>Импорт товаров из Excel</h1>
-        
+
         {currentProfile ? (
-          <div style={{ 
-            fontSize: '14px', 
+          <div style={{
+            fontSize: '14px',
             color: '#666',
             textAlign: 'right'
           }}>
@@ -588,8 +604,8 @@ export default function ImportExcelPage() {
             </div>
           </div>
         ) : (
-          <div style={{ 
-            fontSize: '14px', 
+          <div style={{
+            fontSize: '14px',
             color: '#dc3545',
             textAlign: 'right'
           }}>
@@ -603,10 +619,10 @@ export default function ImportExcelPage() {
 
       {/* Индикатор загрузки шаблонов */}
       {templatesLoading && (
-        <div style={{ 
-          backgroundColor: '#e7f3ff', 
-          padding: '15px', 
-          borderRadius: '8px', 
+        <div style={{
+          backgroundColor: '#e7f3ff',
+          padding: '15px',
+          borderRadius: '8px',
           marginBottom: '20px',
           textAlign: 'center'
         }}>
@@ -619,11 +635,11 @@ export default function ImportExcelPage() {
 
       {/* Ошибка загрузки шаблонов */}
       {templatesError && (
-        <div style={{ 
-          backgroundColor: '#ffe7e7', 
-          padding: '15px', 
-          borderRadius: '8px', 
-          marginBottom: '20px' 
+        <div style={{
+          backgroundColor: '#ffe7e7',
+          padding: '15px',
+          borderRadius: '8px',
+          marginBottom: '20px'
         }}>
           <p style={{ color: '#dc3545', margin: 0, fontWeight: 'bold' }}>
             Ошибка загрузки шаблонов
@@ -635,7 +651,7 @@ export default function ImportExcelPage() {
             Используются встроенные шаблоны. Для исправления создайте файл:
             public/field-templates/ozon-templates.json
           </p>
-          <button 
+          <button
             onClick={loadTemplatesFromFile}
             style={{
               marginTop: '10px',
@@ -654,7 +670,7 @@ export default function ImportExcelPage() {
 
       {/* Сообщение о сохранении */}
       {saveMessage && (
-        <div style={{ 
+        <div style={{
           backgroundColor: saveMessage.includes('✅') ? '#d4edda' : '#f8d7da',
           color: saveMessage.includes('✅') ? '#155724' : '#721c24',
           padding: '10px 15px',
@@ -685,9 +701,9 @@ export default function ImportExcelPage() {
       {!templatesLoading && Object.keys(fieldMappings).length > 0 && (
         <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
           <h2>2. Пользовательские значения</h2>
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', 
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))',
             gap: '15px',
             marginBottom: '15px'
           }}>
@@ -699,11 +715,11 @@ export default function ImportExcelPage() {
                 type="text"
                 value={userValues.brand_code || ''}
                 onChange={(e) => handleUserValueChange('brand_code', e.target.value)}
-                style={{ 
-                  width: '100%', 
-                  padding: '8px', 
-                  border: '1px solid #ddd', 
-                  borderRadius: '4px' 
+                style={{
+                  width: '100%',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px'
                 }}
                 placeholder="Например: MOTIP"
               />
@@ -719,11 +735,11 @@ export default function ImportExcelPage() {
                 type="text"
                 value={userValues.ru_color_name || ''}
                 onChange={(e) => handleUserValueChange('ru_color_name', e.target.value)}
-                style={{ 
-                  width: '100%', 
-                  padding: '8px', 
-                  border: '1px solid #ddd', 
-                  borderRadius: '4px' 
+                style={{
+                  width: '100%',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px'
                 }}
                 placeholder="Например: Красный металлик"
               />
@@ -733,12 +749,12 @@ export default function ImportExcelPage() {
             </div>
           </div>
           <div style={{ fontSize: '12px', color: '#666', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
-            <strong>Доступные переменные в шаблонах:</strong><br/>
-            • {'{colour_code}'} - код цвета<br/>
-            • {'{colour_name}'} - название цвета<br/>
-            • {'{car_brand}'} - марка автомобиля<br/>
-            • {'{ru_car_brand}'} - русское название марки автомобиля<br/>
-            • {'{brand_code}'} - код бренда (задается выше)<br/>
+            <strong>Доступные переменные в шаблонах:</strong><br />
+            • {'{colour_code}'} - код цвета<br />
+            • {'{colour_name}'} - название цвета<br />
+            • {'{car_brand}'} - марка автомобиля<br />
+            • {'{ru_car_brand}'} - русское название марки автомобиля<br />
+            • {'{brand_code}'} - код бренда (задается выше)<br />
             • {'{ru_color_name}'} - русское название цвета (задается выше)
           </div>
         </div>
@@ -751,8 +767,8 @@ export default function ImportExcelPage() {
             <h2 style={{ margin: 0 }}>3. Настройка шаблонов полей</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {hasUnsavedChanges && (
-                <span style={{ 
-                  fontSize: '12px', 
+                <span style={{
+                  fontSize: '12px',
                   color: '#856404',
                   backgroundColor: '#fff3cd',
                   padding: '4px 8px',
@@ -824,17 +840,17 @@ export default function ImportExcelPage() {
               </span>
             </div>
           </div>
-          
-          <div style={{ 
-            display: 'grid', 
-            gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))', 
+
+          <div style={{
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(350px, 1fr))',
             gap: '15px',
             marginBottom: '15px'
           }}>
             {Object.keys(fieldMappings).map(fieldKey => (
-              <div key={fieldKey} style={{ 
-                padding: '15px', 
-                border: '1px solid #ddd', 
+              <div key={fieldKey} style={{
+                padding: '15px',
+                border: '1px solid #ddd',
                 borderRadius: '4px',
                 backgroundColor: fieldMappings[fieldKey].enabled ? 'white' : '#f8f9fa'
               }}>
@@ -850,8 +866,8 @@ export default function ImportExcelPage() {
                     {fieldMappings[fieldKey].required && <span style={{ color: 'red', marginLeft: '5px' }}>*</span>}
                   </label>
                   {fieldMappings[fieldKey].attributeId && (
-                    <span style={{ 
-                      fontSize: '12px', 
+                    <span style={{
+                      fontSize: '12px',
                       color: '#666',
                       backgroundColor: '#e9ecef',
                       padding: '2px 6px',
@@ -866,10 +882,10 @@ export default function ImportExcelPage() {
                   value={fieldMappings[fieldKey].template}
                   onChange={(e) => updateFieldTemplate(fieldKey, e.target.value)}
                   disabled={!fieldMappings[fieldKey].enabled}
-                  style={{ 
-                    width: '100%', 
-                    padding: '8px', 
-                    border: '1px solid #ddd', 
+                  style={{
+                    width: '100%',
+                    padding: '8px',
+                    border: '1px solid #ddd',
                     borderRadius: '4px',
                     backgroundColor: fieldMappings[fieldKey].enabled ? 'white' : '#f8f9fa'
                   }}
@@ -881,7 +897,7 @@ export default function ImportExcelPage() {
               </div>
             ))}
           </div>
-          
+
           {excelData.length > 0 && (
             <button
               onClick={applyTemplatesToAll}
@@ -938,91 +954,169 @@ export default function ImportExcelPage() {
           </div>
 
           {/* Предпросмотр данных */}
-          <div style={{ marginBottom: '20px' }}>
-            <h2>5. Предпросмотр данных ({excelData.length} строк)</h2>
-            
-            {/* Прогресс импорта */}
-            {importProgress.total > 0 && (
-              <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <span>Импорт товаров:</span>
-                  <span>{importProgress.current} / {importProgress.total}</span>
-                </div>
-                <div style={{ width: '100%', backgroundColor: '#dee2e6', borderRadius: '4px', height: '10px' }}>
-                  <div 
-                    style={{ 
-                      width: `${(importProgress.current / importProgress.total) * 100}%`, 
-                      backgroundColor: '#28a745',
-                      height: '100%',
-                      borderRadius: '4px',
-                      transition: 'width 0.3s'
-                    }}
-                  />
-                </div>
-              </div>
-            )}
+<div style={{ marginBottom: '20px' }}>
+  <h2>5. Предпросмотр данных ({excelData.length} строк)</h2>
+  
+  {/* Прогресс импорта */}
+  {importProgress.total > 0 && (
+    <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+        <span>Импорт товаров:</span>
+        <span>{importProgress.current} / {importProgress.total}</span>
+      </div>
+      <div style={{ width: '100%', backgroundColor: '#dee2e6', borderRadius: '4px', height: '10px' }}>
+        <div 
+          style={{ 
+            width: `${(importProgress.current / importProgress.total) * 100}%`, 
+            backgroundColor: '#28a745',
+            height: '100%',
+            borderRadius: '4px',
+            transition: 'width 0.3s'
+          }}
+        />
+      </div>
+    </div>
+  )}
 
-            <div style={{ overflowX: 'auto', maxHeight: '600px', overflowY: 'auto' }}>
-              <table style={{ 
-                width: '100%', 
-                borderCollapse: 'collapse',
-                backgroundColor: 'white',
-                boxShadow: '0 1px 3px rgba(0,0,0,0.1)',
-                fontSize: '14px'
+  <div style={{ 
+    overflowX: 'auto', 
+    maxHeight: '600px', 
+    overflowY: 'auto',
+    border: '1px solid #dee2e6',
+    borderRadius: '4px'
+  }}>
+    <table style={{ 
+      width: 'auto',
+      borderCollapse: 'collapse',
+      backgroundColor: 'white',
+      fontSize: '13px',
+      tableLayout: 'auto'
+    }}>
+      <thead style={{ 
+        position: 'sticky', 
+        top: 0, 
+        backgroundColor: '#f8f9fa', 
+        zIndex: 10 
+      }}>
+        <tr>
+          <th style={{ 
+            padding: '10px 6px', 
+            border: '1px solid #dee2e6', 
+            textAlign: 'left',
+            fontSize: '12px',
+            width: '40px'
+          }}>#</th>
+          <th style={{ 
+            padding: '10px 6px', 
+            border: '1px solid #dee2e6', 
+            textAlign: 'left',
+            fontSize: '12px',
+            width: '100px'
+          }}>Colour Code</th>
+          <th style={{ 
+            padding: '10px 6px', 
+            border: '1px solid #dee2e6', 
+            textAlign: 'left',
+            fontSize: '12px',
+            width: '120px'
+          }}>Colour Name</th>
+          <th style={{ 
+            padding: '10px 6px', 
+            border: '1px solid #dee2e6', 
+            textAlign: 'left',
+            fontSize: '12px',
+            width: '120px'
+          }}>Car Brand</th>
+          <th style={{ 
+            padding: '10px 6px', 
+            border: '1px solid #dee2e6', 
+            textAlign: 'left',
+            fontSize: '12px',
+            width: '120px'
+          }}>Ru Car Brand</th>
+          {Object.keys(fieldMappings).map(fieldKey => (
+            <th key={fieldKey} style={{ 
+              padding: '10px 6px', 
+              border: '1px solid #dee2e6', 
+              textAlign: 'left',
+              fontSize: '12px',
+              width: getFieldWidth(fieldKey) || '150px',
+              minWidth: getFieldWidth(fieldKey)  || '150px'
+            }}>
+              {fieldMappings[fieldKey].name}
+              {!fieldMappings[fieldKey].enabled && (
+                <span style={{ color: '#dc3545', fontSize: '10px', marginLeft: '3px' }}>(откл)</span>
+              )}
+            </th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {excelData.map((row, index) => (
+          <tr key={index} style={{ borderBottom: '1px solid #dee2e6' }}>
+            <td style={{ 
+              padding: '6px', 
+              border: '1px solid #dee2e6',
+              fontSize: '12px',
+              textAlign: 'center'
+            }}>{index + 1}</td>
+            <td style={{ 
+              padding: '6px', 
+              border: '1px solid #dee2e6',
+              fontSize: '12px'
+            }}>{row.colourCode}</td>
+            <td style={{ 
+              padding: '6px', 
+              border: '1px solid #dee2e6',
+              fontSize: '12px'
+            }}>{row.colourName}</td>
+            <td style={{ 
+              padding: '6px', 
+              border: '1px solid #dee2e6',
+              fontSize: '12px'
+            }}>{row.carBrand}</td>
+            <td style={{ 
+              padding: '6px', 
+              border: '1px solid #dee2e6',
+              fontSize: '12px'
+            }}>{row.ru_car_brand}</td>
+            {Object.keys(fieldMappings).map(fieldKey => (
+              <td key={fieldKey} style={{ 
+                padding: '6px', 
+                border: '1px solid #dee2e6',
+                backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
+                width: getFieldWidth(fieldKey)  || '150px',
+                minWidth: getFieldWidth(fieldKey)  || '150px',
+                verticalAlign: 'top'
               }}>
-                <thead style={{ position: 'sticky', top: 0, backgroundColor: '#f8f9fa', zIndex: 10 }}>
-                  <tr>
-                    <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>#</th>
-                    <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Colour Code</th>
-                    <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Colour Name</th>
-                    <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Car Brand</th>
-                    <th style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>Ru Car Brand</th>
-                    {Object.keys(fieldMappings).map(fieldKey => (
-                      <th key={fieldKey} style={{ padding: '12px', border: '1px solid #dee2e6', textAlign: 'left' }}>
-                        {fieldMappings[fieldKey].name}
-                        {!fieldMappings[fieldKey].enabled && (
-                          <span style={{ color: '#dc3545', fontSize: '12px', marginLeft: '5px' }}>(откл)</span>
-                        )}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {excelData.map((row, index) => (
-                    <tr key={index} style={{ borderBottom: '1px solid #dee2e6' }}>
-                      <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{index + 1}</td>
-                      <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.colourCode}</td>
-                      <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.colourName}</td>
-                      <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.carBrand}</td>
-                      <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{row.ru_car_brand}</td>
-                      {Object.keys(fieldMappings).map(fieldKey => (
-                        <td key={fieldKey} style={{ 
-                          padding: '8px', 
-                          border: '1px solid #dee2e6',
-                          backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white'
-                        }}>
-                          <input
-                            type="text"
-                            value={rowData[index]?.[fieldKey] || ''}
-                            onChange={(e) => updateRowField(index, fieldKey, e.target.value)}
-                            disabled={!fieldMappings[fieldKey].enabled}
-                            style={{ 
-                              width: '100%', 
-                              padding: '4px', 
-                              border: '1px solid #ddd', 
-                              borderRadius: '2px',
-                              fontSize: '12px',
-                              backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white'
-                            }}
-                          />
-                        </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
+                <textarea
+                  value={rowData[index]?.[fieldKey] || ''}
+                  onChange={(e) => updateRowField(index, fieldKey, e.target.value)}
+                  disabled={!fieldMappings[fieldKey].enabled}
+                  style={{ 
+                    width: '100%', 
+                    padding: '6px', 
+                    border: '1px solid #ddd', 
+                    borderRadius: '4px',
+                    fontSize: '12px',
+                    backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
+                    resize: 'vertical',
+                    minHeight: fieldKey === 'name' ? '80px' : '60px',
+                    maxHeight: '200px',
+                    fontFamily: 'inherit',
+                    lineHeight: '1.4'
+                  }}
+                  rows={fieldKey === 'name' ? 4 : 3}
+                  placeholder={fieldMappings[fieldKey].enabled ? "Введите значение..." : "Поле отключено"}
+                />
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  </div>
+</div>
 
           {/* Кнопка импорта */}
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
