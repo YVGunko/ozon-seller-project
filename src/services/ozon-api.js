@@ -1,12 +1,11 @@
 // src/services/ozon-api.js
-/* используется только на сервере, обращается к https://api-seller.ozon.ru*/
-import { BaseHttpClient } from './base-http-client.js';
+import { BaseHttpClient } from './base-http-client';
 
 export class OzonApiService extends BaseHttpClient {
   constructor(apiKey, clientId) {
     super('https://api-seller.ozon.ru');
     if (!apiKey || !clientId) {
-      throw new Error('OZON API credentials are required.');
+      throw new Error('OZON API credentials required');
     }
     this.apiKey = apiKey;
     this.clientId = clientId;
@@ -23,35 +22,58 @@ export class OzonApiService extends BaseHttpClient {
     });
   }
 
-  // === Основные методы ===
   async getProducts(options = {}) {
     const body = {
       filter: {
         offer_id: options.filter?.offer_id || [],
+        product_id: options.filter?.product_ids || [],
         visibility: options.filter?.visibility || 'ALL'
       },
-      limit: options.limit || 20,
-      last_id: options.last_id || ''
+      last_id: options.last_id || '',
+      limit: options.limit || 20
     };
     return this.ozonRequest('/v3/product/list', body);
   }
 
   async getProductAttributes(offerId) {
     return this.ozonRequest('/v4/product/info/attributes', {
-      filter: { offer_id: [offerId] },
+      filter: { offer_id: Array.isArray(offerId) ? offerId : [offerId] },
       limit: 1
     });
   }
 
-  async createProduct(productData) {
-    return this.ozonRequest('/v2/product/import', {
-      items: [productData]
-    });
+  async createProductsBatch(products) {
+    return this.ozonRequest('/v2/product/import', { items: products });
+  }
+
+  // copyProduct uses getProductAttributes + createProduct logic from original file
+  async copyProduct(sourceOfferId, newOfferId, modifications = {}) {
+    const attrs = await this.getProductAttributes(sourceOfferId);
+    if (!attrs?.result || !Array.isArray(attrs.result) || attrs.result.length === 0) {
+      throw new Error('Source product not found');
+    }
+    const sourceProduct = attrs.result[0];
+
+    // Prepare minimal product payload — you can expand mapping as needed
+    const newProduct = {
+      offer_id: newOfferId,
+      name: modifications.name || sourceProduct.name,
+      category_id: sourceProduct.description_category_id || sourceProduct.category_id || 0,
+      price: modifications.price || sourceProduct.price || "0",
+      old_price: modifications.old_price || sourceProduct.old_price || "0",
+      premium_price: modifications.premium_price || sourceProduct.premium_price || "0",
+      vat: sourceProduct.vat || "0",
+      attributes: (sourceProduct.attributes || []).map(a => ({ ...a })),
+      images: (sourceProduct.images || []).map((i, idx) => ({ file_name: i, default: idx === 0 }))
+    };
+
+    // Apply modifications
+    Object.assign(newProduct, modifications);
+
+    return this.createProductsBatch([newProduct]);
   }
 
   async createProductsBatch(products) {
-    return this.ozonRequest('/v2/product/import', {
-      items: products
-    });
+    return this.ozonRequest('/v2/product/import', { items: products });
   }
 }
