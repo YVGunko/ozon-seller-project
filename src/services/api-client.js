@@ -1,53 +1,51 @@
 // src/services/api-client.js
 import { BaseHttpClient } from './base-http-client';
 
-export class ApiClient extends BaseHttpClient {
-  constructor() {
-    super('/api'); // клиент обращается к Next API routes
-  }
+export const apiClient = {
+  async getProducts(limit = 20, profile, params = {}) {
+    const query = new URLSearchParams();
 
-  async requestJson(endpoint, opts = {}) {
-    // Обёртка для удобства: если method GET, body игнорируется
-    return this.request(endpoint, opts);
-  }
+    query.append('limit', params.limit || limit);
+    if (params.last_id) query.append('last_id', params.last_id);
+    if (params.offer_id) query.append('offer_id', params.offer_id);
 
-  async getProducts(limit = 20, profile = null, extra = {}) {
-    const params = new URLSearchParams({ limit: String(limit), ...extra });
-    if (profile) params.append('profile', encodeURIComponent(JSON.stringify(profile)));
-    return this.requestJson(`/products?${params.toString()}`, { method: 'GET' });
-  }
+    query.append('profile', encodeURIComponent(JSON.stringify(profile)));
 
-  async importProducts(products, profile) {
-    return this.requestJson('/products', {
-      method: 'POST',
-      body: { action: 'import', products, profile }
-    });
-  }
-
-  async copyProduct(source_offer_id, new_offer_id, modifications = {}, profile = null) {
-    return this.requestJson('/products/copy', {
-      method: 'POST',
-      body: { source_offer_id, new_offer_id, modifications, profile }
-    });
-  }
+    const response = await fetch(`/api/products?${query.toString()}`);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to fetch products: ${text}`);
+    }
+    return response.json();
+  },
 
   async getAttributes(offer_id, profile = null) {
-    return this.requestJson('/products/attributes', {
+    const query = new URLSearchParams({ offer_id });
+    if (profile) query.append('profile', encodeURIComponent(JSON.stringify(profile)));
+
+    console.log('🔍 getAttributes request:', `/api/products/attributes?${query.toString()}`);
+
+    const res = await fetch(`/api/products/attributes?${query.toString()}`);
+    console.log('🔍 getAttributes response status:', res.status);
+
+    if (!res.ok) throw new Error('Failed to fetch attributes');
+    return res.json();
+  },
+
+  async copyProduct(sourceOfferId, newOfferId, modifications, profile) {
+    const res = await fetch('/api/copy-product', {
       method: 'POST',
-      body: { offer_id, profile }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceOfferId,
+        newOfferId,
+        modifications,
+        profile
+      })
     });
+    if (!res.ok) throw new Error('Failed to copy product');
+    return res.json();
   }
+};
 
-  async importProductsBatch(batches, profile, onProgress = null) {
-    const results = [];
-    for (let i = 0; i < batches.length; i++) {
-      const res = await this.importProducts(batches[i], profile);
-      results.push(res);
-      if (onProgress) onProgress(i + 1, batches.length);
-      if (i < batches.length - 1) await new Promise(r => setTimeout(r, 1000));
-    }
-    return results;
-  }
-}
-
-export const apiClient = new ApiClient();
+//export const apiClient = new ApiClient();

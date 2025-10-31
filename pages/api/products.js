@@ -8,19 +8,19 @@ import { OzonApiService } from '../../src/services/ozon-api';
  * Пример запроса с клиента:
  * /api/products?limit=50&profile={...}
  */
+
 export default async function handler(req, res) {
   try {
     if (req.method !== 'GET') {
       return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { limit = 20, profile } = req.query;
+    const { limit = 20, last_id = '', offer_id, profile } = req.query;
 
     if (!profile) {
       return res.status(400).json({ error: 'Missing OZON profile' });
     }
 
-    // 🔒 Безопасно декодируем профиль
     let parsedProfile;
     try {
       parsedProfile = JSON.parse(decodeURIComponent(profile));
@@ -29,15 +29,23 @@ export default async function handler(req, res) {
     }
 
     const { ozon_client_id, ozon_api_key } = parsedProfile;
-
     if (!ozon_client_id || !ozon_api_key) {
       return res.status(400).json({ error: 'Profile must include ozon_client_id and ozon_api_key' });
     }
 
     const ozon = new OzonApiService(ozon_api_key, ozon_client_id);
 
-    const products = await ozon.getProducts({ limit: Number(limit) });
+    const options = {
+      limit: Number(limit),
+      last_id,
+      filter: { visibility: 'ALL' }
+    };
 
+    if (offer_id) {
+      options.filter.offer_id = Array.isArray(offer_id) ? offer_id : [offer_id];
+    }
+
+    const products = await ozon.getProducts(options);
     return res.status(200).json(products);
   } catch (error) {
     console.error('❌ /api/products error:', error);
@@ -47,3 +55,4 @@ export default async function handler(req, res) {
     });
   }
 }
+

@@ -45,7 +45,7 @@ export default function ProductsPage() {
 
   // fetchProducts function
   const fetchProducts = useCallback(async (reset = false) => {
-    if (!currentProfile) return; // wait for profile
+    if (!currentProfile) return;
     if (loading) return;
 
     setLoading(true);
@@ -53,13 +53,13 @@ export default function ProductsPage() {
 
     try {
       const params = {
-        limit: pagination.limit
+        limit: pagination.limit,
+        last_id: !reset ? pagination.last_id : '',
+        offer_id: filters.offer_id || ''
       };
-      if (!reset && pagination.last_id) params.last_id = pagination.last_id;
-      if (filters.offer_id) params.offer_id = filters.offer_id;
 
       const result = await apiClient.getProducts(pagination.limit, currentProfile, params);
-      // expect OZON response structure: { result: { items: [], last_id: '' } } or direct array depending on service
+
       if (result?.result?.items) {
         const items = result.result.items;
         setProducts(prev => reset ? items : [...prev, ...items]);
@@ -69,11 +69,9 @@ export default function ProductsPage() {
           hasMore: !!result.result.last_id && items.length === prev.limit
         }));
       } else if (Array.isArray(result)) {
-        // fallback if api returns array directly
         setProducts(prev => reset ? result : [...prev, ...result]);
         setPagination(prev => ({ ...prev, hasMore: result.length === prev.limit }));
       } else {
-        // unknown format
         console.warn('Unexpected products response', result);
       }
     } catch (err) {
@@ -230,23 +228,23 @@ export default function ProductsPage() {
         gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
         gap: '15px'
       }}>
-      <div>
-        <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-          Артикул (offer_id):
-        </label>
-        <input
-          type="text"
-          value={filters.offer_id}
-          onChange={(e) => setFilters(prev => ({ ...prev, offer_id: e.target.value }))}
-          placeholder="Введите артикул"
-          style={{
-            width: '100%',
-            padding: '8px',
-            border: '1px solid #ddd',
-            borderRadius: '4px'
-          }}
-        />
-      </div>
+        <div>
+          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+            Артикул (offer_id):
+          </label>
+          <input
+            type="text"
+            value={filters.offer_id}
+            onChange={(e) => setFilters(prev => ({ ...prev, offer_id: e.target.value }))}
+            placeholder="Введите артикул"
+            style={{
+              width: '100%',
+              padding: '8px',
+              border: '1px solid #ddd',
+              borderRadius: '4px'
+            }}
+          />
+        </div>
         <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
           <button
             onClick={applyFilters}

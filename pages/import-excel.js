@@ -339,7 +339,7 @@ const getFieldWidth = (fieldKey) => {
     alternative_offers: '200px',
     name: '400px',
   };
-  
+
   return widthMap[fieldKey] || '150px'; // Значение по умолчанию
 };
 export default function ImportExcelPage() {
@@ -954,169 +954,169 @@ export default function ImportExcelPage() {
           </div>
 
           {/* Предпросмотр данных */}
-<div style={{ marginBottom: '20px' }}>
-  <h2>5. Предпросмотр данных ({excelData.length} строк)</h2>
-  
-  {/* Прогресс импорта */}
-  {importProgress.total > 0 && (
-    <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-        <span>Импорт товаров:</span>
-        <span>{importProgress.current} / {importProgress.total}</span>
-      </div>
-      <div style={{ width: '100%', backgroundColor: '#dee2e6', borderRadius: '4px', height: '10px' }}>
-        <div 
-          style={{ 
-            width: `${(importProgress.current / importProgress.total) * 100}%`, 
-            backgroundColor: '#28a745',
-            height: '100%',
-            borderRadius: '4px',
-            transition: 'width 0.3s'
-          }}
-        />
-      </div>
-    </div>
-  )}
+          <div style={{ marginBottom: '20px' }}>
+            <h2>5. Предпросмотр данных ({excelData.length} строк)</h2>
 
-  <div style={{ 
-    overflowX: 'auto', 
-    maxHeight: '600px', 
-    overflowY: 'auto',
-    border: '1px solid #dee2e6',
-    borderRadius: '4px'
-  }}>
-    <table style={{ 
-      width: 'auto',
-      borderCollapse: 'collapse',
-      backgroundColor: 'white',
-      fontSize: '13px',
-      tableLayout: 'auto'
-    }}>
-      <thead style={{ 
-        position: 'sticky', 
-        top: 0, 
-        backgroundColor: '#f8f9fa', 
-        zIndex: 10 
-      }}>
-        <tr>
-          <th style={{ 
-            padding: '10px 6px', 
-            border: '1px solid #dee2e6', 
-            textAlign: 'left',
-            fontSize: '12px',
-            width: '40px'
-          }}>#</th>
-          <th style={{ 
-            padding: '10px 6px', 
-            border: '1px solid #dee2e6', 
-            textAlign: 'left',
-            fontSize: '12px',
-            width: '100px'
-          }}>Colour Code</th>
-          <th style={{ 
-            padding: '10px 6px', 
-            border: '1px solid #dee2e6', 
-            textAlign: 'left',
-            fontSize: '12px',
-            width: '120px'
-          }}>Colour Name</th>
-          <th style={{ 
-            padding: '10px 6px', 
-            border: '1px solid #dee2e6', 
-            textAlign: 'left',
-            fontSize: '12px',
-            width: '120px'
-          }}>Car Brand</th>
-          <th style={{ 
-            padding: '10px 6px', 
-            border: '1px solid #dee2e6', 
-            textAlign: 'left',
-            fontSize: '12px',
-            width: '120px'
-          }}>Ru Car Brand</th>
-          {Object.keys(fieldMappings).map(fieldKey => (
-            <th key={fieldKey} style={{ 
-              padding: '10px 6px', 
-              border: '1px solid #dee2e6', 
-              textAlign: 'left',
-              fontSize: '12px',
-              width: getFieldWidth(fieldKey) || '150px',
-              minWidth: getFieldWidth(fieldKey)  || '150px'
+            {/* Прогресс импорта */}
+            {importProgress.total > 0 && (
+              <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                  <span>Импорт товаров:</span>
+                  <span>{importProgress.current} / {importProgress.total}</span>
+                </div>
+                <div style={{ width: '100%', backgroundColor: '#dee2e6', borderRadius: '4px', height: '10px' }}>
+                  <div
+                    style={{
+                      width: `${(importProgress.current / importProgress.total) * 100}%`,
+                      backgroundColor: '#28a745',
+                      height: '100%',
+                      borderRadius: '4px',
+                      transition: 'width 0.3s'
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            <div style={{
+              overflowX: 'auto',
+              maxHeight: '600px',
+              overflowY: 'auto',
+              border: '1px solid #dee2e6',
+              borderRadius: '4px'
             }}>
-              {fieldMappings[fieldKey].name}
-              {!fieldMappings[fieldKey].enabled && (
-                <span style={{ color: '#dc3545', fontSize: '10px', marginLeft: '3px' }}>(откл)</span>
-              )}
-            </th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {excelData.map((row, index) => (
-          <tr key={index} style={{ borderBottom: '1px solid #dee2e6' }}>
-            <td style={{ 
-              padding: '6px', 
-              border: '1px solid #dee2e6',
-              fontSize: '12px',
-              textAlign: 'center'
-            }}>{index + 1}</td>
-            <td style={{ 
-              padding: '6px', 
-              border: '1px solid #dee2e6',
-              fontSize: '12px'
-            }}>{row.colourCode}</td>
-            <td style={{ 
-              padding: '6px', 
-              border: '1px solid #dee2e6',
-              fontSize: '12px'
-            }}>{row.colourName}</td>
-            <td style={{ 
-              padding: '6px', 
-              border: '1px solid #dee2e6',
-              fontSize: '12px'
-            }}>{row.carBrand}</td>
-            <td style={{ 
-              padding: '6px', 
-              border: '1px solid #dee2e6',
-              fontSize: '12px'
-            }}>{row.ru_car_brand}</td>
-            {Object.keys(fieldMappings).map(fieldKey => (
-              <td key={fieldKey} style={{ 
-                padding: '6px', 
-                border: '1px solid #dee2e6',
-                backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
-                width: getFieldWidth(fieldKey)  || '150px',
-                minWidth: getFieldWidth(fieldKey)  || '150px',
-                verticalAlign: 'top'
+              <table style={{
+                width: 'auto',
+                borderCollapse: 'collapse',
+                backgroundColor: 'white',
+                fontSize: '13px',
+                tableLayout: 'auto'
               }}>
-                <textarea
-                  value={rowData[index]?.[fieldKey] || ''}
-                  onChange={(e) => updateRowField(index, fieldKey, e.target.value)}
-                  disabled={!fieldMappings[fieldKey].enabled}
-                  style={{ 
-                    width: '100%', 
-                    padding: '6px', 
-                    border: '1px solid #ddd', 
-                    borderRadius: '4px',
-                    fontSize: '12px',
-                    backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
-                    resize: 'vertical',
-                    minHeight: fieldKey === 'name' ? '80px' : '60px',
-                    maxHeight: '200px',
-                    fontFamily: 'inherit',
-                    lineHeight: '1.4'
-                  }}
-                  rows={fieldKey === 'name' ? 4 : 3}
-                  placeholder={fieldMappings[fieldKey].enabled ? "Введите значение..." : "Поле отключено"}
-                />
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
-  </div>
-</div>
+                <thead style={{
+                  position: 'sticky',
+                  top: 0,
+                  backgroundColor: '#f8f9fa',
+                  zIndex: 10
+                }}>
+                  <tr>
+                    <th style={{
+                      padding: '10px 6px',
+                      border: '1px solid #dee2e6',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      width: '40px'
+                    }}>#</th>
+                    <th style={{
+                      padding: '10px 6px',
+                      border: '1px solid #dee2e6',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      width: '100px'
+                    }}>Colour Code</th>
+                    <th style={{
+                      padding: '10px 6px',
+                      border: '1px solid #dee2e6',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      width: '120px'
+                    }}>Colour Name</th>
+                    <th style={{
+                      padding: '10px 6px',
+                      border: '1px solid #dee2e6',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      width: '120px'
+                    }}>Car Brand</th>
+                    <th style={{
+                      padding: '10px 6px',
+                      border: '1px solid #dee2e6',
+                      textAlign: 'left',
+                      fontSize: '12px',
+                      width: '120px'
+                    }}>Ru Car Brand</th>
+                    {Object.keys(fieldMappings).map(fieldKey => (
+                      <th key={fieldKey} style={{
+                        padding: '10px 6px',
+                        border: '1px solid #dee2e6',
+                        textAlign: 'left',
+                        fontSize: '12px',
+                        width: getFieldWidth(fieldKey) || '150px',
+                        minWidth: getFieldWidth(fieldKey) || '150px'
+                      }}>
+                        {fieldMappings[fieldKey].name}
+                        {!fieldMappings[fieldKey].enabled && (
+                          <span style={{ color: '#dc3545', fontSize: '10px', marginLeft: '3px' }}>(откл)</span>
+                        )}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody>
+                  {excelData.map((row, index) => (
+                    <tr key={index} style={{ borderBottom: '1px solid #dee2e6' }}>
+                      <td style={{
+                        padding: '6px',
+                        border: '1px solid #dee2e6',
+                        fontSize: '12px',
+                        textAlign: 'center'
+                      }}>{index + 1}</td>
+                      <td style={{
+                        padding: '6px',
+                        border: '1px solid #dee2e6',
+                        fontSize: '12px'
+                      }}>{row.colourCode}</td>
+                      <td style={{
+                        padding: '6px',
+                        border: '1px solid #dee2e6',
+                        fontSize: '12px'
+                      }}>{row.colourName}</td>
+                      <td style={{
+                        padding: '6px',
+                        border: '1px solid #dee2e6',
+                        fontSize: '12px'
+                      }}>{row.carBrand}</td>
+                      <td style={{
+                        padding: '6px',
+                        border: '1px solid #dee2e6',
+                        fontSize: '12px'
+                      }}>{row.ru_car_brand}</td>
+                      {Object.keys(fieldMappings).map(fieldKey => (
+                        <td key={fieldKey} style={{
+                          padding: '6px',
+                          border: '1px solid #dee2e6',
+                          backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
+                          width: getFieldWidth(fieldKey) || '150px',
+                          minWidth: getFieldWidth(fieldKey) || '150px',
+                          verticalAlign: 'top'
+                        }}>
+                          <textarea
+                            value={rowData[index]?.[fieldKey] || ''}
+                            onChange={(e) => updateRowField(index, fieldKey, e.target.value)}
+                            disabled={!fieldMappings[fieldKey].enabled}
+                            style={{
+                              width: '100%',
+                              padding: '6px',
+                              border: '1px solid #ddd',
+                              borderRadius: '4px',
+                              fontSize: '12px',
+                              backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
+                              resize: 'vertical',
+                              minHeight: fieldKey === 'name' ? '80px' : '60px',
+                              maxHeight: '200px',
+                              fontFamily: 'inherit',
+                              lineHeight: '1.4'
+                            }}
+                            rows={fieldKey === 'name' ? 4 : 3}
+                            placeholder={fieldMappings[fieldKey].enabled ? "Введите значение..." : "Поле отключено"}
+                          />
+                        </td>
+                      ))}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
 
           {/* Кнопка импорта */}
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
