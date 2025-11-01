@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, Fragment } from 'react';
 import { OzonApiService } from '../src/services/ozon-api';
 import { ProfileManager } from '../src/utils/profileManager';
 import translationService from '../src/services/TranslationService';
@@ -351,7 +351,320 @@ const getFieldWidth = (fieldKey) => {
   return widthMap[fieldKey] || '150px'; // Значение по умолчанию
 };
 
-const HIDDEN_TEMPLATE_FIELDS = ['description'];
+const HIDDEN_TEMPLATE_FIELDS = [];
+
+const TEMPLATE_ALLOWED_FIELDS = new Set([
+  'barcode',
+  'description',
+  'price',
+  'old_price',
+  'premium_price',
+  'vat',
+  'currency_code',
+  'images',
+  'marketing_images',
+  'images360',
+  'pdf_list',
+  'certificate',
+  'documents',
+  'complex_attributes',
+  'attributes',
+  'complex_attributes',
+  'image_group_id',
+  'primary_image',
+  'images_source',
+  'height',
+  'length',
+  'width',
+  'depth',
+  'weight',
+  'weight_unit',
+  'dimension_unit',
+  'package_width',
+  'package_height',
+  'package_length',
+  'package_depth',
+  'service',
+  'delivery_schema',
+  'category_id',
+  'type_id',
+  'group_id',
+  'color_image',
+  'country_of_origin',
+  'hazard_class',
+  'is_kgt',
+  'is_prepayment',
+  'min_price'
+]);
+
+const hasValue = (value) => value !== undefined && value !== null && value !== '';
+
+const deepClone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
+
+const extractAttributeValue = (attribute) => {
+  if (!attribute) return '';
+
+  if (Array.isArray(attribute.values) && attribute.values.length > 0) {
+    const first = attribute.values[0];
+    if (typeof first === 'string') return first;
+    if (first && typeof first === 'object') {
+      if (hasValue(first.value)) return first.value;
+      if (hasValue(first.text)) return first.text;
+      if (hasValue(first.value_text)) return first.value_text;
+    }
+  }
+
+  if (hasValue(attribute.value)) return attribute.value;
+  if (hasValue(attribute.text_value)) return attribute.text_value;
+  if (hasValue(attribute.value_text)) return attribute.value_text;
+
+  if (Array.isArray(attribute.dictionary_values) && attribute.dictionary_values.length > 0) {
+    const first = attribute.dictionary_values[0];
+    if (typeof first === 'string') return first;
+    if (first && typeof first === 'object') {
+      if (hasValue(first.value)) return first.value;
+      if (hasValue(first.text)) return first.text;
+    }
+  }
+
+  return '';
+};
+
+const buildAttributesPayload = (templateAttributes = [], fieldMappings, rowValues) => {
+  const attributesMap = new Map();
+
+  templateAttributes.forEach((attr) => {
+    const attrId = Number(attr?.attribute_id ?? attr?.id ?? attr?.attributeId);
+    if (!attrId) return;
+
+    const clonedAttribute = deepClone(attr) || {};
+
+    delete clonedAttribute.attribute_id;
+    delete clonedAttribute.attributeId;
+    delete clonedAttribute.attribute_value_id;
+    delete clonedAttribute.attributeValueId;
+
+    clonedAttribute.id = attrId;
+
+    let values = [];
+
+    if (Array.isArray(clonedAttribute.values)) {
+      values = clonedAttribute.values
+        .map((valueItem) => {
+          if (typeof valueItem === 'string') {
+            return { value: valueItem };
+          }
+
+          if (valueItem && typeof valueItem === 'object') {
+            const valueClone = { ...valueItem };
+
+            if (hasValue(valueClone.name) && !hasValue(valueClone.value)) {
+              valueClone.value = valueClone.name;
+            }
+
+            if (hasValue(valueClone.value)) {
+              valueClone.value = String(valueClone.value);
+            }
+
+            return valueClone;
+          }
+
+          return null;
+        })
+        .filter(Boolean);
+    } else {
+      const templateValue = extractAttributeValue(attr);
+      if (hasValue(templateValue)) {
+        values = [{ value: String(templateValue) }];
+      }
+    }
+
+    clonedAttribute.values = values;
+
+    attributesMap.set(attrId, clonedAttribute);
+  });
+
+  Object.entries(fieldMappings).forEach(([fieldKey, mapping]) => {
+    if (!mapping?.enabled || !mapping.attributeId) return;
+
+    const attrId = Number(mapping.attributeId);
+    if (!attrId) return;
+
+    const rawValue = rowValues?.[fieldKey];
+    if (!hasValue(rawValue)) {
+      return;
+    }
+
+    const overrideAttribute = attributesMap.get(attrId) || { id: attrId };
+    overrideAttribute.values = [{ value: String(rawValue) }];
+    delete overrideAttribute.dictionary_value_id;
+    delete overrideAttribute.dictionary_values;
+    delete overrideAttribute.value;
+    delete overrideAttribute.text_value;
+
+    attributesMap.set(attrId, overrideAttribute);
+  });
+
+  return Array.from(attributesMap.values()).filter(
+    (attr) =>
+      (Array.isArray(attr.values) && attr.values.length > 0) ||
+      hasValue(attr.dictionary_value_id) ||
+      (Array.isArray(attr.dictionary_values) && attr.dictionary_values.length > 0)
+  );
+};
+
+const prepareTemplateBaseData = (template = {}, baseProductData = {}) => {
+  const base = {};
+
+  TEMPLATE_ALLOWED_FIELDS.forEach((key) => {
+    if (hasValue(template[key]) || Array.isArray(template[key])) {
+      base[key] = deepClone(template[key]);
+    }
+  });
+
+  if (hasValue(baseProductData.category_id)) {
+    base.category_id = baseProductData.category_id;
+  }
+
+  if (hasValue(baseProductData.price)) {
+    base.price = String(baseProductData.price);
+  } else if (hasValue(base.price)) {
+    base.price = String(base.price);
+  }
+
+  if (hasValue(baseProductData.old_price)) {
+    base.old_price = String(baseProductData.old_price);
+  } else if (hasValue(base.old_price)) {
+    base.old_price = String(base.old_price);
+  }
+
+  if (hasValue(baseProductData.vat)) {
+    base.vat = String(baseProductData.vat);
+  } else if (hasValue(base.vat)) {
+    base.vat = String(base.vat);
+  }
+
+  if (!hasValue(base.currency_code)) {
+    base.currency_code = hasValue(baseProductData.currency_code) ? baseProductData.currency_code : 'RUB';
+  }
+
+  if (!Array.isArray(base.attributes)) {
+    base.attributes = Array.isArray(template.attributes) ? deepClone(template.attributes) : [];
+  }
+
+  return base;
+};
+
+const cleanObject = (obj) => {
+  if (!obj || typeof obj !== 'object') return obj;
+
+  return Object.entries(obj).reduce((acc, [key, value]) => {
+    if (value === undefined || value === null) {
+      return acc;
+    }
+
+    if (Array.isArray(value)) {
+      const cleanedArray = value
+        .map((item) => (typeof item === 'object' ? cleanObject(item) : item))
+        .filter((item) => {
+          if (item === undefined || item === null) return false;
+          if (typeof item === 'object') return Object.keys(item).length > 0;
+          if (typeof item === 'string') return item.trim().length > 0;
+          return true;
+        });
+
+      if (cleanedArray.length > 0) {
+        acc[key] = cleanedArray;
+      }
+
+      return acc;
+    }
+
+    if (typeof value === 'object') {
+      const cleanedValue = cleanObject(value);
+      if (Object.keys(cleanedValue).length > 0) {
+        acc[key] = cleanedValue;
+      }
+      return acc;
+    }
+
+    acc[key] = value;
+    return acc;
+  }, {});
+};
+
+const buildImportItemFromRow = ({
+  template,
+  baseProductData,
+  rowValues,
+  fieldMappings,
+  rowIndex
+}) => {
+  const item = prepareTemplateBaseData(template, baseProductData);
+
+  const offerId = rowValues?.offer_id ?? rowValues?.offerId;
+  const name = rowValues?.name ?? template?.name;
+  const descriptionSource = rowValues?.description ?? template?.description;
+  const description =
+    typeof descriptionSource === 'string' ? descriptionSource.trim() : descriptionSource;
+
+  if (hasValue(offerId)) {
+    item.offer_id = String(offerId);
+  }
+
+  if (hasValue(name)) {
+    item.name = String(name);
+  }
+
+  if (hasValue(description)) {
+    item.description = String(description);
+  }
+
+  item.attributes = buildAttributesPayload(template?.attributes || [], fieldMappings, rowValues);
+
+  const requiredFields = [];
+  if (!hasValue(item.offer_id)) {
+    requiredFields.push('offer_id');
+  }
+  if (!hasValue(item.name)) {
+    requiredFields.push('name');
+  }
+  if (!hasValue(item.description)) {
+    requiredFields.push('description');
+  }
+
+  if (requiredFields.length > 0) {
+    throw new Error(`Строка ${rowIndex + 1}: отсутствуют значения ${requiredFields.join(', ')}`);
+  }
+
+  ['price', 'old_price', 'premium_price', 'min_price'].forEach((field) => {
+    if (hasValue(item[field])) {
+      item[field] = String(item[field]);
+    }
+  });
+
+  if (hasValue(item.vat)) {
+    item.vat = String(item.vat);
+  }
+
+  return cleanObject(item);
+};
+
+const chunkArray = (items, chunkSize) => {
+  const result = [];
+  for (let index = 0; index < items.length; index += chunkSize) {
+    result.push(items.slice(index, index + chunkSize));
+  }
+  return result;
+};
+
+const sectionStyle = {
+  backgroundColor: '#f9fafb',
+  padding: '16px 20px',
+  borderRadius: '12px',
+  marginBottom: '18px',
+  boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)'
+};
 
 export default function ImportExcelPage() {
   const [excelData, setExcelData] = useState([]);
@@ -361,6 +674,10 @@ export default function ImportExcelPage() {
   const [descriptionMessage, setDescriptionMessage] = useState('');
   const [descriptionError, setDescriptionError] = useState('');
   const [descriptionLoading, setDescriptionLoading] = useState(false);
+  const [sampleOfferId, setSampleOfferId] = useState('');
+  const [sampleTemplate, setSampleTemplate] = useState(null);
+  const [sampleLoading, setSampleLoading] = useState(false);
+  const [sampleError, setSampleError] = useState('');
   const fileInputRef = useRef(null);
 
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -410,6 +727,13 @@ export default function ImportExcelPage() {
       return () => clearTimeout(timer);
     }
   }, [descriptionError]);
+
+  useEffect(() => {
+    if (sampleError) {
+      const timer = setTimeout(() => setSampleError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [sampleError]);
 
   // Загружаем текущий профиль при монтировании
   useEffect(() => {
@@ -536,6 +860,63 @@ export default function ImportExcelPage() {
     setRowData(newRowData);
   };
 
+  const handleSampleOfferIdChange = (event) => {
+    setSampleOfferId(event.target.value);
+  };
+
+  const loadSampleProduct = async () => {
+    const trimmedOffer = sampleOfferId.trim();
+
+    if (!trimmedOffer) {
+      alert('Введите артикул товара для загрузки образца.');
+      return;
+    }
+
+    if (!currentProfile) {
+      alert('Профиль OZON не выбран. Выберите профиль на главной странице.');
+      return;
+    }
+
+    try {
+      setSampleLoading(true);
+      setSampleError('');
+
+      const params = new URLSearchParams({
+        offer_id: trimmedOffer,
+        profile: JSON.stringify(currentProfile)
+      });
+
+      const response = await fetch(`/api/products/attributes?${params.toString()}`);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(errorText || 'Не удалось загрузить образец товара');
+      }
+
+      const result = await response.json();
+      const productInfo = result?.result?.[0];
+
+      if (!productInfo) {
+        throw new Error('Ответ OZON пуст. Проверьте правильность артикула.');
+      }
+
+      setSampleTemplate(deepClone(productInfo));
+      setSampleOfferId(trimmedOffer);
+    } catch (error) {
+      console.error('Ошибка загрузки образца:', error);
+      setSampleTemplate(null);
+      setSampleError(error.message || 'Ошибка загрузки образца');
+    } finally {
+      setSampleLoading(false);
+    }
+  };
+
+  const resetSampleTemplate = () => {
+    setSampleTemplate(null);
+    setSampleOfferId('');
+    setSampleError('');
+  };
+
   const generateSeoDescriptions = async () => {
     if (!fieldMappings.description || !fieldMappings.description.enabled) {
       alert('Поле SEO названий отключено. Включите его в настройках шаблонов.');
@@ -651,6 +1032,16 @@ export default function ImportExcelPage() {
       return;
     }
 
+    if (!sampleTemplate) {
+      alert('Сначала выберите образец товара по артикулу.');
+      return;
+    }
+
+    if (excelData.length === 0) {
+      alert('Загрузите Excel файл, чтобы импортировать товары.');
+      return;
+    }
+
     setLoading(true);
     setImportProgress({ current: 0, total: excelData.length });
 
@@ -660,34 +1051,74 @@ export default function ImportExcelPage() {
         currentProfile.ozon_client_id
       );
 
-      // Подготавливаем данные с актуальными переводами
-      const products = await Promise.all(
-        excelData.map(async (row, index) => {
-          const ru_car_brand = await translationService.findBrand(row.carBrand);
-          const updatedRow = {
-            ...row,
-            ru_car_brand: ru_car_brand || row.carBrand,
-            brand_code: userValues.brand_code || '',
-            ru_color_name: userValues.ru_color_name || '',
-            ...rowData[index]
-          };
-          return service.prepareProductFromTemplate(baseProductData, updatedRow, fieldMappings);
-        })
-      );
+      const preparedItems = [];
+      const skippedRows = [];
 
-      const batchSize = 10;
-      for (let i = 0; i < products.length; i += batchSize) {
-        const batch = products.slice(i, i + batchSize);
-        await service.createProductsBatch(batch);
-        setImportProgress({ current: i + batch.length, total: products.length });
+      for (let index = 0; index < excelData.length; index++) {
+        const row = excelData[index];
+        const generatedRow = rowData[index];
 
-        await new Promise(resolve => setTimeout(resolve, 1000));
+        if (!generatedRow) {
+          throw new Error(`Строка ${index + 1}: не удалось сформировать данные. Примените шаблоны заново.`);
+        }
+
+        const ruCarBrand = await translationService.findBrand(row.carBrand);
+
+        const rowValues = {
+          ...row,
+          ru_car_brand: ruCarBrand || row.ru_car_brand || row.carBrand,
+          brand_code: userValues.brand_code || row.brand_code || '',
+          ru_color_name: userValues.ru_color_name || row.ru_color_name || '',
+          ...generatedRow
+        };
+
+        const descriptionValue =
+          typeof rowValues.description === 'string' ? rowValues.description.trim() : '';
+
+        if (!descriptionValue) {
+          skippedRows.push(index + 1);
+          continue;
+        }
+
+        rowValues.description = descriptionValue;
+
+        preparedItems.push(
+          buildImportItemFromRow({
+            template: sampleTemplate,
+            baseProductData,
+            rowValues,
+            fieldMappings,
+            rowIndex: index
+          })
+        );
       }
 
-      alert(`Успешно импортировано ${products.length} товаров!`);
+      if (preparedItems.length === 0) {
+        alert('Нет строк с заполненным полем "Описание". Дополните данные и повторите импорт.');
+        return;
+      }
+
+      const batches = chunkArray(preparedItems, 100);
+      let processed = 0;
+
+      for (const batch of batches) {
+        await service.createProductsBatch(batch);
+        processed += batch.length;
+        setImportProgress({ current: processed, total: preparedItems.length });
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+
+      const successMessageParts = [`Успешно импортировано ${preparedItems.length} товаров!`];
+      if (skippedRows.length > 0) {
+        successMessageParts.push(
+          `Пропущено строк без описания: ${skippedRows.length} (№ ${skippedRows.join(', ')})`
+        );
+      }
+
+      alert(successMessageParts.join('\n'));
     } catch (error) {
       console.error('Import error:', error);
-      alert('Ошибка импорта: ' + error.message);
+      alert('Ошибка импорта: ' + (error.message || 'Неизвестная ошибка'));
     } finally {
       setLoading(false);
       setImportProgress({ current: 0, total: 0 });
@@ -705,9 +1136,9 @@ export default function ImportExcelPage() {
   });
 
   return (
-    <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif', maxWidth: '1400px', margin: '0 auto' }}>
+    <Fragment>
       {/* Заголовок и навигация */}
-      <div style={{ marginBottom: '15px' }}>
+      <div style={{ marginBottom: '12px' }}>
         <a href="/" style={{ color: '#0070f3', textDecoration: 'none', fontSize: '14px' }}>← На главную</a>
         <a href="/products" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px', fontSize: '14px' }}>📦 Товары</a>
       </div>
@@ -814,7 +1245,7 @@ export default function ImportExcelPage() {
       )}
 
       {/* Загрузка файла - показываем всегда */}
-      <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+      <div style={{ ...sectionStyle }}>
         <h2>1. Загрузка Excel файла</h2>
         <input
           type="file"
@@ -830,7 +1261,7 @@ export default function ImportExcelPage() {
 
       {/* Пользовательские значения - показываем когда шаблоны загружены */}
       {!templatesLoading && Object.keys(fieldMappings).length > 0 && (
-        <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+        <div style={{ ...sectionStyle }}>
           <h2>2. Пользовательские значения</h2>
           <div style={{
             display: 'grid',
@@ -914,11 +1345,102 @@ export default function ImportExcelPage() {
         </div>
       )}
 
+      {/* Образец товара */}
+      {!templatesLoading && (
+        <div style={{ ...sectionStyle }}>
+          <h2>3. Образец товара по артикулу</h2>
+          <p style={{ margin: '0 0 15px 0', color: '#666', fontSize: '14px' }}>
+            Выберите существующий товар на OZON, чтобы использовать его как шаблон. Его изображения и постоянные
+            атрибуты будут скопированы, а значения из таблицы подставятся автоматически.
+          </p>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', marginBottom: '10px' }}>
+            <input
+              type="text"
+              value={sampleOfferId}
+              onChange={handleSampleOfferIdChange}
+              placeholder="Введите артикул (offer_id)"
+              style={{
+                flex: '1 1 240px',
+                minWidth: '200px',
+                padding: '8px',
+                border: '1px solid #ddd',
+                borderRadius: '4px'
+              }}
+            />
+            <button
+              onClick={loadSampleProduct}
+              disabled={sampleLoading || !currentProfile}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: sampleLoading ? '#6c757d' : '#0070f3',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: sampleLoading || !currentProfile ? 'not-allowed' : 'pointer',
+                fontSize: '14px'
+              }}
+              title={!currentProfile ? 'Выберите профиль на главной странице' : ''}
+            >
+              {sampleLoading ? 'Загрузка...' : 'Выбрать образец'}
+            </button>
+            {sampleTemplate && (
+              <button
+                onClick={resetSampleTemplate}
+                style={{
+                  padding: '8px 16px',
+                  backgroundColor: '#ffc107',
+                  color: '#212529',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer',
+                  fontSize: '14px'
+                }}
+              >
+                Очистить
+              </button>
+            )}
+          </div>
+          {sampleError && (
+            <div style={{
+              backgroundColor: '#ffe7e7',
+              borderRadius: '4px',
+              padding: '10px 12px',
+              color: '#dc3545',
+              fontSize: '13px',
+              marginBottom: '10px'
+            }}>
+              {sampleError}
+            </div>
+          )}
+          {sampleTemplate && (
+            <div style={{
+              backgroundColor: '#e9ecef',
+              borderRadius: '4px',
+              padding: '12px',
+              fontSize: '13px',
+              color: '#444'
+            }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '6px' }}>
+                Выбран образец: {sampleTemplate.name || sampleTemplate.offer_id || sampleOfferId}
+              </div>
+              <div>Атрибутов: {sampleTemplate?.attributes?.length || 0}</div>
+              {sampleTemplate?.description && (
+                <div style={{ marginTop: '6px', color: '#666' }}>
+                  <span style={{ fontWeight: 'bold' }}>Описание образца:</span>{' '}
+                  {sampleTemplate.description.slice(0, 200)}
+                  {sampleTemplate.description.length > 200 ? '…' : ''}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Настройки шаблонов - показываем когда шаблоны загружены */}
       {!templatesLoading && Object.keys(fieldMappings).length > 0 && (
-        <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
+        <div style={{ ...sectionStyle }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
-            <h2 style={{ margin: 0 }}>3. Настройка шаблонов полей</h2>
+            <h2 style={{ margin: 0 }}>4. Настройка шаблонов полей</h2>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
               {hasUnsavedChanges && (
                 <span style={{
@@ -1114,10 +1636,10 @@ export default function ImportExcelPage() {
 
       {/* Остальные секции показываем только когда есть данные Excel */}
       {excelData.length > 0 && (
-        <>
+        <div>
           {/* Базовые настройки товара */}
-          <div style={{ backgroundColor: '#f5f5f5', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
-            <h2>4. Базовые настройки товара</h2>
+          <div style={{ ...sectionStyle }}>
+            <h2>5. Базовые настройки товара</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
               <div>
                 <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>ID категории:</label>
@@ -1150,24 +1672,30 @@ export default function ImportExcelPage() {
           </div>
 
           {/* Предпросмотр данных */}
-          <div style={{ marginBottom: '20px' }}>
-            <h2>5. Предпросмотр данных ({excelData.length} строк)</h2>
+          <div style={{ ...sectionStyle, padding: '16px 20px 24px' }}>
+            <h2 style={{ marginBottom: '12px' }}>6. Предпросмотр данных ({excelData.length} строк)</h2>
 
             {/* Прогресс импорта */}
             {importProgress.total > 0 && (
-              <div style={{ marginBottom: '15px', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                  <span>Импорт товаров:</span>
+              <div style={{
+                marginBottom: '16px',
+                padding: '10px 14px',
+                borderRadius: '10px',
+                background: '#e9f7ef',
+                border: '1px solid #c3e6cb'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px', fontSize: '13px' }}>
+                  <span>Импорт товаров</span>
                   <span>{importProgress.current} / {importProgress.total}</span>
                 </div>
-                <div style={{ width: '100%', backgroundColor: '#dee2e6', borderRadius: '4px', height: '10px' }}>
+                <div style={{ width: '100%', backgroundColor: '#dfe7eb', borderRadius: '999px', height: '8px' }}>
                   <div
                     style={{
                       width: `${(importProgress.current / importProgress.total) * 100}%`,
                       backgroundColor: '#28a745',
                       height: '100%',
-                      borderRadius: '4px',
-                      transition: 'width 0.3s'
+                      borderRadius: '999px',
+                      transition: 'width 0.3s ease'
                     }}
                   />
                 </div>
@@ -1175,19 +1703,24 @@ export default function ImportExcelPage() {
             )}
 
             <div style={{
-              overflowX: 'auto',
-              maxHeight: '600px',
-              overflowY: 'auto',
-              border: '1px solid #dee2e6',
-              borderRadius: '4px'
+              backgroundColor: 'white',
+              borderRadius: '14px',
+              border: '1px solid #d7dde5',
+              overflow: 'hidden',
+              boxShadow: '0 1px 4px rgba(15, 23, 42, 0.08)'
             }}>
-              <table style={{
-                width: 'auto',
-                borderCollapse: 'collapse',
-                backgroundColor: 'white',
-                fontSize: '13px',
-                tableLayout: 'auto'
+              <div style={{
+                maxHeight: '65vh',
+                overflowX: 'auto',
+                overflowY: 'auto'
               }}>
+                <table style={{
+                  width: '100%',
+                  borderCollapse: 'collapse',
+                  backgroundColor: 'white',
+                  fontSize: '13px',
+                  tableLayout: 'fixed'
+                }}>
                 <thead style={{
                   position: 'sticky',
                   top: 0,
@@ -1196,47 +1729,46 @@ export default function ImportExcelPage() {
                 }}>
                   <tr>
                     <th style={{
-                      padding: '10px 6px',
+                      padding: '10px 8px',
                       border: '1px solid #dee2e6',
                       textAlign: 'left',
                       fontSize: '12px',
-                      width: '40px'
+                      width: '48px'
                     }}>#</th>
                     <th style={{
-                      padding: '10px 6px',
+                      padding: '10px 8px',
                       border: '1px solid #dee2e6',
                       textAlign: 'left',
                       fontSize: '12px',
-                      width: '100px'
+                      minWidth: '110px'
                     }}>Colour Code</th>
                     <th style={{
-                      padding: '10px 6px',
+                      padding: '10px 8px',
                       border: '1px solid #dee2e6',
                       textAlign: 'left',
                       fontSize: '12px',
-                      width: '120px'
+                      minWidth: '140px'
                     }}>Colour Name</th>
                     <th style={{
-                      padding: '10px 6px',
+                      padding: '10px 8px',
                       border: '1px solid #dee2e6',
                       textAlign: 'left',
                       fontSize: '12px',
-                      width: '120px'
+                      minWidth: '140px'
                     }}>Car Brand</th>
                     <th style={{
-                      padding: '10px 6px',
+                      padding: '10px 8px',
                       border: '1px solid #dee2e6',
                       textAlign: 'left',
                       fontSize: '12px',
-                      width: '120px'
+                      minWidth: '140px'
                     }}>Ru Car Brand</th>
                     {Object.keys(fieldMappings).map(fieldKey => (
                       <th key={fieldKey} style={{
-                        padding: '10px 6px',
+                        padding: '10px 8px',
                         border: '1px solid #dee2e6',
                         textAlign: 'left',
                         fontSize: '12px',
-                        width: getFieldWidth(fieldKey) || '150px',
                         minWidth: getFieldWidth(fieldKey) || '150px'
                       }}>
                         {fieldMappings[fieldKey].name}
@@ -1251,37 +1783,36 @@ export default function ImportExcelPage() {
                   {excelData.map((row, index) => (
                     <tr key={index} style={{ borderBottom: '1px solid #dee2e6' }}>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         border: '1px solid #dee2e6',
                         fontSize: '12px',
                         textAlign: 'center'
                       }}>{index + 1}</td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         border: '1px solid #dee2e6',
                         fontSize: '12px'
                       }}>{row.colourCode}</td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         border: '1px solid #dee2e6',
                         fontSize: '12px'
                       }}>{row.colourName}</td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         border: '1px solid #dee2e6',
                         fontSize: '12px'
                       }}>{row.carBrand}</td>
                       <td style={{
-                        padding: '6px',
+                        padding: '8px',
                         border: '1px solid #dee2e6',
                         fontSize: '12px'
                       }}>{row.ru_car_brand}</td>
                       {Object.keys(fieldMappings).map(fieldKey => (
                         <td key={fieldKey} style={{
-                          padding: '6px',
+                          padding: '8px',
                           border: '1px solid #dee2e6',
                           backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
-                          width: getFieldWidth(fieldKey) || '150px',
                           minWidth: getFieldWidth(fieldKey) || '150px',
                           verticalAlign: 'top'
                         }}>
@@ -1289,26 +1820,26 @@ export default function ImportExcelPage() {
                             value={rowData[index]?.[fieldKey] || ''}
                             onChange={(e) => updateRowField(index, fieldKey, e.target.value)}
                             disabled={!fieldMappings[fieldKey].enabled}
-                          style={{
-                            width: '100%',
-                            padding: '6px',
-                            border: '1px solid #ddd',
-                            borderRadius: '4px',
-                            fontSize: '12px',
-                            backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
-                            resize: 'vertical',
-                            minHeight: fieldKey === 'name'
-                              ? '80px'
-                              : fieldKey === 'description'
-                                ? '140px'
-                                : '60px',
-                            maxHeight: '200px',
-                            fontFamily: 'inherit',
-                            lineHeight: '1.4'
-                          }}
-                          rows={fieldKey === 'name' ? 4 : fieldKey === 'description' ? 6 : 3}
-                          placeholder={fieldMappings[fieldKey].enabled ? "Введите значение..." : "Поле отключено"}
-                        />
+                            style={{
+                              width: '100%',
+                              padding: '6px',
+                              border: '1px solid #d0d5dd',
+                              borderRadius: '6px',
+                              fontSize: '12px',
+                              backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
+                              resize: 'vertical',
+                              minHeight: fieldKey === 'name'
+                                ? '80px'
+                                : fieldKey === 'description'
+                                  ? '120px'
+                                  : '60px',
+                              maxHeight: '220px',
+                              fontFamily: 'inherit',
+                              lineHeight: '1.45'
+                            }}
+                            rows={fieldKey === 'name' ? 4 : fieldKey === 'description' ? 6 : 3}
+                            placeholder={fieldMappings[fieldKey].enabled ? 'Введите значение...' : 'Поле отключено'}
+                          />
                         </td>
                       ))}
                     </tr>
@@ -1317,22 +1848,32 @@ export default function ImportExcelPage() {
               </table>
             </div>
           </div>
+          </div>
 
           {/* Кнопка импорта */}
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
             <button
               onClick={importToOzon}
-              disabled={loading || !currentProfile || templatesLoading}
+              disabled={loading || !currentProfile || templatesLoading || !sampleTemplate || sampleLoading}
               style={{
                 padding: '15px 30px',
-                backgroundColor: loading || !currentProfile || templatesLoading ? '#6c757d' : '#28a745',
+                backgroundColor: loading || !currentProfile || templatesLoading || !sampleTemplate || sampleLoading ? '#6c757d' : '#28a745',
                 color: 'white',
                 border: 'none',
                 borderRadius: '4px',
-                cursor: loading || !currentProfile || templatesLoading ? 'not-allowed' : 'pointer',
+                cursor: loading || !currentProfile || templatesLoading || !sampleTemplate || sampleLoading ? 'not-allowed' : 'pointer',
                 fontSize: '16px',
                 fontWeight: 'bold'
               }}
+              title={
+                !currentProfile
+                  ? 'Выберите профиль OZON на главной странице'
+                  : templatesLoading
+                    ? 'Ожидайте загрузку шаблонов'
+                    : !sampleTemplate
+                      ? 'Сначала выберите образец товара по артикулу'
+                      : ''
+              }
             >
               {loading ? 'Импорт...' : `Импортировать ${excelData.length} товаров в OZON`}
             </button>
@@ -1347,8 +1888,8 @@ export default function ImportExcelPage() {
               </p>
             )}
           </div>
-        </>
+        </div>
       )}
-    </div>
+    </Fragment>
   );
 }

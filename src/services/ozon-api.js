@@ -153,12 +153,16 @@ export class OzonApiService {
     return value;
   }
   // Метод для массового создания товаров
-  async createProductsBatch(products) {
+  async createProductsBatch(items) {
+    if (!Array.isArray(items)) {
+      throw new Error('Для импорта требуется массив товаров');
+    }
+
     const body = {
-      items: products
+      items
     };
 
     console.log('🆕 Creating products batch:', JSON.stringify(body, null, 2));
-    return this.makeRequest('/v2/product/import', body);
+    return this.request('/v3/product/import', body);
   }
 }
