@@ -75,5 +75,12 @@
     "attributeId": null,
     "enabled": true,
     "required": false
+  },
+  "description": {
+    "name": "SEO названия",
+    "template": "",
+    "attributeId": 4191,
+    "enabled": true,
+    "required": false
   }
 }

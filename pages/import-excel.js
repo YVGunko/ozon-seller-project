@@ -323,6 +323,13 @@ const getFallbackTemplates = () => ({
     "attributeId": null,
     "enabled": true,
     "required": false
+  },
+  "description": {
+    "name": "SEO названия",
+    "template": "",
+    "attributeId": 4191,
+    "enabled": true,
+    "required": false
   }
 });
 const getFieldWidth = (fieldKey) => {
@@ -338,15 +345,22 @@ const getFieldWidth = (fieldKey) => {
     model_name: '180px',
     alternative_offers: '200px',
     name: '400px',
+    description: '450px',
   };
 
   return widthMap[fieldKey] || '150px'; // Значение по умолчанию
 };
+
+const HIDDEN_TEMPLATE_FIELDS = ['description'];
+
 export default function ImportExcelPage() {
   const [excelData, setExcelData] = useState([]);
   const [loading, setLoading] = useState(false);
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 });
   const [saveMessage, setSaveMessage] = useState('');
+  const [descriptionMessage, setDescriptionMessage] = useState('');
+  const [descriptionError, setDescriptionError] = useState('');
+  const [descriptionLoading, setDescriptionLoading] = useState(false);
   const fileInputRef = useRef(null);
 
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -378,6 +392,24 @@ export default function ImportExcelPage() {
 
   // Редактируемые данные для каждой строки
   const [rowData, setRowData] = useState({});
+  const templateFieldKeys = Object.keys(fieldMappings);
+  const editableTemplateKeys = templateFieldKeys.filter(
+    (key) => !HIDDEN_TEMPLATE_FIELDS.includes(key)
+  );
+
+  useEffect(() => {
+    if (descriptionMessage) {
+      const timer = setTimeout(() => setDescriptionMessage(''), 4000);
+      return () => clearTimeout(timer);
+    }
+  }, [descriptionMessage]);
+
+  useEffect(() => {
+    if (descriptionError) {
+      const timer = setTimeout(() => setDescriptionError(''), 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [descriptionError]);
 
   // Загружаем текущий профиль при монтировании
   useEffect(() => {
@@ -481,7 +513,17 @@ export default function ImportExcelPage() {
         ru_color_name: userValues.ru_color_name || ''
       };
 
+      newRowData[index] = { ...(newRowData[index] || {}) };
+
       Object.keys(fieldMappings).forEach(fieldKey => {
+        const mapping = fieldMappings[fieldKey];
+        if (!mapping) {
+          return;
+        }
+        if (fieldKey === 'description' && (!mapping.template || mapping.template.trim() === '')) {
+          return;
+        }
+
         newRowData[index][fieldKey] = service.generateFieldValue(
           fieldKey,
           baseProductData,
@@ -492,6 +534,95 @@ export default function ImportExcelPage() {
     }
 
     setRowData(newRowData);
+  };
+
+  const generateSeoDescriptions = async () => {
+    if (!fieldMappings.description || !fieldMappings.description.enabled) {
+      alert('Поле SEO названий отключено. Включите его в настройках шаблонов.');
+      return;
+    }
+
+    if (!userValues.seo_keywords || !userValues.seo_keywords.trim()) {
+      alert('Введите ключевые слова для SEO названий.');
+      return;
+    }
+
+    if (excelData.length === 0) {
+      alert('Загрузите Excel файл, чтобы сгенерировать SEO названия.');
+      return;
+    }
+
+    try {
+      setDescriptionLoading(true);
+      setDescriptionError('');
+      setDescriptionMessage('');
+
+      const response = await fetch('/api/ai/generate-seo-description', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          keywords: userValues.seo_keywords,
+          rows: excelData.map((row, index) => ({
+            index,
+            colourCode: row.colourCode,
+            colourName: row.colourName,
+            carBrand: row.carBrand,
+            ruCarBrand: row.ru_car_brand,
+            templateValues: rowData[index] || {}
+          })),
+          baseProductData
+        })
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        let parsedMessage = '';
+        try {
+          const parsed = JSON.parse(errorText);
+          parsedMessage =
+            parsed?.error?.message ||
+            parsed?.message ||
+            (typeof parsed === 'string' ? parsed : '');
+        } catch (parseError) {
+          // no-op, fallback to raw text
+        }
+
+        let message = parsedMessage || errorText || 'Не удалось сгенерировать SEO названия';
+        if (response.status === 429 || /quota/i.test(message)) {
+          message =
+            'Превышена квота OpenAI. Проверьте тариф или лимиты и повторите попытку позже.';
+        }
+
+        throw new Error(message);
+      }
+
+      const result = await response.json();
+
+      if (!result.descriptions || !Array.isArray(result.descriptions)) {
+        throw new Error('Некорректный формат ответа от сервиса генерации');
+      }
+
+      setRowData(prev => {
+        const updated = { ...prev };
+        result.descriptions.forEach(item => {
+          if (typeof item?.index === 'number' && item.index in updated) {
+            updated[item.index] = {
+              ...updated[item.index],
+              description: item.description || ''
+            };
+          }
+        });
+        return updated;
+      });
+
+      const filledCount = result.descriptions.filter(item => item?.description).length;
+      setDescriptionMessage(`Сгенерировано SEO названий: ${filledCount}`);
+    } catch (error) {
+      console.error('Ошибка генерации SEO названий:', error);
+      setDescriptionError(error.message || 'Ошибка генерации SEO названий');
+    } finally {
+      setDescriptionLoading(false);
+    }
   };
 
   // Сохранение шаблонов
@@ -508,7 +639,7 @@ export default function ImportExcelPage() {
   const handleUserValueChange = (key, value) => {
     updateUserValue(key, value);
     // Применяем шаблоны ко всем строкам при изменении brand_code или ru_color_name
-    if (excelData.length > 0) {
+    if (excelData.length > 0 && (key === 'brand_code' || key === 'ru_color_name')) {
       setTimeout(() => applyTemplatesToAll(), 100);
     }
   };
@@ -747,6 +878,28 @@ export default function ImportExcelPage() {
                 Используется в шаблонах как {'{ru_color_name}'}
               </div>
             </div>
+            <div style={{ gridColumn: '1 / -1' }}>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Ключевые слова для SEO названий:
+              </label>
+              <textarea
+                value={userValues.seo_keywords || ''}
+                onChange={(e) => handleUserValueChange('seo_keywords', e.target.value)}
+                rows={4}
+                style={{
+                  width: '100%',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px',
+                  resize: 'vertical',
+                  fontFamily: 'inherit'
+                }}
+                placeholder="Например: автомобильная эмаль, ремонт сколов, краска для автомобиля"
+              />
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                Эти ключевые слова будут переданы в ChatGPT для генерации SEO названий.
+              </div>
+            </div>
           </div>
           <div style={{ fontSize: '12px', color: '#666', padding: '10px', backgroundColor: '#e9ecef', borderRadius: '4px' }}>
             <strong>Доступные переменные в шаблонах:</strong><br />
@@ -755,7 +908,8 @@ export default function ImportExcelPage() {
             • {'{car_brand}'} - марка автомобиля<br />
             • {'{ru_car_brand}'} - русское название марки автомобиля<br />
             • {'{brand_code}'} - код бренда (задается выше)<br />
-            • {'{ru_color_name}'} - русское название цвета (задается выше)
+            • {'{ru_color_name}'} - русское название цвета (задается выше)<br />
+            • Поле SEO названий генерируется автоматически на основе ключевых слов
           </div>
         </div>
       )}
@@ -836,7 +990,7 @@ export default function ImportExcelPage() {
                 📥 Загрузить
               </button>
               <span style={{ fontSize: '12px', color: '#28a745' }}>
-                ✅ {Object.keys(fieldMappings).length} полей
+                ✅ {editableTemplateKeys.length} полей
               </span>
             </div>
           </div>
@@ -847,7 +1001,7 @@ export default function ImportExcelPage() {
             gap: '15px',
             marginBottom: '15px'
           }}>
-            {Object.keys(fieldMappings).map(fieldKey => (
+            {editableTemplateKeys.map(fieldKey => (
               <div key={fieldKey} style={{
                 padding: '15px',
                 border: '1px solid #ddd',
@@ -899,19 +1053,61 @@ export default function ImportExcelPage() {
           </div>
 
           {excelData.length > 0 && (
-            <button
-              onClick={applyTemplatesToAll}
-              style={{
-                padding: '10px 20px',
-                backgroundColor: '#17a2b8',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                cursor: 'pointer'
-              }}
-            >
-              Применить шаблоны ко всем строкам
-            </button>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center', marginTop: '10px' }}>
+              <button
+                onClick={applyTemplatesToAll}
+                style={{
+                  padding: '10px 20px',
+                  backgroundColor: '#17a2b8',
+                  color: 'white',
+                  border: 'none',
+                  borderRadius: '4px',
+                  cursor: 'pointer'
+                }}
+              >
+                Применить шаблоны ко всем строкам
+              </button>
+              {fieldMappings.description && (
+                <button
+                  onClick={generateSeoDescriptions}
+                  disabled={
+                    descriptionLoading ||
+                    !fieldMappings.description.enabled ||
+                    !(userValues.seo_keywords && userValues.seo_keywords.trim())
+                  }
+                  style={{
+                    padding: '10px 20px',
+                    backgroundColor: descriptionLoading ? '#6c757d' : '#845ef7',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: '4px',
+                    cursor:
+                      descriptionLoading ||
+                      !fieldMappings.description.enabled ||
+                      !(userValues.seo_keywords && userValues.seo_keywords.trim())
+                        ? 'not-allowed'
+                        : 'pointer'
+                  }}
+                  title={
+                    !(userValues.seo_keywords && userValues.seo_keywords.trim())
+                      ? 'Введите ключевые слова для SEO названий в разделе выше'
+                      : ''
+                  }
+                >
+                  {descriptionLoading ? 'Генерация SEO названий...' : '✨ Сгенерировать SEO названия'}
+                </button>
+              )}
+              {descriptionMessage && (
+                <span style={{ fontSize: '12px', color: '#28a745' }}>
+                  {descriptionMessage}
+                </span>
+              )}
+              {descriptionError && (
+                <span style={{ fontSize: '12px', color: '#dc3545' }}>
+                  {descriptionError}
+                </span>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -1093,22 +1289,26 @@ export default function ImportExcelPage() {
                             value={rowData[index]?.[fieldKey] || ''}
                             onChange={(e) => updateRowField(index, fieldKey, e.target.value)}
                             disabled={!fieldMappings[fieldKey].enabled}
-                            style={{
-                              width: '100%',
-                              padding: '6px',
-                              border: '1px solid #ddd',
-                              borderRadius: '4px',
-                              fontSize: '12px',
-                              backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
-                              resize: 'vertical',
-                              minHeight: fieldKey === 'name' ? '80px' : '60px',
-                              maxHeight: '200px',
-                              fontFamily: 'inherit',
-                              lineHeight: '1.4'
-                            }}
-                            rows={fieldKey === 'name' ? 4 : 3}
-                            placeholder={fieldMappings[fieldKey].enabled ? "Введите значение..." : "Поле отключено"}
-                          />
+                          style={{
+                            width: '100%',
+                            padding: '6px',
+                            border: '1px solid #ddd',
+                            borderRadius: '4px',
+                            fontSize: '12px',
+                            backgroundColor: !fieldMappings[fieldKey].enabled ? '#f8f9fa' : 'white',
+                            resize: 'vertical',
+                            minHeight: fieldKey === 'name'
+                              ? '80px'
+                              : fieldKey === 'description'
+                                ? '140px'
+                                : '60px',
+                            maxHeight: '200px',
+                            fontFamily: 'inherit',
+                            lineHeight: '1.4'
+                          }}
+                          rows={fieldKey === 'name' ? 4 : fieldKey === 'description' ? 6 : 3}
+                          placeholder={fieldMappings[fieldKey].enabled ? "Введите значение..." : "Поле отключено"}
+                        />
                         </td>
                       ))}
                     </tr>
