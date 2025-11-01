@@ -21,6 +21,9 @@ export default function ProductsPage() {
   });
 
   const [attributes, setAttributes] = useState(null);
+  const [editableAttributes, setEditableAttributes] = useState(null);
+  const [savingAttributes, setSavingAttributes] = useState(false);
+  const [attributesUpdateStatus, setAttributesUpdateStatus] = useState({ message: '', error: '' });
   const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
@@ -97,10 +100,16 @@ export default function ProductsPage() {
     setLoadingAttributes(true);
     setSelectedProduct(offerId);
     setAttributes(null);
+    setEditableAttributes(null);
+    setAttributesUpdateStatus({ message: '', error: '' });
 
     try {
       const data = await apiClient.getAttributes(offerId, currentProfile);
       setAttributes(data);
+      const editable = data?.result
+        ? JSON.parse(JSON.stringify(data.result))
+        : [];
+      setEditableAttributes(editable);
     } catch (err) {
       console.error('fetchAttributes error', err);
       setAttributes({ error: err.message || 'Failed to load attributes' });
@@ -112,6 +121,9 @@ export default function ProductsPage() {
   const closeAttributes = () => {
     setAttributes(null);
     setSelectedProduct(null);
+    setEditableAttributes(null);
+    setSavingAttributes(false);
+    setAttributesUpdateStatus({ message: '', error: '' });
   };
 
   const openCopyModal = (product) => {
@@ -391,74 +403,164 @@ export default function ProductsPage() {
 
       {/* Модальные окна: атрибуты и копирование — оставлены как в твоём UI, но используют state / функции выше */}
       {attributes && (
-        <div style={{
-          position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: 20
-        }}>
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 20
+          }}
+        >
           <div style={{ backgroundColor: 'white', padding: 30, borderRadius: 8, maxWidth: 800, maxHeight: '80vh', overflow: 'auto', width: '100%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <h2>Атрибуты товара: {selectedProduct}</h2>
-              <button onClick={closeAttributes} style={{ padding: '8px 16px', backgroundColor: '#6c757d', color: 'white', border: 'none', borderRadius: 4 }}>Закрыть</button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 20 }}>
+              <h2 style={{ margin: 0 }}>Атрибуты товара: {selectedProduct}</h2>
+              <div style={{ display: 'flex', gap: 10 }}>
+                <button
+                  onClick={saveAttributesToOzon}
+                  disabled={savingAttributes || !editableAttributes || !editableAttributes.length}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: savingAttributes ? '#6c757d' : '#28a745',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: savingAttributes ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {savingAttributes ? 'Отправляем...' : 'Изменить в OZON'}
+                </button>
+                <button
+                  onClick={closeAttributes}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: '#6c757d',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4
+                  }}
+                >
+                  Закрыть
+                </button>
+              </div>
             </div>
+
+            {attributesUpdateStatus.message && (
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: '10px 14px',
+                  borderRadius: 6,
+                  backgroundColor: '#e8f5e9',
+                  color: '#2d7a32',
+                  border: '1px solid #c7e6cc',
+                  fontSize: 14
+                }}
+              >
+                {attributesUpdateStatus.message}
+              </div>
+            )}
+
+            {attributesUpdateStatus.error && (
+              <div
+                style={{
+                  marginBottom: 16,
+                  padding: '10px 14px',
+                  borderRadius: 6,
+                  backgroundColor: '#fdecea',
+                  color: '#b71c1c',
+                  border: '1px solid #f5c2c0',
+                  fontSize: 14
+                }}
+              >
+                {attributesUpdateStatus.error}
+              </div>
+            )}
 
             {attributes.error ? (
               <div style={{ color: '#dc3545', padding: 20, textAlign: 'center' }}>Ошибка: {attributes.error}</div>
             ) : attributes.result && attributes.result.length > 0 ? (
               <div>
-                {attributes.result.map((productInfo, idx) => (
-                  <div key={idx} style={{ marginBottom: 20 }}>
-                    <div style={{ marginBottom: 12, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 4 }}>
-                      <h3>Основная информация</h3>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                        <div><strong>ID:</strong> {productInfo.id}</div>
-                        <div><strong>Артикул:</strong> {productInfo.offer_id}</div>
-                        <div><strong>SKU:</strong> {productInfo.sku}</div>
-                        <div><strong>Название:</strong> {productInfo.name}</div>
-                        {productInfo.barcode && <div><strong>Штрихкод:</strong> {productInfo.barcode}</div>}
-                        {productInfo.weight && <div><strong>Вес:</strong> {productInfo.weight} {productInfo.weight_unit}</div>}
-                      </div>
-                    </div>
+                {attributes.result.map((productInfo, idx) => {
+                  const editableProduct = editableAttributes?.[idx] || productInfo;
+                  const attributeList = editableProduct?.attributes || [];
 
-                    {productInfo.attributes && productInfo.attributes.length > 0 && (
-                      <div style={{ marginBottom: 20 }}>
-                        <h3>Характеристики ({productInfo.attributes.length})</h3>
-                        <div style={{ maxHeight: 300, overflow: 'auto' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                            <thead>
-                              <tr style={{ backgroundColor: '#e9ecef' }}>
-                                <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>ID</th>
-                                <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>Значение</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {productInfo.attributes.map((attr, aIdx) => (
-                                <tr key={aIdx}>
-                                  <td style={{ padding: 8, border: '1px solid #dee2e6', fontWeight: 'bold' }}>{attr.id}</td>
-                                  <td style={{ padding: 8, border: '1px solid #dee2e6' }}>
-                                    {attr.values && attr.values.map((v, i) => (
-                                      <span key={i}>{v.value}{i < attr.values.length - 1 ? ', ' : ''}</span>
-                                    ))}
-                                  </td>
+                  return (
+                    <div key={idx} style={{ marginBottom: 20 }}>
+                      <div style={{ marginBottom: 12, padding: 15, backgroundColor: '#f8f9fa', borderRadius: 4 }}>
+                        <h3>Основная информация</h3>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                          <div><strong>ID:</strong> {productInfo.id}</div>
+                          <div><strong>Артикул:</strong> {productInfo.offer_id}</div>
+                          <div><strong>SKU:</strong> {productInfo.sku}</div>
+                          <div><strong>Название:</strong> {productInfo.name}</div>
+                          {productInfo.barcode && <div><strong>Штрихкод:</strong> {productInfo.barcode}</div>}
+                          {productInfo.weight && <div><strong>Вес:</strong> {productInfo.weight} {productInfo.weight_unit}</div>}
+                        </div>
+                      </div>
+
+                      {attributeList.length > 0 && (
+                        <div style={{ marginBottom: 20 }}>
+                          <h3>Характеристики ({attributeList.length})</h3>
+                          <div style={{ maxHeight: 300, overflow: 'auto' }}>
+                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                              <thead>
+                                <tr style={{ backgroundColor: '#e9ecef' }}>
+                                  <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>ID</th>
+                                  <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>Значение</th>
                                 </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      </div>
-                    )}
+                              </thead>
+                              <tbody>
+                                {attributeList.map((attr, aIdx) => {
+                                  const valueString = (attr.values || [])
+                                    .map(v => v?.value ?? '')
+                                    .filter(Boolean)
+                                    .join(', ');
 
-                    {productInfo.images && productInfo.images.length > 0 && (
-                      <div>
-                        <h3>Изображения ({productInfo.images.length})</h3>
-                        <div style={{ display: 'flex', gap: 10, overflowX: 'auto' }}>
-                          {productInfo.images.map((img, imIdx) => (
-                            <img key={imIdx} src={img} alt={`img-${imIdx}`} style={{ height: 100, width: 'auto', border: '1px solid #ddd', borderRadius: 4 }} />
-                          ))}
+                                  return (
+                                    <tr key={aIdx}>
+                                      <td style={{ padding: 8, border: '1px solid #dee2e6', fontWeight: 'bold' }}>{attr.id}</td>
+                                      <td style={{ padding: 8, border: '1px solid #dee2e6' }}>
+                                        <textarea
+                                          value={valueString}
+                                          onChange={(e) => handleAttributeValueChange(idx, aIdx, e.target.value)}
+                                          rows={2}
+                                          style={{
+                                            width: '100%',
+                                            padding: 6,
+                                            border: '1px solid #ced4da',
+                                            borderRadius: 4,
+                                            fontSize: 13,
+                                            resize: 'vertical'
+                                          }}
+                                          placeholder="Введите значения через запятую"
+                                        />
+                                      </td>
+                                    </tr>
+                                  );
+                                })}
+                              </tbody>
+                            </table>
+                          </div>
                         </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      )}
+
+                      {productInfo.images && productInfo.images.length > 0 && (
+                        <div>
+                          <h3>Изображения ({productInfo.images.length})</h3>
+                          <div style={{ display: 'flex', gap: 10, overflowX: 'auto' }}>
+                            {productInfo.images.map((img, imIdx) => (
+                              <img key={imIdx} src={img} alt={`img-${imIdx}`} style={{ height: 100, width: 'auto', border: '1px solid #ddd', borderRadius: 4 }} />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               <div style={{ padding: 20, textAlign: 'center', color: '#6c757d' }}>Атрибуты не найдены</div>
@@ -517,3 +619,137 @@ export default function ProductsPage() {
     </div>
   );
 }
+  const handleAttributeValueChange = (productIndex, attributeIndex, rawValue) => {
+    setEditableAttributes(prev => {
+      if (!prev) return prev;
+
+      return prev.map((product, pIdx) => {
+        if (pIdx !== productIndex) return product;
+
+        const updatedAttributes = (product.attributes || []).map((attr, aIdx) => {
+          if (aIdx !== attributeIndex) return attr;
+
+          const values = rawValue
+            .split(',')
+            .map(value => value.trim())
+            .filter(Boolean)
+            .map(value => ({ value }));
+
+          return {
+            ...attr,
+            values
+          };
+        });
+
+        return {
+          ...product,
+          attributes: updatedAttributes
+        };
+      });
+    });
+  };
+
+  const sanitizeItemsForUpdate = () => {
+    if (!editableAttributes || editableAttributes.length === 0) return [];
+
+    return editableAttributes
+      .map(item => {
+        const offerId = item.offer_id || selectedProduct;
+        const attributesPayload = (item.attributes || [])
+          .map(attr => {
+            const id = Number(attr?.id ?? attr?.attribute_id);
+            if (!id) return null;
+
+            const values = (attr.values || [])
+              .map(valueEntry => {
+                const rawValue =
+                  valueEntry?.value ??
+                  valueEntry?.text ??
+                  valueEntry?.value_text ??
+                  valueEntry;
+                if (rawValue === undefined || rawValue === null) return null;
+                const str = String(rawValue).trim();
+                if (!str) return null;
+                return { value: str };
+              })
+              .filter(Boolean);
+
+            if (!values.length) return null;
+
+            return {
+              id,
+              values
+            };
+          })
+          .filter(Boolean);
+
+        if (!offerId || !attributesPayload.length) {
+          return null;
+        }
+
+        const payload = {
+          offer_id: String(offerId),
+          attributes: attributesPayload
+        };
+
+        if (item.name) {
+          payload.name = item.name;
+        }
+
+        return payload;
+      })
+      .filter(Boolean);
+  };
+
+  const saveAttributesToOzon = async () => {
+    if (!currentProfile) {
+      alert('Пожалуйста, выберите профиль');
+      return;
+    }
+
+    if (!selectedProduct) {
+      alert('Не выбран товар для обновления');
+      return;
+    }
+
+    const items = sanitizeItemsForUpdate();
+
+    if (items.length === 0) {
+      alert('Нет атрибутов для отправки. Заполните значения перед сохранением.');
+      return;
+    }
+
+    try {
+      setSavingAttributes(true);
+      setAttributesUpdateStatus({ message: '', error: '' });
+
+      const response = await fetch('/api/products/attributes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items,
+          profile: currentProfile
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Не удалось обновить атрибуты');
+      }
+
+      setAttributesUpdateStatus({
+        message: 'Атрибуты успешно отправлены в OZON',
+        error: ''
+      });
+    } catch (error) {
+      console.error('saveAttributesToOzon error', error);
+      setAttributesUpdateStatus({
+        message: '',
+        error: error.message || 'Ошибка при обновлении атрибутов'
+      });
+    } finally {
+      setSavingAttributes(false);
+    }
+  };
+
+

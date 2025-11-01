@@ -165,4 +165,63 @@ export class OzonApiService {
     console.log('🆕 Creating products batch:', JSON.stringify(body, null, 2));
     return this.request('/v3/product/import', body);
   }
+
+  async updateProductAttributes(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('Не переданы товары для обновления');
+    }
+
+    const normalizedItems = items
+      .map((item) => {
+        const offerId = item.offer_id || item.offerId;
+        const prepared = {
+          ...item,
+          offer_id: offerId
+        };
+
+        if (Array.isArray(item.attributes)) {
+          prepared.attributes = item.attributes
+            .map((attr) => {
+              const id = Number(attr?.id ?? attr?.attribute_id);
+              if (!id) return null;
+
+              const values = (attr.values || [])
+                .map((valueEntry) => {
+                  const raw =
+                    valueEntry?.value ??
+                    valueEntry?.text ??
+                    valueEntry?.value_text ??
+                    valueEntry;
+                  if (raw === undefined || raw === null) return null;
+                  const str = String(raw).trim();
+                  if (!str) return null;
+                  return { value: str };
+                })
+                .filter(Boolean);
+
+              if (!values.length) return null;
+
+              return {
+                id,
+                values
+              };
+            })
+            .filter(Boolean);
+        }
+
+        return prepared;
+      })
+      .filter(
+        (item) =>
+          item.offer_id &&
+          Array.isArray(item.attributes) &&
+          item.attributes.length > 0
+      );
+
+    if (!normalizedItems.length) {
+      throw new Error('Нет атрибутов для обновления');
+    }
+
+    return this.createProductsBatch(normalizedItems);
+  }
 }
