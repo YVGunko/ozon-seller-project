@@ -1,9 +1,12 @@
 // pages/products.js
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
+import { useRouter } from 'next/router';
 import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
 
 export default function ProductsPage() {
+  const router = useRouter();
+  const autoOpenHandled = useRef(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [currentProfile, setCurrentProfile] = useState(null);
@@ -90,6 +93,29 @@ export default function ProductsPage() {
     if (currentProfile) fetchProducts(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProfile]);
+
+  useEffect(() => {
+    if (autoOpenHandled.current) return;
+    if (!currentProfile) return;
+
+    if (typeof window === 'undefined') return;
+
+    let offerToOpen = null;
+    if (router?.query?.openAttributes === 'true' && router?.query?.offer_id) {
+      offerToOpen = router.query.offer_id;
+    } else {
+      offerToOpen = window.localStorage.getItem('openAttributesOffer');
+    }
+
+    if (offerToOpen) {
+      autoOpenHandled.current = true;
+      fetchAttributes(offerToOpen);
+      window.localStorage.removeItem('openAttributesOffer');
+      if (router?.query?.openAttributes === 'true') {
+        router.replace('/products', undefined, { shallow: true });
+      }
+    }
+  }, [currentProfile, router]);
 
   // fetchAttributes
   const fetchAttributes = async (offerId) => {

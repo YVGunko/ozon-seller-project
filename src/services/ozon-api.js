@@ -1,6 +1,4 @@
 // src/services/ozon-api.js
-import { BaseHttpClient } from './base-http-client';
-
 export class OzonApiService {
   constructor(apiKey, clientId) {
     this.baseUrl = 'https://api-seller.ozon.ru';
@@ -20,7 +18,10 @@ export class OzonApiService {
 
     const data = await response.json();
     if (!response.ok) {
-      throw new Error(data.message || `OZON API error: ${response.status}`);
+      const error = new Error(data?.message || `OZON API error: ${response.status}`);
+      error.status = response.status;
+      error.data = data;
+      throw error;
     }
     return data;
   }
@@ -231,5 +232,15 @@ export class OzonApiService {
     }
 
     return this.createProductsBatch(normalizedItems);
+  }
+
+  async getProductImportStatus(taskId) {
+    if (!taskId) {
+      throw new Error('Не передан task_id');
+    }
+
+    return this.request('/v1/product/import/info', {
+      task_id: String(taskId)
+    });
   }
 }
