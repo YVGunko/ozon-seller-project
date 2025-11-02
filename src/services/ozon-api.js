@@ -176,8 +176,16 @@ export class OzonApiService {
         const offerId = item.offer_id || item.offerId;
         const prepared = {
           ...item,
-          offer_id: offerId
+          offer_id: offerId ? String(offerId) : undefined
         };
+
+        const typeId = Number(item.type_id ?? item.typeId);
+        if (Number.isFinite(typeId) && typeId > 0) {
+          prepared.type_id = typeId;
+        } else {
+          delete prepared.type_id;
+          delete prepared.typeId;
+        }
 
         if (Array.isArray(item.attributes)) {
           prepared.attributes = item.attributes

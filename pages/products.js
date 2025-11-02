@@ -126,6 +126,144 @@ export default function ProductsPage() {
     setAttributesUpdateStatus({ message: '', error: '' });
   };
 
+  const handleAttributeValueChange = (productIndex, attributeIndex, rawValue) => {
+    setEditableAttributes(prev => {
+      if (!prev) return prev;
+
+      return prev.map((product, pIdx) => {
+        if (pIdx !== productIndex) return product;
+
+        const updatedAttributes = (product.attributes || []).map((attr, aIdx) => {
+          if (aIdx !== attributeIndex) return attr;
+
+          const values = rawValue
+            .split(',')
+            .map(value => value.trim())
+            .filter(Boolean)
+            .map(value => ({ value }));
+
+          return {
+            ...attr,
+            values
+          };
+        });
+
+        return {
+          ...product,
+          attributes: updatedAttributes
+        };
+      });
+    });
+  };
+
+  const sanitizeItemsForUpdate = () => {
+    if (!editableAttributes || editableAttributes.length === 0) return [];
+
+    return editableAttributes
+      .map(item => {
+        const offerId = item.offer_id || selectedProduct;
+        const attributesPayload = (item.attributes || [])
+          .map(attr => {
+            const id = Number(attr?.id ?? attr?.attribute_id);
+            if (!id) return null;
+
+            const values = (attr.values || [])
+              .map(valueEntry => {
+                const rawValue =
+                  valueEntry?.value ??
+                  valueEntry?.text ??
+                  valueEntry?.value_text ??
+                  valueEntry;
+                if (rawValue === undefined || rawValue === null) return null;
+                const str = String(rawValue).trim();
+                if (!str) return null;
+                return { value: str };
+              })
+              .filter(Boolean);
+
+            if (!values.length) return null;
+
+            return {
+              id,
+              values
+            };
+          })
+          .filter(Boolean);
+
+        if (!offerId || !attributesPayload.length) {
+          return null;
+        }
+
+        const payload = {
+          offer_id: String(offerId),
+          attributes: attributesPayload
+        };
+
+        const typeId = Number(item.type_id ?? item.typeId);
+        if (Number.isFinite(typeId) && typeId > 0) {
+          payload.type_id = typeId;
+        }
+
+        if (item.name) {
+          payload.name = item.name;
+        }
+
+        return payload;
+      })
+      .filter(Boolean);
+  };
+
+  const saveAttributesToOzon = async () => {
+    if (!currentProfile) {
+      alert('Пожалуйста, выберите профиль');
+      return;
+    }
+
+    if (!selectedProduct) {
+      alert('Не выбран товар для обновления');
+      return;
+    }
+
+    const items = sanitizeItemsForUpdate();
+
+    if (items.length === 0) {
+      alert('Нет атрибутов для отправки. Заполните значения перед сохранением.');
+      return;
+    }
+
+    try {
+      setSavingAttributes(true);
+      setAttributesUpdateStatus({ message: '', error: '' });
+
+      const response = await fetch('/api/products/attributes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items,
+          profile: currentProfile
+        })
+      });
+
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || 'Не удалось обновить атрибуты');
+      }
+
+      setAttributesUpdateStatus({
+        message: 'Атрибуты успешно отправлены в OZON',
+        error: ''
+      });
+    } catch (error) {
+      console.error('saveAttributesToOzon error', error);
+      setAttributesUpdateStatus({
+        message: '',
+        error: error.message || 'Ошибка при обновлении атрибутов'
+      });
+    } finally {
+      setSavingAttributes(false);
+    }
+  };
+
   const openCopyModal = (product) => {
     setSelectedProduct(product);
     setCopyForm({
@@ -415,7 +553,7 @@ export default function ProductsPage() {
             padding: 20
           }}
         >
-          <div style={{ backgroundColor: 'white', padding: 30, borderRadius: 8, maxWidth: 800, maxHeight: '80vh', overflow: 'auto', width: '100%' }}>
+          <div style={{ backgroundColor: 'white', padding: 30, borderRadius: 8, maxWidth: 1400, maxHeight: '80vh', overflow: 'auto', width: '80vw' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, marginBottom: 20 }}>
               <h2 style={{ margin: 0 }}>Атрибуты товара: {selectedProduct}</h2>
               <div style={{ display: 'flex', gap: 10 }}>
@@ -527,14 +665,15 @@ export default function ProductsPage() {
                                         <textarea
                                           value={valueString}
                                           onChange={(e) => handleAttributeValueChange(idx, aIdx, e.target.value)}
-                                          rows={2}
+                                          rows={['4191', '7206', '22232', '4180'].includes(String(attr.id)) ? 5 : 2}
                                           style={{
                                             width: '100%',
                                             padding: 6,
                                             border: '1px solid #ced4da',
                                             borderRadius: 4,
                                             fontSize: 13,
-                                            resize: 'vertical'
+                                            resize: 'vertical',
+                                            minHeight: ['4191', '7206', '22232', '4180'].includes(String(attr.id)) ? '140px' : '60px'
                                           }}
                                           placeholder="Введите значения через запятую"
                                         />
@@ -617,139 +756,5 @@ export default function ProductsPage() {
         </div>
       )}
     </div>
-  );
+   );
 }
-  const handleAttributeValueChange = (productIndex, attributeIndex, rawValue) => {
-    setEditableAttributes(prev => {
-      if (!prev) return prev;
-
-      return prev.map((product, pIdx) => {
-        if (pIdx !== productIndex) return product;
-
-        const updatedAttributes = (product.attributes || []).map((attr, aIdx) => {
-          if (aIdx !== attributeIndex) return attr;
-
-          const values = rawValue
-            .split(',')
-            .map(value => value.trim())
-            .filter(Boolean)
-            .map(value => ({ value }));
-
-          return {
-            ...attr,
-            values
-          };
-        });
-
-        return {
-          ...product,
-          attributes: updatedAttributes
-        };
-      });
-    });
-  };
-
-  const sanitizeItemsForUpdate = () => {
-    if (!editableAttributes || editableAttributes.length === 0) return [];
-
-    return editableAttributes
-      .map(item => {
-        const offerId = item.offer_id || selectedProduct;
-        const attributesPayload = (item.attributes || [])
-          .map(attr => {
-            const id = Number(attr?.id ?? attr?.attribute_id);
-            if (!id) return null;
-
-            const values = (attr.values || [])
-              .map(valueEntry => {
-                const rawValue =
-                  valueEntry?.value ??
-                  valueEntry?.text ??
-                  valueEntry?.value_text ??
-                  valueEntry;
-                if (rawValue === undefined || rawValue === null) return null;
-                const str = String(rawValue).trim();
-                if (!str) return null;
-                return { value: str };
-              })
-              .filter(Boolean);
-
-            if (!values.length) return null;
-
-            return {
-              id,
-              values
-            };
-          })
-          .filter(Boolean);
-
-        if (!offerId || !attributesPayload.length) {
-          return null;
-        }
-
-        const payload = {
-          offer_id: String(offerId),
-          attributes: attributesPayload
-        };
-
-        if (item.name) {
-          payload.name = item.name;
-        }
-
-        return payload;
-      })
-      .filter(Boolean);
-  };
-
-  const saveAttributesToOzon = async () => {
-    if (!currentProfile) {
-      alert('Пожалуйста, выберите профиль');
-      return;
-    }
-
-    if (!selectedProduct) {
-      alert('Не выбран товар для обновления');
-      return;
-    }
-
-    const items = sanitizeItemsForUpdate();
-
-    if (items.length === 0) {
-      alert('Нет атрибутов для отправки. Заполните значения перед сохранением.');
-      return;
-    }
-
-    try {
-      setSavingAttributes(true);
-      setAttributesUpdateStatus({ message: '', error: '' });
-
-      const response = await fetch('/api/products/attributes', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          items,
-          profile: currentProfile
-        })
-      });
-
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || 'Не удалось обновить атрибуты');
-      }
-
-      setAttributesUpdateStatus({
-        message: 'Атрибуты успешно отправлены в OZON',
-        error: ''
-      });
-    } catch (error) {
-      console.error('saveAttributesToOzon error', error);
-      setAttributesUpdateStatus({
-        message: '',
-        error: error.message || 'Ошибка при обновлении атрибутов'
-      });
-    } finally {
-      setSavingAttributes(false);
-    }
-  };
-
-
