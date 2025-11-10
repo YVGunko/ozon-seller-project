@@ -2,6 +2,10 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { addRequestLog } from '../../../src/server/requestLogStore';
 
+const buildDescriptionAttributeKey = (descriptionCategoryId, typeId) => {
+  return `${descriptionCategoryId ?? 'none'}:${typeId ?? 'none'}`;
+};
+
 const parseProfile = (rawProfile) => {
   if (!rawProfile) {
     throw new Error('Missing OZON profile');
@@ -39,8 +43,59 @@ export default async function handler(req, res) {
       const ozon = new OzonApiService(ozon_api_key, ozon_client_id);
 
       const result = await ozon.getProductAttributes(offer_id);
+      const products = Array.isArray(result?.result) ? result.result : [];
 
-      return res.status(200).json(result);
+      const combos = new Map();
+
+      products.forEach((product) => {
+        const descriptionCategoryId = product?.description_category_id;
+        const typeId = product?.type_id;
+
+        if (!descriptionCategoryId || !typeId) {
+          return;
+        }
+
+        const key = buildDescriptionAttributeKey(descriptionCategoryId, typeId);
+        if (!combos.has(key)) {
+          combos.set(key, { descriptionCategoryId, typeId });
+        }
+      });
+
+      const metaByCombo = {};
+
+      for (const [key, combo] of combos.entries()) {
+        try {
+          const attributesResponse = await ozon.getDescriptionCategoryAttributes(
+            combo.descriptionCategoryId,
+            combo.typeId
+          );
+
+          metaByCombo[key] = Array.isArray(attributesResponse?.result)
+            ? attributesResponse.result
+            : [];
+        } catch (metaError) {
+          console.error('Failed to fetch description-category attributes', {
+            descriptionCategoryId: combo.descriptionCategoryId,
+            typeId: combo.typeId,
+            message: metaError?.message || metaError
+          });
+          metaByCombo[key] = [];
+        }
+      }
+
+      const enrichedProducts = products.map((product) => {
+        const key = buildDescriptionAttributeKey(product?.description_category_id, product?.type_id);
+
+        return {
+          ...product,
+          available_attributes: metaByCombo[key] || []
+        };
+      });
+
+      return res.status(200).json({
+        ...result,
+        result: enrichedProducts
+      });
     }
 
     if (req.method === 'POST') {

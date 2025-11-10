@@ -4,6 +4,152 @@ import { useRouter } from 'next/router';
 import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
 
+const LARGE_TEXT_ATTRIBUTE_IDS = new Set(['4191', '7206', '22232', '4180']);
+const TYPE_ATTRIBUTE_ID = '8229';
+const TYPE_ATTRIBUTE_NUMERIC = Number(TYPE_ATTRIBUTE_ID);
+
+const getAttributeKey = (value) => {
+  if (value === undefined || value === null) return null;
+  return String(value);
+};
+
+const normalizeProductAttributes = (products = []) => {
+  return products.map((product) => {
+    const availableAttributes = Array.isArray(product?.available_attributes)
+      ? product.available_attributes
+      : [];
+    const existingAttributes = Array.isArray(product?.attributes)
+      ? product.attributes
+      : [];
+    const usedAttributeKeys = new Set();
+
+    const mergedAttributes = availableAttributes
+      .map((meta) => {
+        const attrKey = getAttributeKey(meta?.id ?? meta?.attribute_id);
+        if (!attrKey) return null;
+
+        const existingMatch = existingAttributes.find(
+          (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === attrKey
+        );
+
+        if (existingMatch) {
+          usedAttributeKeys.add(attrKey);
+          return {
+            ...existingMatch,
+            id: existingMatch.id ?? existingMatch.attribute_id ?? attrKey
+          };
+        }
+
+        return {
+          id: meta.id ?? attrKey,
+          values: []
+        };
+      })
+      .filter(Boolean);
+
+    existingAttributes.forEach((attr) => {
+      const attrKey = getAttributeKey(attr?.id ?? attr?.attribute_id);
+      if (!attrKey || usedAttributeKeys.has(attrKey)) return;
+
+      mergedAttributes.push({
+        ...attr,
+        id: attr.id ?? attr.attribute_id ?? attrKey
+      });
+    });
+
+    const syncedAttributes = syncTypeAttributeWithTypeId(mergedAttributes, product?.type_id);
+
+    return {
+      ...product,
+      attributes: syncedAttributes
+    };
+  });
+};
+
+const attributeHasValues = (attribute) => {
+  if (!attribute || !Array.isArray(attribute.values)) return false;
+  return attribute.values.some((valueEntry) => {
+    const raw =
+      valueEntry?.value ??
+      valueEntry?.text ??
+      valueEntry?.value_text ??
+      '';
+    return String(raw || '').trim().length > 0;
+  });
+};
+
+const createTypeAttributeValue = (typeValue) => {
+  if (typeValue === undefined || typeValue === null) return null;
+  const str = String(typeValue).trim();
+  if (!str) return null;
+
+  const numericValue = Number(str);
+  return {
+    value: str,
+    dictionary_value_id: Number.isFinite(numericValue) ? numericValue : undefined
+  };
+};
+
+const syncTypeAttributeWithTypeId = (attributes = [], typeIdValue, options = {}) => {
+  const { force = false } = options;
+  const attrKey = TYPE_ATTRIBUTE_ID;
+
+  const normalizedAttributes = Array.isArray(attributes)
+    ? attributes.map((attr) => ({ ...attr }))
+    : [];
+
+  const attrIndex = normalizedAttributes.findIndex(
+    (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === attrKey
+  );
+
+  const typeAttributeValue = createTypeAttributeValue(typeIdValue);
+
+  if (attrIndex === -1) {
+    if (!typeAttributeValue) {
+      return normalizedAttributes;
+    }
+
+    return [
+      {
+        id: TYPE_ATTRIBUTE_NUMERIC,
+        values: [typeAttributeValue],
+        __from_type_id: true
+      },
+      ...normalizedAttributes
+    ];
+  }
+
+  const currentAttribute = normalizedAttributes[attrIndex];
+  const hasOwnValue = attributeHasValues(currentAttribute);
+
+  if (!force && hasOwnValue) {
+    return normalizedAttributes;
+  }
+
+  normalizedAttributes[attrIndex] = {
+    ...currentAttribute,
+    values: typeAttributeValue ? [typeAttributeValue] : [],
+    __from_type_id: true
+  };
+
+  return normalizedAttributes;
+};
+
+const formatAttributeValues = (values = []) => {
+  return values
+    .map((entry) => entry?.value ?? entry?.text ?? entry?.value_text ?? '')
+    .filter(Boolean)
+    .join('\n');
+};
+
+const parseAttributeInput = (rawValue = '') => {
+  return rawValue
+    .split(/[\n,]/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => ({ value }));
+};
+
 export default function ProductsPage() {
   const router = useRouter();
   const autoOpenHandled = useRef(false);
@@ -131,10 +277,13 @@ export default function ProductsPage() {
 
     try {
       const data = await apiClient.getAttributes(offerId, currentProfile);
-      setAttributes(data);
-      const editable = data?.result
-        ? JSON.parse(JSON.stringify(data.result))
-        : [];
+      const normalizedResult = normalizeProductAttributes(data?.result || []);
+      const normalizedData = {
+        ...data,
+        result: normalizedResult
+      };
+      setAttributes(normalizedData);
+      const editable = JSON.parse(JSON.stringify(normalizedResult));
       setEditableAttributes(editable);
     } catch (err) {
       console.error('fetchAttributes error', err);
@@ -152,32 +301,74 @@ export default function ProductsPage() {
     setAttributesUpdateStatus({ message: '', error: '' });
   };
 
-  const handleAttributeValueChange = (productIndex, attributeIndex, rawValue) => {
+  const handleAttributeValueChange = (productIndex, attributeId, rawValue) => {
     setEditableAttributes(prev => {
       if (!prev) return prev;
 
       return prev.map((product, pIdx) => {
         if (pIdx !== productIndex) return product;
 
-        const updatedAttributes = (product.attributes || []).map((attr, aIdx) => {
-          if (aIdx !== attributeIndex) return attr;
+        const values = parseAttributeInput(rawValue);
+        const attributes = Array.isArray(product.attributes)
+          ? product.attributes.map(attr => ({ ...attr }))
+          : [];
+        const attrKey = getAttributeKey(attributeId);
+        if (!attrKey) {
+          return product;
+        }
 
-          const values = rawValue
-            .split(',')
-            .map(value => value.trim())
-            .filter(Boolean)
-            .map(value => ({ value }));
+        const attrIndex = attributes.findIndex(
+          attr => getAttributeKey(attr?.id ?? attr?.attribute_id) === attrKey
+        );
 
+        if (attrIndex === -1) {
           return {
-            ...attr,
-            values
+            ...product,
+            attributes: [
+              ...attributes,
+              {
+                id: attributeId,
+                values
+              }
+            ]
           };
-        });
+        }
+
+        const updatedAttributes = [...attributes];
+        updatedAttributes[attrIndex] = {
+          ...updatedAttributes[attrIndex],
+          id: updatedAttributes[attrIndex].id ?? attributeId,
+          values
+        };
 
         return {
           ...product,
           attributes: updatedAttributes
         };
+      });
+    });
+  };
+
+  const handleTypeIdChange = (productIndex, rawValue) => {
+    setEditableAttributes(prev => {
+      if (!prev) return prev;
+
+      return prev.map((product, idx) => {
+        if (idx !== productIndex) return product;
+
+        const nextProduct = { ...product };
+        const normalizedValue =
+          typeof rawValue === 'string' ? rawValue.trim() : rawValue ?? '';
+
+        nextProduct.type_id = normalizedValue;
+        const syncedAttributes = syncTypeAttributeWithTypeId(
+          nextProduct.attributes,
+          normalizedValue,
+          { force: true }
+        );
+        nextProduct.attributes = syncedAttributes;
+
+        return nextProduct;
       });
     });
   };
@@ -192,6 +383,9 @@ export default function ProductsPage() {
           .map(attr => {
             const id = Number(attr?.id ?? attr?.attribute_id);
             if (!id) return null;
+            if (id === TYPE_ATTRIBUTE_NUMERIC && attr?.__from_type_id) {
+              return null;
+            }
 
             const values = (attr.values || [])
               .map(valueEntry => {
@@ -651,6 +845,27 @@ export default function ProductsPage() {
                 {attributes.result.map((productInfo, idx) => {
                   const editableProduct = editableAttributes?.[idx] || productInfo;
                   const attributeList = editableProduct?.attributes || [];
+                  const attributeMetaMap = new Map(
+                    (productInfo.available_attributes || [])
+                      .map(meta => [getAttributeKey(meta?.id ?? meta?.attribute_id), meta])
+                      .filter(([key]) => !!key)
+                  );
+                  const typeMeta = attributeMetaMap.get(TYPE_ATTRIBUTE_ID);
+                  const typeAttributeFromList = attributeList.find(
+                    (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === TYPE_ATTRIBUTE_ID
+                  );
+                  const fallbackTypeValue = typeAttributeFromList
+                    ? formatAttributeValues(typeAttributeFromList.values || [])
+                    : '';
+                  const typeInputRaw =
+                    editableProduct?.type_id ??
+                    productInfo?.type_id ??
+                    fallbackTypeValue ??
+                    '';
+                  const typeInputValue =
+                    typeInputRaw === undefined || typeInputRaw === null
+                      ? ''
+                      : String(typeInputRaw);
 
                   return (
                     <div key={idx} style={{ marginBottom: 20 }}>
@@ -663,52 +878,126 @@ export default function ProductsPage() {
                           <div><strong>Название:</strong> {productInfo.name}</div>
                           {productInfo.barcode && <div><strong>Штрихкод:</strong> {productInfo.barcode}</div>}
                           {productInfo.weight && <div><strong>Вес:</strong> {productInfo.weight} {productInfo.weight_unit}</div>}
+                          {productInfo.description_category_id && (
+                            <div><strong>Description category:</strong> {productInfo.description_category_id}</div>
+                          )}
+                          <div style={{ gridColumn: '1 / span 2' }}>
+                            <div style={{ fontWeight: 'bold', marginBottom: 4 }}>
+                              Тип (type_id / ID {TYPE_ATTRIBUTE_ID})
+                            </div>
+                            <input
+                              type="text"
+                              value={typeInputValue}
+                              onChange={(e) => handleTypeIdChange(idx, e.target.value)}
+                              placeholder="Введите числовой type_id"
+                              style={{
+                                width: '100%',
+                                padding: 8,
+                                border: '1px solid #ced4da',
+                                borderRadius: 4
+                              }}
+                            />
+                            <div style={{ fontSize: 12, color: '#6c757d', marginTop: 4, lineHeight: 1.4 }}>
+                              {typeMeta?.description ||
+                                'Значение типа управляет принадлежностью товара к справочнику OZON.'}
+                              {productInfo.type_id && String(productInfo.type_id) !== typeInputValue && (
+                                <div>Текущее значение в OZON: {productInfo.type_id}</div>
+                              )}
+                            </div>
+                          </div>
                         </div>
                       </div>
 
                       {attributeList.length > 0 && (
                         <div style={{ marginBottom: 20 }}>
                           <h3>Характеристики ({attributeList.length})</h3>
-                          <div style={{ maxHeight: 300, overflow: 'auto' }}>
-                            <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-                              <thead>
-                                <tr style={{ backgroundColor: '#e9ecef' }}>
-                                  <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>ID</th>
-                                  <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>Значение</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {attributeList.map((attr, aIdx) => {
-                                  const valueString = (attr.values || [])
-                                    .map(v => v?.value ?? '')
-                                    .filter(Boolean)
-                                    .join(', ');
+                          {!productInfo.available_attributes?.length && (
+                            <div style={{ padding: '8px 12px', marginBottom: 10, borderRadius: 6, backgroundColor: '#fff3cd', color: '#856404', border: '1px solid #ffeeba', fontSize: 13 }}>
+                              Для данной категории не удалось получить справочник характеристик. Ниже показаны характеристики из товара.
+                            </div>
+                          )}
+                          <div style={{ maxHeight: '55vh', overflow: 'auto', display: 'flex', flexDirection: 'column', gap: 12, paddingRight: 4 }}>
+                            {attributeList.map((attr, aIdx) => {
+                              const attrKey = getAttributeKey(attr?.id ?? attr?.attribute_id);
+                              if (!attrKey) return null;
 
-                                  return (
-                                    <tr key={aIdx}>
-                                      <td style={{ padding: 8, border: '1px solid #dee2e6', fontWeight: 'bold' }}>{attr.id}</td>
-                                      <td style={{ padding: 8, border: '1px solid #dee2e6' }}>
-                                        <textarea
-                                          value={valueString}
-                                          onChange={(e) => handleAttributeValueChange(idx, aIdx, e.target.value)}
-                                          rows={['4191', '7206', '22232', '4180'].includes(String(attr.id)) ? 5 : 2}
-                                          style={{
-                                            width: '100%',
-                                            padding: 6,
-                                            border: '1px solid #ced4da',
-                                            borderRadius: 4,
-                                            fontSize: 13,
-                                            resize: 'vertical',
-                                            minHeight: ['4191', '7206', '22232', '4180'].includes(String(attr.id)) ? '140px' : '60px'
-                                          }}
-                                          placeholder="Введите значения через запятую"
-                                        />
-                                      </td>
-                                    </tr>
-                                  );
-                                })}
-                              </tbody>
-                            </table>
+                              const meta = attributeMetaMap.get(attrKey);
+                              const metaType = (meta?.type || '').toLowerCase();
+                              const isTypeAttribute = attrKey === TYPE_ATTRIBUTE_ID;
+                              const valueString = isTypeAttribute
+                                ? typeInputValue
+                                : formatAttributeValues(attr.values || []);
+                              const isLargeField =
+                                LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey) ||
+                                ['text', 'html', 'richtext'].includes(metaType);
+
+                              const rows = isTypeAttribute ? 2 : isLargeField ? 6 : 3;
+                              const textareaMinHeight = isTypeAttribute ? 60 : isLargeField ? 140 : 70;
+
+                              const textareaProps = isTypeAttribute
+                                ? {
+                                    onChange: (e) => handleTypeIdChange(idx, e.target.value),
+                                    placeholder: 'Введите числовой type_id'
+                                  }
+                                : {
+                                    onChange: (e) => handleAttributeValueChange(idx, attrKey, e.target.value),
+                                    placeholder: 'Введите значения через запятую или перенос строки'
+                                  };
+
+                              return (
+                                <div
+                                  key={`${attrKey}-${aIdx}`}
+                                  style={{
+                                    border: '1px solid #dee2e6',
+                                    borderRadius: 8,
+                                    padding: 12,
+                                    backgroundColor: '#fff'
+                                  }}
+                                >
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: 12 }}>
+                                    <div style={{ fontWeight: 'bold', fontSize: 15, color: '#212529' }}>
+                                      {meta?.name || `Атрибут #${attrKey}`}
+                                      {meta?.is_required && <span style={{ color: '#dc3545', marginLeft: 6 }}>*</span>}
+                                    </div>
+                                    <div style={{ fontSize: 12, color: '#6c757d' }}>ID: {attrKey}</div>
+                                  </div>
+                                  {meta?.description && (
+                                    <div style={{ fontSize: 12, color: '#6c757d', marginTop: 4 }}>
+                                      {meta.description}
+                                    </div>
+                                  )}
+                                  <textarea
+                                    value={valueString}
+                                    rows={rows}
+                                    style={{
+                                      width: '100%',
+                                      padding: 8,
+                                      border: '1px solid #ced4da',
+                                      borderRadius: 4,
+                                      fontSize: 13,
+                                      resize: 'vertical',
+                                      minHeight: textareaMinHeight,
+                                      marginTop: 10
+                                    }}
+                                    {...textareaProps}
+                                  />
+                                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 11, color: '#6c757d' }}>
+                                    {meta?.type && <span>Тип: {meta.type}</span>}
+                                    <span>
+                                      Макс. значений:{' '}
+                                      {meta?.max_value_count && meta.max_value_count > 0 ? meta.max_value_count : '∞'}
+                                    </span>
+                                    <span>{meta?.dictionary_id ? 'Использует справочник' : 'Ввод вручную'}</span>
+                                    {meta?.is_collection && <span>Можно выбрать несколько значений</span>}
+                                  </div>
+                                  {isTypeAttribute && (
+                                    <div style={{ fontSize: 11, color: '#6c757d', marginTop: 6 }}>
+                                      Значение типа синхронизируется с полем type_id выше.
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       )}

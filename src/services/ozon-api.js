@@ -1,4 +1,11 @@
 // src/services/ozon-api.js
+const DESCRIPTION_ATTRIBUTE_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+const descriptionCategoryAttributeCache = new Map();
+
+const buildDescriptionAttributeCacheKey = (descriptionCategoryId, typeId, language) => {
+  return `${language || 'DEFAULT'}:${descriptionCategoryId || 'none'}:${typeId || 'none'}`;
+};
+
 export class OzonApiService {
   constructor(apiKey, clientId) {
     this.baseUrl = 'https://api-seller.ozon.ru';
@@ -41,6 +48,35 @@ export class OzonApiService {
       filter: { offer_id: ids },
       limit: 1
     });
+  }
+
+  async getDescriptionCategoryAttributes(descriptionCategoryId, typeId, language = 'DEFAULT') {
+    if (!descriptionCategoryId || !typeId) {
+      throw new Error('descriptionCategoryId и typeId обязательны для запроса характеристик категории');
+    }
+
+    const cacheKey = buildDescriptionAttributeCacheKey(descriptionCategoryId, typeId, language);
+    const cached = descriptionCategoryAttributeCache.get(cacheKey);
+
+    if (cached) {
+      if (cached.expiresAt > Date.now()) {
+        return cached.data;
+      }
+      descriptionCategoryAttributeCache.delete(cacheKey);
+    }
+
+    const data = await this.request('/v1/description-category/attribute', {
+      description_category_id: descriptionCategoryId,
+      language,
+      type_id: typeId
+    });
+
+    descriptionCategoryAttributeCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + DESCRIPTION_ATTRIBUTE_CACHE_TTL
+    });
+
+    return data;
   }
 
   async copyProduct(sourceOfferId, newOfferId, modifications = {}) {
