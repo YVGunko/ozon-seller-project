@@ -1,9 +1,41 @@
 // src/services/ozon-api.js
 const DESCRIPTION_ATTRIBUTE_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+const ATTRIBUTE_DICTIONARY_CACHE_TTL = 1000 * 60 * 60; // 60 minutes
 const descriptionCategoryAttributeCache = new Map();
+const attributeDictionaryCache = new Map();
+const attributeDictionarySearchCache = new Map();
 
 const buildDescriptionAttributeCacheKey = (descriptionCategoryId, typeId, language) => {
   return `${language || 'DEFAULT'}:${descriptionCategoryId || 'none'}:${typeId || 'none'}`;
+};
+
+const buildAttributeDictionaryCacheKey = (attributeId, descriptionCategoryId, typeId, language, lastValueId, limit) => {
+  return [
+    attributeId || 'none',
+    descriptionCategoryId || 'none',
+    typeId || 'none',
+    language || 'DEFAULT',
+    lastValueId ?? 0,
+    limit ?? 100
+  ].join(':');
+};
+
+const buildAttributeDictionarySearchKey = (
+  attributeId,
+  descriptionCategoryId,
+  typeId,
+  language,
+  value,
+  limit
+) => {
+  return [
+    attributeId || 'none',
+    descriptionCategoryId || 'none',
+    typeId || 'none',
+    language || 'DEFAULT',
+    value || '',
+    limit ?? 100
+  ].join(':');
 };
 
 export class OzonApiService {
@@ -86,6 +118,92 @@ export class OzonApiService {
       modifications
     };
     return this.request('/v3/product/import', body);
+  }
+
+  async getAttributeDictionaryValues({
+    attribute_id,
+    description_category_id,
+    type_id,
+    language = 'DEFAULT',
+    last_value_id = 0,
+    limit = 100
+  }) {
+    if (!attribute_id || !description_category_id || !type_id) {
+      throw new Error('attribute_id, description_category_id и type_id обязательны для запроса справочника атрибутов');
+    }
+
+    const cacheKey = buildAttributeDictionaryCacheKey(
+      attribute_id,
+      description_category_id,
+      type_id,
+      language,
+      last_value_id,
+      limit
+    );
+
+    const cached = attributeDictionaryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const data = await this.request('/v1/description-category/attribute/values', {
+      attribute_id,
+      description_category_id,
+      language,
+      last_value_id,
+      limit,
+      type_id
+    });
+
+    attributeDictionaryCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + ATTRIBUTE_DICTIONARY_CACHE_TTL
+    });
+
+    return data;
+  }
+
+  async searchAttributeDictionaryValues({
+    attribute_id,
+    description_category_id,
+    type_id,
+    language = 'DEFAULT',
+    value = '',
+    limit = 100
+  }) {
+    if (!attribute_id || !description_category_id || !type_id || !value) {
+      throw new Error('attribute_id, description_category_id, type_id и value обязательны для поиска в справочнике атрибутов');
+    }
+
+    const cacheKey = buildAttributeDictionarySearchKey(
+      attribute_id,
+      description_category_id,
+      type_id,
+      language,
+      value,
+      limit
+    );
+
+    const cached = attributeDictionarySearchCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const data = await this.request('/v1/description-category/attribute/values/search', {
+      attribute_id,
+      description_category_id,
+      language,
+      limit,
+      type_id,
+      value
+    });
+
+    attributeDictionarySearchCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + ATTRIBUTE_DICTIONARY_CACHE_TTL
+    });
+
+    return data;
   }
 
 

@@ -150,6 +150,131 @@ const parseAttributeInput = (rawValue = '') => {
     .map((value) => ({ value }));
 };
 
+const getDictionaryOptionKey = (option) => {
+  if (!option) return null;
+  const raw =
+    option?.dictionary_value_id ??
+    option?.value_id ??
+    option?.id ??
+    option?.value ??
+    option?.text;
+  if (raw === undefined || raw === null || raw === '') return null;
+  return String(raw);
+};
+
+const getDictionaryOptionLabel = (option) => {
+  if (!option) return '';
+  return (
+    option?.value ??
+    option?.text ??
+    option?.title ??
+    option?.name ??
+    option?.label ??
+    (option?.dictionary_value_id ? `ID ${option.dictionary_value_id}` : '')
+  );
+};
+
+const buildDictionaryValueEntry = (option) => {
+  const key = getDictionaryOptionKey(option);
+  if (!key) return null;
+  const label = getDictionaryOptionLabel(option) || key;
+  const numericId = Number(key);
+  const entry = {
+    value: label
+  };
+  if (!Number.isNaN(numericId)) {
+    entry.dictionary_value_id = numericId;
+  } else if (
+    option?.dictionary_value_id !== undefined &&
+    option?.dictionary_value_id !== null
+  ) {
+    entry.dictionary_value_id = option.dictionary_value_id;
+  }
+  return entry;
+};
+
+const getDictionaryValueEntryKey = (entry, dictionaryOptionMap) => {
+  if (!entry) return null;
+  const rawId =
+    entry?.dictionary_value_id ??
+    entry?.dictionaryValueId ??
+    entry?.value_id ??
+    entry?.id;
+  if (rawId !== undefined && rawId !== null && rawId !== '') {
+    return String(rawId);
+  }
+
+  const label =
+    entry?.value ??
+    entry?.text ??
+    entry?.value_text ??
+    '';
+  if (!label || !dictionaryOptionMap || dictionaryOptionMap.size === 0) {
+    return null;
+  }
+
+  for (const [key, option] of dictionaryOptionMap.entries()) {
+    if (getDictionaryOptionLabel(option) === label) {
+      return key;
+    }
+  }
+  return null;
+};
+
+const isDictionaryValueEntry = (entry) => {
+  if (!entry) return false;
+  const rawId =
+    entry?.dictionary_value_id ??
+    entry?.dictionaryValueId ??
+    entry?.value_id ??
+    entry?.id;
+  return rawId !== undefined && rawId !== null && String(rawId).trim() !== '';
+};
+
+const normalizeAttributeValues = (values = []) => {
+  return values
+    .map((valueEntry) => {
+      const rawValue =
+        valueEntry?.value ??
+        valueEntry?.text ??
+        valueEntry?.value_text ??
+        valueEntry;
+      if (rawValue === undefined || rawValue === null) return null;
+      const str = String(rawValue).trim();
+      if (!str) return null;
+
+      const dictionaryId =
+        valueEntry?.dictionary_value_id ??
+        valueEntry?.dictionaryValueId ??
+        valueEntry?.value_id ??
+        null;
+
+      const payload = { value: str };
+      if (
+        dictionaryId !== null &&
+        dictionaryId !== undefined &&
+        String(dictionaryId).trim() !== ''
+      ) {
+        const numericId = Number(dictionaryId);
+        payload.dictionary_value_id = Number.isFinite(numericId) ? numericId : dictionaryId;
+      }
+      return payload;
+    })
+    .filter(Boolean);
+};
+
+const areAttributeValuesEqual = (nextValues = [], originalValues = []) => {
+  if (nextValues.length !== originalValues.length) return false;
+  return nextValues.every((value, idx) => {
+    const original = originalValues[idx];
+    if (!original) return false;
+    const sameValue = value.value === original.value;
+    const nextDict = value.dictionary_value_id ?? null;
+    const originalDict = original.dictionary_value_id ?? null;
+    return sameValue && String(nextDict ?? '') === String(originalDict ?? '');
+  });
+};
+
 export default function ProductsPage() {
   const router = useRouter();
   const autoOpenHandled = useRef(false);
@@ -349,6 +474,118 @@ export default function ProductsPage() {
     });
   };
 
+  const handleManualValueChange = (productIndex, attributeId, rawValue) => {
+    setEditableAttributes(prev => {
+      if (!prev) return prev;
+      const manualValues = parseAttributeInput(rawValue);
+
+      return prev.map((product, idx) => {
+        if (idx !== productIndex) return product;
+        const attrKey = getAttributeKey(attributeId);
+        if (!attrKey) return product;
+
+        const attributes = Array.isArray(product.attributes)
+          ? product.attributes.map(attr => ({ ...attr }))
+          : [];
+
+        const attrIndex = attributes.findIndex(
+          attr => getAttributeKey(attr?.id ?? attr?.attribute_id) === attrKey
+        );
+
+        if (attrIndex === -1) {
+          if (!manualValues.length) return product;
+          return {
+            ...product,
+            attributes: [
+              ...attributes,
+              {
+                id: attributeId,
+                values: manualValues
+              }
+            ]
+          };
+        }
+
+        const existingValues = Array.isArray(attributes[attrIndex].values)
+          ? attributes[attrIndex].values
+          : [];
+        const dictionaryValues = existingValues.filter(isDictionaryValueEntry);
+
+        const updatedAttributes = [...attributes];
+        updatedAttributes[attrIndex] = {
+          ...updatedAttributes[attrIndex],
+          values: [...dictionaryValues, ...manualValues]
+        };
+
+        return {
+          ...product,
+          attributes: updatedAttributes
+        };
+      });
+    });
+  };
+
+  const handleDictionaryValueChange = (productIndex, attributeId, selectedKeys, optionsMap) => {
+    setEditableAttributes(prev => {
+      if (!prev) return prev;
+      const normalizedKeys = Array.isArray(selectedKeys)
+        ? Array.from(new Set(selectedKeys.filter(Boolean)))
+        : [];
+
+      return prev.map((product, idx) => {
+        if (idx !== productIndex) return product;
+        const attrKey = getAttributeKey(attributeId);
+        if (!attrKey) return product;
+
+        const attributes = Array.isArray(product.attributes)
+          ? product.attributes.map(attr => ({ ...attr }))
+          : [];
+
+        const attrIndex = attributes.findIndex(
+          attr => getAttributeKey(attr?.id ?? attr?.attribute_id) === attrKey
+        );
+
+        const dictionaryValues = normalizedKeys
+          .map((key) => {
+            const option = optionsMap?.get(key);
+            return option ? buildDictionaryValueEntry(option) : null;
+          })
+          .filter(Boolean);
+
+        if (attrIndex === -1) {
+          if (!dictionaryValues.length) return product;
+
+          return {
+            ...product,
+            attributes: [
+              ...attributes,
+              {
+                id: attributeId,
+                values: dictionaryValues
+              }
+            ]
+          };
+        }
+
+        const existingValues = Array.isArray(attributes[attrIndex].values)
+          ? attributes[attrIndex].values
+          : [];
+        const manualValues = existingValues.filter(value => !isDictionaryValueEntry(value));
+
+        const updatedAttributes = [...attributes];
+        updatedAttributes[attrIndex] = {
+          ...updatedAttributes[attrIndex],
+          values: [...dictionaryValues, ...manualValues]
+        };
+
+        return {
+          ...product,
+          attributes: updatedAttributes
+        };
+      });
+    });
+  };
+
   const handleTypeIdChange = (productIndex, rawValue) => {
     setEditableAttributes(prev => {
       if (!prev) return prev;
@@ -376,32 +613,30 @@ export default function ProductsPage() {
   const sanitizeItemsForUpdate = () => {
     if (!editableAttributes || editableAttributes.length === 0) return [];
 
+    const originalProducts = attributes?.result || [];
+
     return editableAttributes
-      .map(item => {
+      .map((item, idx) => {
         const offerId = item.offer_id || selectedProduct;
+        if (!offerId) return null;
+
+        const originalProduct = originalProducts[idx] || {};
+
         const attributesPayload = (item.attributes || [])
           .map(attr => {
             const id = Number(attr?.id ?? attr?.attribute_id);
             if (!id) return null;
-            if (id === TYPE_ATTRIBUTE_NUMERIC && attr?.__from_type_id) {
+            const values = normalizeAttributeValues(attr.values);
+            if (!values.length) return null;
+
+            const originalAttr = (originalProduct.attributes || []).find(
+              original => Number(original?.id ?? original?.attribute_id) === id
+            );
+            const originalValues = normalizeAttributeValues(originalAttr?.values || []);
+
+            if (areAttributeValuesEqual(values, originalValues)) {
               return null;
             }
-
-            const values = (attr.values || [])
-              .map(valueEntry => {
-                const rawValue =
-                  valueEntry?.value ??
-                  valueEntry?.text ??
-                  valueEntry?.value_text ??
-                  valueEntry;
-                if (rawValue === undefined || rawValue === null) return null;
-                const str = String(rawValue).trim();
-                if (!str) return null;
-                return { value: str };
-              })
-              .filter(Boolean);
-
-            if (!values.length) return null;
 
             return {
               id,
@@ -410,7 +645,13 @@ export default function ProductsPage() {
           })
           .filter(Boolean);
 
-        if (!offerId || !attributesPayload.length) {
+        const typeId = Number(item.type_id ?? item.typeId);
+        const originalTypeId = Number(originalProduct?.type_id ?? originalProduct?.typeId);
+        const typeChanged =
+          Number.isFinite(typeId) &&
+          (Number.isNaN(originalTypeId) || typeId !== originalTypeId);
+
+        if (!attributesPayload.length && !typeChanged) {
           return null;
         }
 
@@ -419,12 +660,11 @@ export default function ProductsPage() {
           attributes: attributesPayload
         };
 
-        const typeId = Number(item.type_id ?? item.typeId);
-        if (Number.isFinite(typeId) && typeId > 0) {
+        if (typeChanged) {
           payload.type_id = typeId;
         }
 
-        if (item.name) {
+        if (item.name && item.name !== originalProduct.name) {
           payload.name = item.name;
         }
 
@@ -924,9 +1164,51 @@ export default function ProductsPage() {
                               const meta = attributeMetaMap.get(attrKey);
                               const metaType = (meta?.type || '').toLowerCase();
                               const isTypeAttribute = attrKey === TYPE_ATTRIBUTE_ID;
-                              const valueString = isTypeAttribute
+                              let dictionaryOptions = Array.isArray(meta?.dictionary_values)
+                                ? meta.dictionary_values.filter(option => getDictionaryOptionKey(option))
+                                : [];
+                              const dictionaryOptionMap = new Map();
+                              dictionaryOptions.forEach((option) => {
+                                const key = getDictionaryOptionKey(option);
+                                if (key && !dictionaryOptionMap.has(key)) {
+                                  dictionaryOptionMap.set(key, option);
+                                }
+                              });
+                              const hasDictionaryOptions = dictionaryOptions.length > 0 && !isTypeAttribute;
+                              const manualEntries = (attr.values || []).filter(value => !isDictionaryValueEntry(value));
+                              const dictionaryEntries = (attr.values || []).filter(isDictionaryValueEntry);
+                              const manualValueString = formatAttributeValues(manualEntries);
+                              const selectedDictionaryKeys = dictionaryEntries
+                                .map(entry => getDictionaryValueEntryKey(entry, dictionaryOptionMap))
+                                .filter(Boolean);
+                              dictionaryEntries.forEach((entry) => {
+                                const key =
+                                  getDictionaryValueEntryKey(entry, dictionaryOptionMap) ||
+                                  getAttributeKey(entry?.dictionary_value_id ?? entry?.value_id ?? entry?.id);
+                                if (key && !dictionaryOptionMap.has(key)) {
+                                  const syntheticOption = {
+                                    dictionary_value_id: entry?.dictionary_value_id ?? entry?.value_id ?? entry?.id,
+                                    value: getDictionaryOptionLabel({
+                                      value: entry?.value ?? entry?.text ?? entry?.value_text,
+                                      dictionary_value_id: entry?.dictionary_value_id ?? entry?.value_id ?? entry?.id
+                                    })
+                                  };
+                                  dictionaryOptionMap.set(key, syntheticOption);
+                                  dictionaryOptions = [...dictionaryOptions, syntheticOption];
+                                }
+                              });
+
+                              const dictionarySelectValue = meta?.is_collection
+                                ? selectedDictionaryKeys
+                                : (selectedDictionaryKeys[0] ?? '');
+
+                              const fallbackValueString = formatAttributeValues(attr.values || []);
+                              const textareaValue = isTypeAttribute
                                 ? typeInputValue
-                                : formatAttributeValues(attr.values || []);
+                                : hasDictionaryOptions
+                                  ? manualValueString
+                                  : fallbackValueString;
+
                               const isLargeField =
                                 LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey) ||
                                 ['text', 'html', 'richtext'].includes(metaType);
@@ -934,15 +1216,24 @@ export default function ProductsPage() {
                               const rows = isTypeAttribute ? 2 : isLargeField ? 6 : 3;
                               const textareaMinHeight = isTypeAttribute ? 60 : isLargeField ? 140 : 70;
 
-                              const textareaProps = isTypeAttribute
-                                ? {
+                              const textareaProps = (() => {
+                                if (isTypeAttribute) {
+                                  return {
                                     onChange: (e) => handleTypeIdChange(idx, e.target.value),
                                     placeholder: 'Введите числовой type_id'
-                                  }
-                                : {
-                                    onChange: (e) => handleAttributeValueChange(idx, attrKey, e.target.value),
-                                    placeholder: 'Введите значения через запятую или перенос строки'
                                   };
+                                }
+                                if (hasDictionaryOptions) {
+                                  return {
+                                    onChange: (e) => handleManualValueChange(idx, attrKey, e.target.value),
+                                    placeholder: 'Дополнительные значения через запятую или перенос строки'
+                                  };
+                                }
+                                return {
+                                  onChange: (e) => handleAttributeValueChange(idx, attrKey, e.target.value),
+                                  placeholder: 'Введите значения через запятую или перенос строки'
+                                };
+                              })();
 
                               return (
                                 <div
@@ -966,8 +1257,53 @@ export default function ProductsPage() {
                                       {meta.description}
                                     </div>
                                   )}
+
+                                  {hasDictionaryOptions && (
+                                    <div style={{ marginTop: 12 }}>
+                                      <div style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 6 }}>
+                                        Значения из справочника
+                                      </div>
+                                      <select
+                                        multiple={!!meta?.is_collection}
+                                        value={dictionarySelectValue}
+                                        onChange={(e) => {
+                                          if (meta?.is_collection) {
+                                            const selectedValues = Array.from(e.target.selectedOptions).map(option => option.value);
+                                            handleDictionaryValueChange(idx, attrKey, selectedValues, dictionaryOptionMap);
+                                          } else {
+                                            const nextValue = e.target.value ? [e.target.value] : [];
+                                            handleDictionaryValueChange(idx, attrKey, nextValue, dictionaryOptionMap);
+                                          }
+                                        }}
+                                        style={{
+                                          width: '100%',
+                                          minHeight: meta?.is_collection ? 120 : 40,
+                                          borderRadius: 4,
+                                          border: '1px solid #ced4da',
+                                          padding: 6
+                                        }}
+                                      >
+                                        {!meta?.is_collection && <option value="">— Не выбрано —</option>}
+                                        {dictionaryOptions.map((option) => {
+                                          const optionKey = getDictionaryOptionKey(option);
+                                          if (!optionKey) return null;
+                                          return (
+                                            <option key={optionKey} value={optionKey}>
+                                              {getDictionaryOptionLabel(option)}
+                                            </option>
+                                          );
+                                        })}
+                                      </select>
+                                      <div style={{ fontSize: 12, color: '#6c757d', marginTop: 4 }}>
+                                        {meta?.is_collection
+                                          ? 'Для множественного выбора удерживайте Ctrl/Cmd.'
+                                          : 'Выберите значение или очистите поле для удаления.'}
+                                      </div>
+                                    </div>
+                                  )}
+
                                   <textarea
-                                    value={valueString}
+                                    value={textareaValue}
                                     rows={rows}
                                     style={{
                                       width: '100%',
@@ -977,10 +1313,15 @@ export default function ProductsPage() {
                                       fontSize: 13,
                                       resize: 'vertical',
                                       minHeight: textareaMinHeight,
-                                      marginTop: 10
+                                      marginTop: hasDictionaryOptions ? 12 : 10
                                     }}
                                     {...textareaProps}
                                   />
+                                  {hasDictionaryOptions && (
+                                    <div style={{ fontSize: 11, color: '#6c757d', marginTop: 4 }}>
+                                      Если нужного значения нет в списке, добавьте его вручную выше.
+                                    </div>
+                                  )}
                                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginTop: 8, fontSize: 11, color: '#6c757d' }}>
                                     {meta?.type && <span>Тип: {meta.type}</span>}
                                     <span>
