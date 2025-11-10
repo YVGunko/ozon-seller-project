@@ -4,6 +4,10 @@ const ATTRIBUTE_DICTIONARY_CACHE_TTL = 1000 * 60 * 60; // 60 minutes
 const descriptionCategoryAttributeCache = new Map();
 const attributeDictionaryCache = new Map();
 const attributeDictionarySearchCache = new Map();
+const HASHTAG_ATTRIBUTE_ID = 23171;
+const HASHTAG_ATTRIBUTE_LABEL = '#Хештеги';
+const HASHTAG_ATTRIBUTE_MAX_TAGS = 30;
+const HASHTAG_VALUE_REGEX = /^#[a-zA-Zа-яА-Я0-9_]{2,30}$/;
 
 const buildDescriptionAttributeCacheKey = (descriptionCategoryId, typeId, language) => {
   return `${language || 'DEFAULT'}:${descriptionCategoryId || 'none'}:${typeId || 'none'}`;
@@ -36,6 +40,54 @@ const buildAttributeDictionarySearchKey = (
     value || '',
     limit ?? 100
   ].join(':');
+};
+
+const normalizeHashtagAttributeValues = (values = []) => {
+  const collectedTags = [];
+
+  values.forEach((entry) => {
+    const raw =
+      entry?.value ??
+      entry?.text ??
+      entry?.value_text ??
+      '';
+    if (raw === undefined || raw === null) {
+      return;
+    }
+
+    const normalized = String(raw)
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
+    if (!normalized) {
+      return;
+    }
+
+    const tags = normalized.split(/\s+/).filter(Boolean);
+    tags.forEach((tag) => {
+      if (!HASHTAG_VALUE_REGEX.test(tag)) {
+        throw new Error(
+          `Тег "${tag}" в атрибуте "${HASHTAG_ATTRIBUTE_LABEL}" имеет неверный формат. Используйте символ #, буквы, цифры или _.`
+        );
+      }
+      collectedTags.push(tag);
+    });
+  });
+
+  if (collectedTags.length > HASHTAG_ATTRIBUTE_MAX_TAGS) {
+    throw new Error(
+      `Атрибут "${HASHTAG_ATTRIBUTE_LABEL}" может содержать максимум ${HASHTAG_ATTRIBUTE_MAX_TAGS} тегов. Сейчас указано ${collectedTags.length}.`
+    );
+  }
+
+  if (!collectedTags.length) {
+    return [];
+  }
+
+  return [
+    {
+      value: collectedTags.join(' ')
+    }
+  ];
 };
 
 export class OzonApiService {
@@ -348,7 +400,7 @@ export class OzonApiService {
               const id = Number(attr?.id ?? attr?.attribute_id);
               if (!id) return null;
 
-              const values = (attr.values || [])
+              let values = (attr.values || [])
                 .map((valueEntry) => {
                   const raw =
                     valueEntry?.value ??
@@ -363,6 +415,11 @@ export class OzonApiService {
                 .filter(Boolean);
 
               if (!values.length) return null;
+
+              if (id === HASHTAG_ATTRIBUTE_ID) {
+                values = normalizeHashtagAttributeValues(values);
+                if (!values.length) return null;
+              }
 
               return {
                 id,
@@ -395,6 +452,20 @@ export class OzonApiService {
 
     return this.request('/v1/product/import/info', {
       task_id: String(taskId)
+    });
+  }
+
+  async getProductInfoList(offerIds = []) {
+    const ids = Array.isArray(offerIds)
+      ? offerIds.filter(Boolean).map((id) => String(id))
+      : [];
+
+    if (!ids.length) {
+      throw new Error('Не переданы offer_id для проверки статуса товара');
+    }
+
+    return this.request('/v3/product/info/list', {
+      offer_id: ids
     });
   }
 }

@@ -7,6 +7,16 @@ import { apiClient } from '../src/services/api-client';
 const LARGE_TEXT_ATTRIBUTE_IDS = new Set(['4191', '7206', '22232', '4180']);
 const TYPE_ATTRIBUTE_ID = '8229';
 const TYPE_ATTRIBUTE_NUMERIC = Number(TYPE_ATTRIBUTE_ID);
+const SINGLE_VALUE_STRING_ATTRIBUTE_IDS = new Set(['23171']);
+const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
+
+const parsePositiveTypeId = (rawValue) => {
+  if (rawValue === undefined || rawValue === null) return null;
+  if (typeof rawValue === 'string' && rawValue.trim() === '') return null;
+  const num = Number(rawValue);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return num;
+};
 
 const getAttributeKey = (value) => {
   if (value === undefined || value === null) return null;
@@ -142,8 +152,22 @@ const formatAttributeValues = (values = []) => {
     .join('\n');
 };
 
-const parseAttributeInput = (rawValue = '') => {
-  return rawValue
+const parseAttributeInput = (rawValue = '', attributeId = null) => {
+  if (rawValue === undefined || rawValue === null) return [];
+  const attrKey = attributeId !== null ? String(attributeId) : null;
+  const normalizedValue = String(rawValue);
+
+  if (attrKey && SINGLE_VALUE_STRING_ATTRIBUTE_IDS.has(attrKey)) {
+    const singleLineValue = normalizedValue
+      .replace(/[\r\n]+/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+    return singleLineValue ? [{ value: singleLineValue }] : [];
+  }
+
+  return normalizedValue
     .split(/[\n,]/)
     .map((value) => value.trim())
     .filter(Boolean)
@@ -297,6 +321,7 @@ export default function ProductsPage() {
   const [attributes, setAttributes] = useState(null);
   const [editableAttributes, setEditableAttributes] = useState(null);
   const [savingAttributes, setSavingAttributes] = useState(false);
+  const [savingAttributesLabel, setSavingAttributesLabel] = useState('Отправляем...');
   const [attributesUpdateStatus, setAttributesUpdateStatus] = useState({ message: '', error: '' });
   const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
@@ -423,7 +448,22 @@ export default function ProductsPage() {
     setSelectedProduct(null);
     setEditableAttributes(null);
     setSavingAttributes(false);
+    setSavingAttributesLabel('Отправляем...');
     setAttributesUpdateStatus({ message: '', error: '' });
+  };
+
+  const refreshAttributesModal = () => {
+    const offerId =
+      typeof selectedProduct === 'string'
+        ? selectedProduct
+        : selectedProduct?.offer_id;
+
+    if (!offerId) {
+      alert('Не удалось определить товар для обновления');
+      return;
+    }
+
+    fetchAttributes(offerId);
   };
 
   const handleAttributeValueChange = (productIndex, attributeId, rawValue) => {
@@ -433,7 +473,7 @@ export default function ProductsPage() {
       return prev.map((product, pIdx) => {
         if (pIdx !== productIndex) return product;
 
-        const values = parseAttributeInput(rawValue);
+        const values = parseAttributeInput(rawValue, attributeId);
         const attributes = Array.isArray(product.attributes)
           ? product.attributes.map(attr => ({ ...attr }))
           : [];
@@ -477,7 +517,7 @@ export default function ProductsPage() {
   const handleManualValueChange = (productIndex, attributeId, rawValue) => {
     setEditableAttributes(prev => {
       if (!prev) return prev;
-      const manualValues = parseAttributeInput(rawValue);
+      const manualValues = parseAttributeInput(rawValue, attributeId);
 
       return prev.map((product, idx) => {
         if (idx !== productIndex) return product;
@@ -621,6 +661,9 @@ export default function ProductsPage() {
         if (!offerId) return null;
 
         const originalProduct = originalProducts[idx] || {};
+        const userTypeId = parsePositiveTypeId(item.type_id ?? item.typeId);
+        const originalTypeId = parsePositiveTypeId(originalProduct?.type_id ?? originalProduct?.typeId);
+        const resolvedTypeId = userTypeId ?? originalTypeId ?? null;
 
         const attributesPayload = (item.attributes || [])
           .map(attr => {
@@ -645,11 +688,7 @@ export default function ProductsPage() {
           })
           .filter(Boolean);
 
-        const typeId = Number(item.type_id ?? item.typeId);
-        const originalTypeId = Number(originalProduct?.type_id ?? originalProduct?.typeId);
-        const typeChanged =
-          Number.isFinite(typeId) &&
-          (Number.isNaN(originalTypeId) || typeId !== originalTypeId);
+        const typeChanged = userTypeId !== null && userTypeId !== originalTypeId;
 
         if (!attributesPayload.length && !typeChanged) {
           return null;
@@ -660,8 +699,8 @@ export default function ProductsPage() {
           attributes: attributesPayload
         };
 
-        if (typeChanged) {
-          payload.type_id = typeId;
+        if (resolvedTypeId !== null) {
+          payload.type_id = resolvedTypeId;
         }
 
         if (item.name && item.name !== originalProduct.name) {
@@ -693,7 +732,8 @@ export default function ProductsPage() {
 
     try {
       setSavingAttributes(true);
-      setAttributesUpdateStatus({ message: '', error: '' });
+      setSavingAttributesLabel(STATUS_CHECK_PROGRESS_MESSAGE);
+      setAttributesUpdateStatus({ message: STATUS_CHECK_PROGRESS_MESSAGE, error: '' });
 
       const response = await fetch('/api/products/attributes', {
         method: 'POST',
@@ -704,15 +744,26 @@ export default function ProductsPage() {
         })
       });
 
+      const responseData = await response.json();
+
       if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || 'Не удалось обновить атрибуты');
+        throw new Error(responseData?.error || 'Не удалось обновить атрибуты');
       }
 
-      setAttributesUpdateStatus({
-        message: 'Атрибуты успешно отправлены в OZON',
-        error: ''
-      });
+      const statusCheck = responseData?.status_check;
+      if (statusCheck?.error) {
+        setAttributesUpdateStatus({
+          message: '',
+          error: statusCheck.error
+        });
+      } else {
+        setAttributesUpdateStatus({
+          message:
+            statusCheck?.message ||
+            'Проверка статуса выполнена. Ознакомьтесь с выводом выше.',
+          error: ''
+        });
+      }
     } catch (error) {
       console.error('saveAttributesToOzon error', error);
       setAttributesUpdateStatus({
@@ -721,6 +772,7 @@ export default function ProductsPage() {
       });
     } finally {
       setSavingAttributes(false);
+      setSavingAttributesLabel('Отправляем...');
     }
   };
 
@@ -1018,6 +1070,20 @@ export default function ProductsPage() {
               <h2 style={{ margin: 0 }}>Атрибуты товара: {selectedProduct}</h2>
               <div style={{ display: 'flex', gap: 10 }}>
                 <button
+                  onClick={refreshAttributesModal}
+                  disabled={loadingAttributes}
+                  style={{
+                    padding: '8px 16px',
+                    backgroundColor: loadingAttributes ? '#6c757d' : '#17a2b8',
+                    color: 'white',
+                    border: 'none',
+                    borderRadius: 4,
+                    cursor: loadingAttributes ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {loadingAttributes ? 'Обновляем...' : 'Обновить'}
+                </button>
+                <button
                   onClick={saveAttributesToOzon}
                   disabled={savingAttributes || !editableAttributes || !editableAttributes.length}
                   style={{
@@ -1029,7 +1095,7 @@ export default function ProductsPage() {
                     cursor: savingAttributes ? 'not-allowed' : 'pointer'
                   }}
                 >
-                  {savingAttributes ? 'Отправляем...' : 'Изменить в OZON'}
+                  {savingAttributes ? savingAttributesLabel : 'Изменить в OZON'}
                 </button>
                 <button
                   onClick={closeAttributes}

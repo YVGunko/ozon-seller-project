@@ -2,6 +2,8 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { addRequestLog } from '../../../src/server/requestLogStore';
 
+const STATUS_CHECK_DELAY_MS = 5000;
+
 const buildDescriptionAttributeKey = (descriptionCategoryId, typeId) => {
   return `${descriptionCategoryId ?? 'none'}:${typeId ?? 'none'}`;
 };
@@ -41,6 +43,43 @@ const parseProfile = (rawProfile) => {
   }
 
   return rawProfile;
+};
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const buildStatusCheckMessage = (item = {}) => {
+  const statuses = item.statuses || {};
+  const statusName = statuses.status_name ?? statuses.statusName ?? '—';
+  const statusDescription =
+    statuses.status_description ?? statuses.statusDescription ?? '—';
+  const statusTooltip = statuses.status_tooltip ?? statuses.statusTooltip ?? '';
+
+  const lines = [
+    'Проверяю статус карточки...',
+    `🧾 Статус карточки: ${statusName}`,
+    `📄 Описание: ${statusDescription}`
+  ];
+
+  if (statusTooltip) {
+    lines.push(`💬 Подсказка: ${statusTooltip}`);
+  }
+
+  if (
+    typeof statusDescription === 'string' &&
+    statusDescription.trim().toLowerCase() === 'не обновлен'
+  ) {
+    lines.push(
+      '⚠️ Изменения не применились — проверь историю обновлений или блокировку поля.'
+    );
+  }
+
+  return {
+    offer_id: item.offer_id ?? item.offerId ?? null,
+    statusName,
+    statusDescription,
+    statusTooltip,
+    message: lines.join('\n')
+  };
 };
 
 export default async function handler(req, res) {
@@ -293,10 +332,60 @@ export default async function handler(req, res) {
           }
         }
 
+        const offerIdsForStatusCheck = Array.isArray(items)
+          ? items
+              .map((item) => item?.offer_id ?? item?.offerId ?? null)
+              .filter((id) => id !== null && id !== undefined)
+              .map(String)
+          : [];
+
+        let statusCheck = null;
+
+        if (offerIdsForStatusCheck.length) {
+          try {
+            await wait(STATUS_CHECK_DELAY_MS);
+            const infoResponse = await ozon.getProductInfoList(offerIdsForStatusCheck);
+            const infoItems = Array.isArray(infoResponse?.items)
+              ? infoResponse.items
+              : Array.isArray(infoResponse?.result?.items)
+              ? infoResponse.result.items
+              : [];
+            const primaryOfferId = offerIdsForStatusCheck[0];
+            const matchedItem =
+              infoItems.find(
+                (entry) =>
+                  String(entry?.offer_id ?? entry?.offerId ?? '') === primaryOfferId
+              ) || infoItems[0];
+
+            if (matchedItem) {
+              const report = buildStatusCheckMessage(matchedItem);
+              statusCheck = {
+                offer_id: report.offer_id ?? primaryOfferId,
+                status_name: report.statusName,
+                status_description: report.statusDescription,
+                status_tooltip: report.statusTooltip,
+                message: report.message
+              };
+            } else {
+              statusCheck = {
+                offer_id: primaryOfferId,
+                error: 'Не удалось найти товар в списке статусов'
+              };
+            }
+          } catch (statusCheckError) {
+            statusCheck = {
+              error:
+                statusCheckError?.message ||
+                'Не удалось получить актуальный статус карточки'
+            };
+          }
+        }
+
         statusCode = 200;
         responseBody = {
           update: updateResult,
-          status: statusResult
+          status: statusResult,
+          status_check: statusCheck
         };
 
         res.status(statusCode).json(responseBody);
