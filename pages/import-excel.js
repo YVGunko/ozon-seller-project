@@ -487,6 +487,41 @@ const parseAttributeTextareaValue = (rawValue = '') => {
     .map((value) => ({ value }));
 };
 
+const pickFirstValue = (...candidates) => {
+  for (const candidate of candidates) {
+    if (hasValue(candidate)) {
+      return String(candidate);
+    }
+  }
+  return '';
+};
+
+const extractBaseFieldsFromTemplate = (template = {}) => {
+  if (!template || typeof template !== 'object') {
+    return {};
+  }
+
+  const result = {};
+
+  result.price = pickFirstValue(template.price);
+  result.old_price = pickFirstValue(template.old_price);
+  result.min_price = pickFirstValue(template.min_price);
+
+  result.depth = pickFirstValue(template.depth, template.length, template.package_depth, template.package_length);
+  result.width = pickFirstValue(template.width, template.package_width);
+  result.height = pickFirstValue(template.height, template.package_height);
+  result.dimension_unit = pickFirstValue(template.dimension_unit);
+  result.weight = pickFirstValue(template.weight, template.package_weight);
+  result.weight_unit = pickFirstValue(template.weight_unit);
+
+  return Object.entries(result).reduce((acc, [key, value]) => {
+    if (hasValue(value)) {
+      acc[key] = value;
+    }
+    return acc;
+  }, {});
+};
+
 const buildAttributesPayload = (
   templateAttributes = [],
   fieldMappings,
@@ -1028,11 +1063,21 @@ export default function ImportExcelPage() {
       sampleAttributeValueMap.set(attrId, attr);
     });
 
+    const availableMetaMap = new Map();
+    (sampleTemplate?.available_attributes || []).forEach((meta) => {
+      const attrId = Number(meta?.attribute_id ?? meta?.id);
+      if (!attrId) return;
+      availableMetaMap.set(attrId, meta);
+    });
+
     const seenAttrIds = new Set();
 
     const buildAttributeEntry = (metaSource, attrId, order) => {
       const fieldKey = attributeFieldMap.get(attrId);
       const mapping = fieldKey ? fieldMappings[fieldKey] : null;
+      const sampleValue = sampleAttributeValueMap.has(attrId)
+        ? stringifyAttributeValues(sampleAttributeValueMap.get(attrId))
+        : '';
 
       let currentValue = '';
       if (fieldKey && hasValue(rowValues[fieldKey])) {
@@ -1041,8 +1086,8 @@ export default function ImportExcelPage() {
         currentValue = String(rowValues.name);
       } else if (overridesForRow[attrId]) {
         currentValue = stringifyAttributeValues(overridesForRow[attrId]);
-      } else if (sampleAttributeValueMap.has(attrId)) {
-        currentValue = stringifyAttributeValues(sampleAttributeValueMap.get(attrId));
+      } else if (hasValue(sampleValue)) {
+        currentValue = sampleValue;
       } else {
         currentValue = stringifyAttributeValues(metaSource);
       }
@@ -1068,34 +1113,19 @@ export default function ImportExcelPage() {
 
     const modalAttributes = [];
 
-    (sampleTemplate?.available_attributes || []).forEach((meta, index) => {
-      const attrId = Number(meta?.attribute_id ?? meta?.id);
-      if (!attrId) return;
-      seenAttrIds.add(attrId);
-      modalAttributes.push(buildAttributeEntry(meta, attrId, index));
-    });
-
-    (sampleTemplate?.attributes || []).forEach((attribute, index) => {
+    (sampleTemplate?.attributes || []).forEach((attribute) => {
       const attrId = Number(attribute?.attribute_id ?? attribute?.id ?? attribute?.attributeId);
-      if (!attrId || seenAttrIds.has(attrId)) {
-        return;
-      }
-      modalAttributes.push(
-        buildAttributeEntry(
-          attribute,
-          attrId,
-          (sampleTemplate?.available_attributes?.length || 0) + index
-        )
-      );
+      if (!attrId || seenAttrIds.has(attrId)) return;
+      seenAttrIds.add(attrId);
+      const metaSource = availableMetaMap.get(attrId) || attribute;
+      modalAttributes.push(buildAttributeEntry(metaSource, attrId, modalAttributes.length));
     });
 
-    if (modalAttributes.length === 0 && Array.isArray(sampleTemplate?.attributes)) {
-      sampleTemplate.attributes.forEach((attribute, index) => {
-        const attrId = Number(attribute?.attribute_id ?? attribute?.id ?? attribute?.attributeId);
-        if (!attrId) return;
-        modalAttributes.push(buildAttributeEntry(attribute, attrId, index));
-      });
-    }
+    availableMetaMap.forEach((meta, attrId) => {
+      if (seenAttrIds.has(attrId)) return;
+      seenAttrIds.add(attrId);
+      modalAttributes.push(buildAttributeEntry(meta, attrId, modalAttributes.length));
+    });
 
     modalAttributes.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
@@ -1391,6 +1421,41 @@ export default function ImportExcelPage() {
       setSampleTemplate(deepClone(productInfo));
       setRowAttributeOverrides({});
       setSampleOfferId(trimmedOffer);
+
+      const templateBaseFields = extractBaseFieldsFromTemplate(productInfo);
+      if (Object.keys(templateBaseFields).length > 0) {
+        setBaseProductData(prev => ({
+          ...prev,
+          ...templateBaseFields
+        }));
+      }
+
+      try {
+        const params = new URLSearchParams({
+          offer_id: trimmedOffer,
+          profile: encodeURIComponent(JSON.stringify(currentProfile))
+        });
+        const infoResponse = await fetch(`/api/products/info-list?${params.toString()}`);
+        if (infoResponse.ok) {
+          const infoData = await infoResponse.json();
+          const item = Array.isArray(infoData?.items) && infoData.items.length
+            ? infoData.items[0]
+            : Array.isArray(infoData?.raw?.items) && infoData.raw.items.length
+              ? infoData.raw.items[0]
+              : null;
+          if (item) {
+            const extracted = extractBaseFieldsFromProductInfo(item);
+            if (Object.keys(extracted).length > 0) {
+              setBaseProductData(prev => ({
+                ...prev,
+                ...extracted
+              }));
+            }
+          }
+        }
+      } catch (infoError) {
+        console.error('Не удалось получить информацию о товаре', infoError);
+      }
     } catch (error) {
       console.error('Ошибка загрузки образца:', error);
       setSampleTemplate(null);
@@ -1515,12 +1580,55 @@ export default function ImportExcelPage() {
     }
   };
 
-  const handleBaseFieldChange = (field, value) => {
-    setBaseProductData(prev => ({
-      ...prev,
-      [field]: value
-    }));
-  };
+const handleBaseFieldChange = (field, value) => {
+  setBaseProductData(prev => ({
+    ...prev,
+    [field]: value
+  }));
+};
+
+const extractBaseFieldsFromProductInfo = (info = {}) => {
+  if (!info || typeof info !== 'object') {
+    return {};
+  }
+
+  const result = {};
+
+  ['price', 'old_price', 'min_price'].forEach((field) => {
+    if (hasValue(info[field])) {
+      result[field] = String(info[field]);
+    }
+  });
+
+  const packageDimensions = info.package_dimensions || info.dimensions || {};
+  const packageWeight = info.package_weight;
+  const packageWeightUnit = info.package_weight_unit;
+
+  if (hasValue(info.depth) || hasValue(info.length) || hasValue(packageDimensions.length) || hasValue(packageDimensions.depth)) {
+    result.depth = pickFirstValue(info.depth, info.length, packageDimensions.length, packageDimensions.depth);
+  }
+  if (hasValue(info.width) || hasValue(packageDimensions.width)) {
+    result.width = pickFirstValue(info.width, packageDimensions.width);
+  }
+  if (hasValue(info.height) || hasValue(packageDimensions.height)) {
+    result.height = pickFirstValue(info.height, packageDimensions.height);
+  }
+  if (hasValue(info.dimension_unit) || hasValue(packageDimensions.dimension_unit)) {
+    result.dimension_unit = pickFirstValue(info.dimension_unit, packageDimensions.dimension_unit);
+  }
+  if (hasValue(info.weight) || hasValue(packageWeight)) {
+    result.weight = pickFirstValue(info.weight, packageWeight);
+  }
+  if (hasValue(info.weight_unit) || hasValue(packageWeightUnit)) {
+    result.weight_unit = pickFirstValue(info.weight_unit, packageWeightUnit);
+  }
+
+  if (hasValue(info?.category_id)) {
+    result.category_id = String(info.category_id);
+  }
+
+  return result;
+};
 
   // Импорт товаров в OZON
   const importToOzon = async () => {

@@ -27,6 +27,8 @@ const overlayStyle = {
   padding: 20
 };
 
+const hasValue = (value) => value !== undefined && value !== null && value !== '';
+
 const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
   if (!priceLoading && !priceInfo && !priceError) {
     return null;
@@ -189,7 +191,8 @@ const ImportAttributesContent = ({
   submitDisabled,
   submitLoading,
   onMetaChange,
-  baseValues
+  baseValues,
+  priceInfo
 }) => {
   const rowNumber = (state?.rowIndex ?? 0) + 1;
   const attributes = useMemo(() => {
@@ -199,6 +202,19 @@ const ImportAttributesContent = ({
   }, [state?.attributes]);
   const metaValues = state?.metaValues || {};
   const handleMetaChange = onMetaChange || (() => {});
+  const combinedBaseValues = {
+    ...(priceInfo || {}),
+    ...(baseValues || {})
+  };
+
+  useEffect(() => {
+    if (!priceInfo || !onMetaChange) return;
+    REQUIRED_BASE_FIELDS.forEach((field) => {
+      if (!hasValue(metaValues[field]) && hasValue(priceInfo[field])) {
+        onMetaChange(field, String(priceInfo[field]));
+      }
+    });
+  }, [priceInfo, metaValues, onMetaChange]);
 
   return (
     <div
@@ -243,7 +259,11 @@ const ImportAttributesContent = ({
       </div>
       <div style={{ padding: '20px 24px', overflowY: 'auto' }}>
         <PriceInfoPanel {...pricePanelProps} />
-        <MetaFieldsSection values={metaValues} onChange={handleMetaChange} baseValues={baseValues} />
+        <MetaFieldsSection
+          values={metaValues}
+          onChange={handleMetaChange}
+          baseValues={combinedBaseValues}
+        />
         {attributes.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#6c757d' }}>
             Атрибуты для выбранного образца отсутствуют
@@ -385,9 +405,22 @@ const ProductsAttributesContent = ({
   submitDisabled,
   submitLoading,
   pricePanelProps,
-  onMetaChange
+  onMetaChange,
+  priceInfo
 }) => {
   const handleMetaChange = onMetaChange || (() => {});
+
+  useEffect(() => {
+    if (!priceInfo || !onMetaChange || !Array.isArray(editableAttributes)) return;
+    REQUIRED_BASE_FIELDS.forEach((field) => {
+      if (!hasValue(priceInfo[field])) return;
+      editableAttributes.forEach((product, idx) => {
+        if (!hasValue(product?.[field])) {
+          onMetaChange(idx, field, String(priceInfo[field]));
+        }
+      });
+    });
+  }, [priceInfo, editableAttributes, onMetaChange]);
   return (
     <div
       style={{
@@ -608,7 +641,7 @@ const ProductsAttributesContent = ({
                 <MetaFieldsSection
                   values={editableProduct}
                   onChange={(field, value) => handleMetaChange(idx, field, value)}
-                  baseValues={productInfo}
+                  baseValues={{ ...(priceInfo || {}), ...productInfo }}
                 />
 
                 {attributeList.length > 0 && (
@@ -946,6 +979,34 @@ export const AttributesModal = ({
     };
   }, [isOpen, offerId, profileKey, profile]);
 
+  useEffect(() => {
+    if (!isOpen || !priceInfo) return;
+
+    if (source === 'import' && onImportMetaChange) {
+      REQUIRED_BASE_FIELDS.forEach((field) => {
+        const existing = importState?.metaValues?.[field];
+        if (!hasValue(existing) && hasValue(priceInfo[field])) {
+          onImportMetaChange(field, String(priceInfo[field]));
+        }
+      });
+    }
+
+    if (
+      source === 'products' &&
+      onProductsMetaChange &&
+      Array.isArray(productsState?.editableAttributes)
+    ) {
+      REQUIRED_BASE_FIELDS.forEach((field) => {
+        if (!hasValue(priceInfo[field])) return;
+        productsState.editableAttributes.forEach((product, idx) => {
+          if (!hasValue(product?.[field])) {
+            onProductsMetaChange(idx, field, String(priceInfo[field]));
+          }
+        });
+      });
+    }
+  }, [isOpen, priceInfo, source, onImportMetaChange, importState, onProductsMetaChange, productsState]);
+
   if (!isOpen) {
     return null;
   }
@@ -980,6 +1041,7 @@ export const AttributesModal = ({
           submitLoading={productsSubmitLoading}
           pricePanelProps={pricePanelProps}
           onMetaChange={onProductsMetaChange}
+          priceInfo={priceInfo}
         />
       ) : (
         <ImportAttributesContent
@@ -994,6 +1056,7 @@ export const AttributesModal = ({
           submitLoading={importSubmitLoading}
           onMetaChange={onImportMetaChange}
           baseValues={importBaseValues}
+          priceInfo={priceInfo}
         />
       )}
     </div>
