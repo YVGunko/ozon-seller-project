@@ -740,7 +740,8 @@ export default function ProductsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items,
-          profile: currentProfile
+          profile: currentProfile,
+          mode: 'import'
         })
       });
 

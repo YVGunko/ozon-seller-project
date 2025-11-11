@@ -172,6 +172,82 @@ export class OzonApiService {
     return this.request('/v3/product/import', body);
   }
 
+  normalizeAttributeUpdateItems(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('Не переданы товары для обновления');
+    }
+
+    const normalizedItems = items
+      .map((item) => {
+        const offerId = item.offer_id || item.offerId;
+        const prepared = {
+          ...item,
+          offer_id: offerId ? String(offerId) : undefined
+        };
+
+        const typeId = Number(item.type_id ?? item.typeId);
+        if (Number.isFinite(typeId) && typeId > 0) {
+          prepared.type_id = typeId;
+        } else {
+          delete prepared.type_id;
+          delete prepared.typeId;
+        }
+
+        if (Array.isArray(item.attributes)) {
+          prepared.attributes = item.attributes
+            .map((attr) => {
+              const id = Number(attr?.id ?? attr?.attribute_id);
+              if (!id) return null;
+
+              const values = (attr.values || [])
+                .map((valueEntry) => {
+                  const raw =
+                    valueEntry?.value ??
+                    valueEntry?.text ??
+                    valueEntry?.value_text ??
+                    valueEntry;
+                  if (raw === undefined || raw === null) return null;
+                  const str = String(raw).trim();
+                  if (!str) return null;
+                  return { value: str };
+                })
+                .filter(Boolean);
+
+              if (!values.length) return null;
+
+              if (id === HASHTAG_ATTRIBUTE_ID) {
+                const normalizedHashtags = normalizeHashtagAttributeValues(values);
+                if (!normalizedHashtags.length) return null;
+                return {
+                  id,
+                  values: normalizedHashtags
+                };
+              }
+
+              return {
+                id,
+                values
+              };
+            })
+            .filter(Boolean);
+        }
+
+        return prepared;
+      })
+      .filter(
+        (item) =>
+          item.offer_id &&
+          Array.isArray(item.attributes) &&
+          item.attributes.length > 0
+      );
+
+    if (!normalizedItems.length) {
+      throw new Error('Нет атрибутов для обновления');
+    }
+
+    return normalizedItems;
+  }
+
   async getAttributeDictionaryValues({
     attribute_id,
     description_category_id,
@@ -374,74 +450,14 @@ export class OzonApiService {
   }
 
   async updateProductAttributes(items) {
-    if (!Array.isArray(items) || items.length === 0) {
-      throw new Error('Не переданы товары для обновления');
-    }
+    const normalizedItems = this.normalizeAttributeUpdateItems(items);
+    return this.request('/v1/product/attributes/update', {
+      items: normalizedItems
+    });
+  }
 
-    const normalizedItems = items
-      .map((item) => {
-        const offerId = item.offer_id || item.offerId;
-        const prepared = {
-          ...item,
-          offer_id: offerId ? String(offerId) : undefined
-        };
-
-        const typeId = Number(item.type_id ?? item.typeId);
-        if (Number.isFinite(typeId) && typeId > 0) {
-          prepared.type_id = typeId;
-        } else {
-          delete prepared.type_id;
-          delete prepared.typeId;
-        }
-
-        if (Array.isArray(item.attributes)) {
-          prepared.attributes = item.attributes
-            .map((attr) => {
-              const id = Number(attr?.id ?? attr?.attribute_id);
-              if (!id) return null;
-
-              let values = (attr.values || [])
-                .map((valueEntry) => {
-                  const raw =
-                    valueEntry?.value ??
-                    valueEntry?.text ??
-                    valueEntry?.value_text ??
-                    valueEntry;
-                  if (raw === undefined || raw === null) return null;
-                  const str = String(raw).trim();
-                  if (!str) return null;
-                  return { value: str };
-                })
-                .filter(Boolean);
-
-              if (!values.length) return null;
-
-              if (id === HASHTAG_ATTRIBUTE_ID) {
-                values = normalizeHashtagAttributeValues(values);
-                if (!values.length) return null;
-              }
-
-              return {
-                id,
-                values
-              };
-            })
-            .filter(Boolean);
-        }
-
-        return prepared;
-      })
-      .filter(
-        (item) =>
-          item.offer_id &&
-          Array.isArray(item.attributes) &&
-          item.attributes.length > 0
-      );
-
-    if (!normalizedItems.length) {
-      throw new Error('Нет атрибутов для обновления');
-    }
-
+  async importProductAttributes(items) {
+    const normalizedItems = this.normalizeAttributeUpdateItems(items);
     return this.createProductsBatch(normalizedItems);
   }
 

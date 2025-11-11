@@ -296,7 +296,8 @@ export default async function handler(req, res) {
       let offerIdForLog = '';
 
       try {
-        const { items, profile } = req.body || {};
+        const { items, profile, mode } = req.body || {};
+        const useImportMode = mode === 'import';
 
         if (!Array.isArray(items) || items.length === 0) {
           statusCode = 400;
@@ -318,7 +319,10 @@ export default async function handler(req, res) {
         offerIdForLog = String(items?.[0]?.offer_id || items?.[0]?.offerId || '');
 
         const ozon = new OzonApiService(ozon_api_key, ozon_client_id);
-        const updateResult = await ozon.updateProductAttributes(items);
+
+        const updateResult = useImportMode
+          ? await ozon.importProductAttributes(items)
+          : await ozon.updateProductAttributes(items);
         const taskId = updateResult?.result?.task_id;
 
         let statusResult = null;
@@ -401,7 +405,9 @@ export default async function handler(req, res) {
         try {
           addRequestLog({
             offer_id: offerIdForLog,
-            endpoint: '/v1/product/attributes/update',
+            endpoint: useImportMode
+              ? '/v3/product/import'
+              : '/v1/product/attributes/update',
             method: 'POST',
             status: statusCode,
             duration_ms: duration,

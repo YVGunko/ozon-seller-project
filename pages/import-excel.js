@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, Fragment } from 'react';
+import { useState, useRef, useEffect, Fragment, useMemo } from 'react';
 import { OzonApiService } from '../src/services/ozon-api';
 import { ProfileManager } from '../src/utils/profileManager';
 import translationService from '../src/services/TranslationService';
@@ -430,7 +430,59 @@ const extractAttributeValue = (attribute) => {
   return '';
 };
 
-const buildAttributesPayload = (templateAttributes = [], fieldMappings, rowValues) => {
+const stringifyAttributeValues = (attribute) => {
+  if (!attribute) return '';
+
+  const rawValues = [];
+
+  if (Array.isArray(attribute.values)) {
+    rawValues.push(...attribute.values);
+  } else if (Array.isArray(attribute.dictionary_values)) {
+    rawValues.push(...attribute.dictionary_values);
+  } else if (Array.isArray(attribute.dictionaryValues)) {
+    rawValues.push(...attribute.dictionaryValues);
+  } else if (hasValue(attribute.value)) {
+    rawValues.push(attribute.value);
+  } else if (hasValue(attribute.text_value)) {
+    rawValues.push(attribute.text_value);
+  } else if (hasValue(attribute.value_text)) {
+    rawValues.push(attribute.value_text);
+  } else if (typeof attribute === 'string') {
+    rawValues.push(attribute);
+  }
+
+  return rawValues
+    .map((valueEntry) => {
+      if (typeof valueEntry === 'string') return valueEntry;
+      if (!valueEntry || typeof valueEntry !== 'object') return '';
+
+      if (hasValue(valueEntry.value)) return String(valueEntry.value);
+      if (hasValue(valueEntry.text)) return String(valueEntry.text);
+      if (hasValue(valueEntry.value_text)) return String(valueEntry.value_text);
+      if (hasValue(valueEntry.name)) return String(valueEntry.name);
+
+      return '';
+    })
+    .filter(Boolean)
+    .join('\n');
+};
+
+const parseAttributeTextareaValue = (rawValue = '') => {
+  if (!hasValue(rawValue)) return [];
+
+  return String(rawValue)
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => ({ value }));
+};
+
+const buildAttributesPayload = (
+  templateAttributes = [],
+  fieldMappings,
+  rowValues,
+  attributeOverrides = null
+) => {
   const attributesMap = new Map();
 
   templateAttributes.forEach((attr) => {
@@ -504,6 +556,41 @@ const buildAttributesPayload = (templateAttributes = [], fieldMappings, rowValue
 
     attributesMap.set(attrId, overrideAttribute);
   });
+
+  if (attributeOverrides && typeof attributeOverrides === 'object') {
+    Object.entries(attributeOverrides).forEach(([attrIdKey, override]) => {
+      const attrId = Number(attrIdKey);
+      if (!attrId) return;
+
+      const overrideAttribute = attributesMap.get(attrId) || { id: attrId };
+      const valuesSource = Array.isArray(override?.values) ? override.values : null;
+
+      if (valuesSource) {
+        overrideAttribute.values = valuesSource
+          .map((entry) => {
+            if (typeof entry === 'string') {
+              return { value: entry };
+            }
+            if (entry && typeof entry === 'object') {
+              const entryClone = { ...entry };
+              if (hasValue(entryClone.value)) {
+                entryClone.value = String(entryClone.value);
+              } else if (hasValue(entryClone.text)) {
+                entryClone.value = String(entryClone.text);
+                delete entryClone.text;
+              }
+              return entryClone;
+            }
+            return null;
+          })
+          .filter(Boolean);
+      } else if (hasValue(override?.value)) {
+        overrideAttribute.values = [{ value: String(override.value) }];
+      }
+
+      attributesMap.set(attrId, overrideAttribute);
+    });
+  }
 
   return Array.from(attributesMap.values()).filter(
     (attr) =>
@@ -598,7 +685,8 @@ const buildImportItemFromRow = ({
   baseProductData,
   rowValues,
   fieldMappings,
-  rowIndex
+  rowIndex,
+  attributeOverrides
 }) => {
   const item = prepareTemplateBaseData(template, baseProductData);
 
@@ -620,7 +708,12 @@ const buildImportItemFromRow = ({
     item.description = String(description);
   }
 
-  item.attributes = buildAttributesPayload(template?.attributes || [], fieldMappings, rowValues);
+  item.attributes = buildAttributesPayload(
+    template?.attributes || [],
+    fieldMappings,
+    rowValues,
+    attributeOverrides
+  );
 
   const requiredFields = [];
   if (!hasValue(item.offer_id)) {
@@ -709,10 +802,26 @@ export default function ImportExcelPage() {
 
   // Редактируемые данные для каждой строки
   const [rowData, setRowData] = useState({});
+  const [rowAttributeOverrides, setRowAttributeOverrides] = useState({});
+  const [attributeModalState, setAttributeModalState] = useState({
+    isOpen: false,
+    rowIndex: null,
+    attributes: []
+  });
   const templateFieldKeys = Object.keys(fieldMappings);
   const editableTemplateKeys = templateFieldKeys.filter(
     (key) => !HIDDEN_TEMPLATE_FIELDS.includes(key)
   );
+
+  const attributeFieldMap = useMemo(() => {
+    const map = new Map();
+    Object.entries(fieldMappings).forEach(([fieldKey, mapping]) => {
+      if (mapping?.attributeId) {
+        map.set(Number(mapping.attributeId), fieldKey);
+      }
+    });
+    return map;
+  }, [fieldMappings]);
 
   useEffect(() => {
     if (descriptionMessage) {
@@ -801,6 +910,7 @@ export default function ImportExcelPage() {
         });
       });
       setRowData(initialRowData);
+      setRowAttributeOverrides({});
     } catch (error) {
       console.error('Error parsing Excel file:', error);
       alert('Ошибка при чтении файла: ' + error.message);
@@ -818,6 +928,155 @@ export default function ImportExcelPage() {
         [fieldKey]: value
       }
     }));
+  };
+
+  const getRowValuesForIndex = (rowIndex) => {
+    const sourceRow = excelData[rowIndex] || {};
+    const generatedRow = rowData[rowIndex] || {};
+
+    const mergedValues = {
+      ...sourceRow,
+      ...generatedRow
+    };
+
+    if (!hasValue(mergedValues.brand_code)) {
+      mergedValues.brand_code = userValues.brand_code || sourceRow.brand_code || '';
+    }
+
+    if (!hasValue(mergedValues.ru_color_name)) {
+      mergedValues.ru_color_name = userValues.ru_color_name || sourceRow.ru_color_name || '';
+    }
+
+    if (!hasValue(mergedValues.ru_car_brand)) {
+      mergedValues.ru_car_brand = sourceRow.ru_car_brand || sourceRow.carBrand || '';
+    }
+
+    return mergedValues;
+  };
+
+  const openAttributesModal = (rowIndex) => {
+    if (!sampleTemplate || !Array.isArray(sampleTemplate.attributes) || sampleTemplate.attributes.length === 0) {
+      alert('Сначала загрузите образец с атрибутами.');
+      return;
+    }
+
+    if (!rowData[rowIndex]) {
+      alert('Примените шаблоны для выбранной строки перед редактированием атрибутов.');
+      return;
+    }
+
+    const rowValues = getRowValuesForIndex(rowIndex);
+    const overridesForRow = rowAttributeOverrides[rowIndex] || {};
+
+    const modalAttributes = sampleTemplate.attributes
+      .map((attribute) => {
+        const attrId = Number(attribute?.attribute_id ?? attribute?.id ?? attribute?.attributeId);
+        if (!attrId) return null;
+
+        const fieldKey = attributeFieldMap.get(attrId);
+
+        let currentValue = '';
+        if (fieldKey && hasValue(rowValues[fieldKey])) {
+          currentValue = String(rowValues[fieldKey]);
+        } else if (overridesForRow[attrId]) {
+          currentValue = stringifyAttributeValues(overridesForRow[attrId]);
+        } else {
+          currentValue = stringifyAttributeValues(attribute);
+        }
+
+        return {
+          id: attrId,
+          name: attribute?.attribute_name || attribute?.name || `Атрибут ${attrId}`,
+          fieldKey,
+          value: currentValue,
+          required: Boolean(attribute?.is_required ?? attribute?.isRequired)
+        };
+      })
+      .filter(Boolean);
+
+    setAttributeModalState({
+      isOpen: true,
+      rowIndex,
+      attributes: modalAttributes
+    });
+  };
+
+  const closeAttributesModal = () => {
+    setAttributeModalState({
+      isOpen: false,
+      rowIndex: null,
+      attributes: []
+    });
+  };
+
+  const handleAttributeModalValueChange = (attrId, value) => {
+    setAttributeModalState(prevState => {
+      if (!prevState.isOpen) return prevState;
+
+      return {
+        ...prevState,
+        attributes: prevState.attributes.map(attr =>
+          attr.id === attrId ? { ...attr, value } : attr
+        )
+      };
+    });
+  };
+
+  const handleAttributeModalSave = () => {
+    if (!attributeModalState.isOpen) return;
+
+    const { rowIndex, attributes } = attributeModalState;
+
+    setRowData(prev => {
+      const currentRowValues = prev[rowIndex] || {};
+      let didChange = false;
+
+      const updatedRowValues = { ...currentRowValues };
+      attributes.forEach(attr => {
+        if (!attr.fieldKey) return;
+        didChange = true;
+        updatedRowValues[attr.fieldKey] = attr.value || '';
+      });
+
+      if (!didChange) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [rowIndex]: updatedRowValues
+      };
+    });
+
+    setRowAttributeOverrides(prev => {
+      const currentOverrides = { ...(prev[rowIndex] || {}) };
+
+      attributes.forEach(attr => {
+        if (attr.fieldKey) {
+          // У таких атрибутов значение берется напрямую из строки
+          delete currentOverrides[attr.id];
+          return;
+        }
+
+        const parsedValues = parseAttributeTextareaValue(attr.value);
+        if (parsedValues.length > 0) {
+          currentOverrides[attr.id] = { id: attr.id, values: parsedValues };
+        } else {
+          delete currentOverrides[attr.id];
+        }
+      });
+
+      const nextOverrides = { ...prev };
+      if (Object.keys(currentOverrides).length > 0) {
+        nextOverrides[rowIndex] = currentOverrides;
+      } else {
+        delete nextOverrides[rowIndex];
+      }
+
+      return nextOverrides;
+    });
+
+    closeAttributesModal();
   };
 
   // Применение шаблонов ко всем строкам
@@ -901,6 +1160,7 @@ export default function ImportExcelPage() {
       }
 
       setSampleTemplate(deepClone(productInfo));
+      setRowAttributeOverrides({});
       setSampleOfferId(trimmedOffer);
     } catch (error) {
       console.error('Ошибка загрузки образца:', error);
@@ -915,6 +1175,7 @@ export default function ImportExcelPage() {
     setSampleTemplate(null);
     setSampleOfferId('');
     setSampleError('');
+    setRowAttributeOverrides({});
   };
 
   const generateSeoDescriptions = async () => {
@@ -1088,7 +1349,8 @@ export default function ImportExcelPage() {
             baseProductData,
             rowValues,
             fieldMappings,
-            rowIndex: index
+            rowIndex: index,
+            attributeOverrides: rowAttributeOverrides[index]
           })
         );
       }
@@ -1740,6 +2002,13 @@ export default function ImportExcelPage() {
                       border: '1px solid #dee2e6',
                       textAlign: 'left',
                       fontSize: '12px',
+                      width: '110px'
+                    }}>Атрибуты</th>
+                    <th style={{
+                      padding: '10px 8px',
+                      border: '1px solid #dee2e6',
+                      textAlign: 'left',
+                      fontSize: '12px',
                       minWidth: '110px'
                     }}>Colour Code</th>
                     <th style={{
@@ -1788,6 +2057,35 @@ export default function ImportExcelPage() {
                         fontSize: '12px',
                         textAlign: 'center'
                       }}>{index + 1}</td>
+                      <td style={{
+                        padding: '8px',
+                        border: '1px solid #dee2e6',
+                        textAlign: 'center'
+                      }}>
+                        <button
+                          onClick={() => openAttributesModal(index)}
+                          disabled={!sampleTemplate || !rowData[index]}
+                          style={{
+                            padding: '6px 10px',
+                            backgroundColor: !sampleTemplate || !rowData[index] ? '#adb5bd' : '#0d6efd',
+                            color: 'white',
+                            border: 'none',
+                            borderRadius: '4px',
+                            cursor: !sampleTemplate || !rowData[index] ? 'not-allowed' : 'pointer',
+                            fontSize: '11px',
+                            width: '100%'
+                          }}
+                          title={
+                            !sampleTemplate
+                              ? 'Сначала выберите товар-образец'
+                              : !rowData[index]
+                                ? 'Примените шаблоны к этой строке'
+                                : 'Открыть редактор атрибутов'
+                          }
+                        >
+                          Редактировать
+                        </button>
+                      </td>
                       <td style={{
                         padding: '8px',
                         border: '1px solid #dee2e6',
@@ -1849,6 +2147,149 @@ export default function ImportExcelPage() {
             </div>
           </div>
           </div>
+
+          {attributeModalState.isOpen && (
+            <div style={{
+              position: 'fixed',
+              top: 0,
+              left: 0,
+              right: 0,
+              bottom: 0,
+              backgroundColor: 'rgba(0,0,0,0.45)',
+              display: 'flex',
+              justifyContent: 'center',
+              alignItems: 'center',
+              zIndex: 1000,
+              padding: '20px'
+            }}>
+              <div style={{
+                backgroundColor: 'white',
+                borderRadius: '12px',
+                width: 'min(900px, 95vw)',
+                maxHeight: '90vh',
+                overflow: 'hidden',
+                display: 'flex',
+                flexDirection: 'column',
+                boxShadow: '0 12px 24px rgba(15, 23, 42, 0.25)'
+              }}>
+                <div style={{
+                  padding: '20px 24px',
+                  borderBottom: '1px solid #e9ecef',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center'
+                }}>
+                  <div>
+                    <h3 style={{ margin: 0 }}>Атрибуты строки #{(attributeModalState.rowIndex ?? 0) + 1}</h3>
+                    <div style={{ fontSize: '13px', color: '#6c757d' }}>
+                      Значения будут отправлены в OZON при импорте товаров.
+                    </div>
+                  </div>
+                  <button
+                    onClick={closeAttributesModal}
+                    style={{
+                      border: 'none',
+                      background: 'none',
+                      fontSize: '18px',
+                      cursor: 'pointer',
+                      color: '#6c757d'
+                    }}
+                  >
+                    ✕
+                  </button>
+                </div>
+                <div style={{ padding: '20px 24px', overflowY: 'auto' }}>
+                  {attributeModalState.attributes.length === 0 ? (
+                    <div style={{ textAlign: 'center', color: '#6c757d' }}>
+                      Атрибуты для выбранного образца отсутствуют
+                    </div>
+                  ) : (
+                    attributeModalState.attributes.map(attr => {
+                      const mappedField = attr.fieldKey ? fieldMappings[attr.fieldKey] : null;
+                      return (
+                        <div key={attr.id} style={{
+                          border: '1px solid #e9ecef',
+                          borderRadius: '8px',
+                          padding: '12px 14px',
+                          marginBottom: '12px',
+                          backgroundColor: mappedField ? '#f8fafc' : 'white'
+                        }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
+                            <div style={{ fontWeight: 'bold' }}>
+                              {attr.name}
+                              <span style={{ marginLeft: '8px', color: '#6c757d', fontSize: '12px' }}>ID: {attr.id}</span>
+                              {attr.required && <span style={{ color: '#dc3545', marginLeft: '6px' }}>*</span>}
+                            </div>
+                            {mappedField && (
+                              <span style={{ fontSize: '12px', color: '#0d6efd' }}>
+                                Привязано к полю «{mappedField.name || attr.fieldKey}»
+                              </span>
+                            )}
+                          </div>
+                          <textarea
+                            value={attr.value}
+                            onChange={(e) => handleAttributeModalValueChange(attr.id, e.target.value)}
+                            rows={attr.fieldKey ? 3 : 4}
+                            style={{
+                              width: '100%',
+                              borderRadius: '6px',
+                              border: '1px solid #d0d5dd',
+                              padding: '8px',
+                              fontSize: '13px',
+                              resize: 'vertical',
+                              backgroundColor: 'white',
+                              minHeight: attr.fieldKey ? '64px' : '88px'
+                            }}
+                            placeholder="Введите значение атрибута..."
+                          />
+                          <div style={{ fontSize: '11px', color: '#6c757d', marginTop: '6px' }}>
+                            {mappedField
+                              ? 'Изменение обновит соответствующее поле в таблице.'
+                              : 'Если оставить поле пустым, будет использовано значение из товара-образца.'}
+                          </div>
+                        </div>
+                      );
+                    })
+                  )}
+                </div>
+                <div style={{
+                  padding: '16px 24px',
+                  borderTop: '1px solid #e9ecef',
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '12px'
+                }}>
+                  <button
+                    onClick={closeAttributesModal}
+                    style={{
+                      padding: '10px 18px',
+                      backgroundColor: '#6c757d',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Отмена
+                  </button>
+                  <button
+                    onClick={handleAttributeModalSave}
+                    style={{
+                      padding: '10px 18px',
+                      backgroundColor: '#28a745',
+                      color: 'white',
+                      border: 'none',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontWeight: 'bold'
+                    }}
+                  >
+                    Сохранить
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Кнопка импорта */}
           <div style={{ textAlign: 'center', marginTop: '20px' }}>
