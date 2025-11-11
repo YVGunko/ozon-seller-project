@@ -3,6 +3,11 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
+import {
+  REQUIRED_BASE_FIELDS,
+  NUMERIC_BASE_FIELDS,
+  BASE_FIELD_LABELS
+} from '../src/constants/productFields';
 import { AttributesModal } from '../src/components/attributes';
 import {
   LARGE_TEXT_ATTRIBUTE_IDS,
@@ -24,6 +29,7 @@ import {
 } from '../src/utils/attributesHelpers';
 
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
+const hasValue = (value) => value !== undefined && value !== null && value !== '';
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -240,6 +246,19 @@ export default function ProductsPage() {
     });
   };
 
+  const handleProductMetaChange = (productIndex, field, value) => {
+    setEditableAttributes(prev => {
+      if (!prev) return prev;
+      return prev.map((product, idx) => {
+        if (idx !== productIndex) return product;
+        return {
+          ...product,
+          [field]: value
+        };
+      });
+    });
+  };
+
   const handleManualValueChange = (productIndex, attributeId, rawValue) => {
     setEditableAttributes(prev => {
       if (!prev) return prev;
@@ -416,14 +435,13 @@ export default function ProductsPage() {
 
         const typeChanged = userTypeId !== null && userTypeId !== originalTypeId;
 
-        if (!attributesPayload.length && !typeChanged) {
-          return null;
-        }
-
         const payload = {
-          offer_id: String(offerId),
-          attributes: attributesPayload
+          offer_id: String(offerId)
         };
+
+        if (attributesPayload.length) {
+          payload.attributes = attributesPayload;
+        }
 
         if (resolvedTypeId !== null) {
           payload.type_id = resolvedTypeId;
@@ -431,6 +449,51 @@ export default function ProductsPage() {
 
         if (item.name && item.name !== originalProduct.name) {
           payload.name = item.name;
+        }
+
+        const baseFieldUpdates = {};
+        const missingBaseFields = [];
+
+        REQUIRED_BASE_FIELDS.forEach((field) => {
+          let value = item[field];
+          if (!hasValue(value)) {
+            value = originalProduct[field];
+          }
+          if (!hasValue(value)) {
+            missingBaseFields.push(field);
+            return;
+          }
+          if (NUMERIC_BASE_FIELDS.includes(field)) {
+            const numeric = Number(value);
+            if (!Number.isFinite(numeric) || numeric <= 0) {
+              missingBaseFields.push(field);
+              return;
+            }
+          }
+          const normalizedValue = String(value);
+          baseFieldUpdates[field] = normalizedValue;
+          item[field] = normalizedValue;
+        });
+
+        if (missingBaseFields.length) {
+          const readable = missingBaseFields.map((field) => BASE_FIELD_LABELS[field] || field);
+          throw new Error(
+            `Товар ${offerId}: заполните поля ${readable.join(', ')}`
+          );
+        }
+
+        const hasBaseFields = Object.keys(baseFieldUpdates).length > 0;
+        if (hasBaseFields) {
+          Object.assign(payload, baseFieldUpdates);
+        }
+
+        if (
+          !payload.attributes &&
+          !typeChanged &&
+          !hasBaseFields &&
+          !payload.name
+        ) {
+          return null;
         }
 
         return payload;
@@ -449,7 +512,13 @@ export default function ProductsPage() {
       return;
     }
 
-    const items = sanitizeItemsForUpdate();
+    let items;
+    try {
+      items = sanitizeItemsForUpdate();
+    } catch (validationError) {
+      alert(validationError.message || 'Заполните обязательные поля перед отправкой.');
+      return;
+    }
 
     if (items.length === 0) {
       alert('Нет атрибутов для отправки. Заполните значения перед сохранением.');
@@ -800,6 +869,7 @@ export default function ProductsPage() {
         onProductsTypeChange={handleTypeIdChange}
         onProductsSubmit={saveAttributesToOzon}
         productsSubmitLoading={savingAttributes}
+        onProductsMetaChange={handleProductMetaChange}
         profile={currentProfile}
         offerId={selectedProduct}
         priceContextLabel={selectedProduct ? `Товар ${selectedProduct}` : undefined}

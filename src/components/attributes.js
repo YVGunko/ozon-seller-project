@@ -9,6 +9,12 @@ import {
   isDictionaryValueEntry,
   getAttributeKey
 } from '../utils/attributesHelpers';
+import {
+  PRICE_FIELDS,
+  DIMENSION_FIELDS,
+  REQUIRED_BASE_FIELDS,
+  BASE_FIELD_LABELS
+} from '../constants/productFields';
 
 const overlayStyle = {
   position: 'fixed',
@@ -81,6 +87,57 @@ const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) =
   );
 };
 
+const MetaFieldsSection = ({ values, onChange, baseValues }) => {
+  if (!values || !onChange) {
+    return null;
+  }
+
+  const fieldGroups = [
+    { title: 'Цены', fields: PRICE_FIELDS },
+    { title: 'Габариты и вес', fields: DIMENSION_FIELDS }
+  ];
+
+  return (
+    <div style={{ marginBottom: 16 }}>
+      <h4 style={{ margin: '10px 0' }}>Обязательные параметры для OZON</h4>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {fieldGroups.map((group) => (
+          <div key={group.title} style={{ border: '1px solid #e9ecef', borderRadius: 8, padding: 12 }}>
+            <div style={{ fontWeight: 'bold', marginBottom: 8 }}>{group.title}</div>
+            <div
+              style={{
+                display: 'grid',
+                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
+                gap: 12
+              }}
+            >
+              {group.fields.map((field) => (
+                <div key={field}>
+                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
+                    {BASE_FIELD_LABELS[field] || field}
+                  </label>
+                  <input
+                    type="text"
+                    value={values[field] ?? ''}
+                    onChange={(e) => onChange(field, e.target.value)}
+                    style={{
+                      width: '100%',
+                      padding: '6px 8px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da'
+                    }}
+                    placeholder={baseValues && baseValues[field] ? `По умолчанию: ${baseValues[field]}` : ''}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const getOrderValue = (attr, fallback = 0) => {
   const raw =
     attr?.order ??
@@ -130,7 +187,9 @@ const ImportAttributesContent = ({
   pricePanelProps,
   onSubmit,
   submitDisabled,
-  submitLoading
+  submitLoading,
+  onMetaChange,
+  baseValues
 }) => {
   const rowNumber = (state?.rowIndex ?? 0) + 1;
   const attributes = useMemo(() => {
@@ -138,6 +197,8 @@ const ImportAttributesContent = ({
       .map((attr, index) => ({ ...attr, __index: index }))
       .sort(attributeComparator);
   }, [state?.attributes]);
+  const metaValues = state?.metaValues || {};
+  const handleMetaChange = onMetaChange || (() => {});
 
   return (
     <div
@@ -182,6 +243,7 @@ const ImportAttributesContent = ({
       </div>
       <div style={{ padding: '20px 24px', overflowY: 'auto' }}>
         <PriceInfoPanel {...pricePanelProps} />
+        <MetaFieldsSection values={metaValues} onChange={handleMetaChange} baseValues={baseValues} />
         {attributes.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#6c757d' }}>
             Атрибуты для выбранного образца отсутствуют
@@ -322,8 +384,10 @@ const ProductsAttributesContent = ({
   onSubmit,
   submitDisabled,
   submitLoading,
-  pricePanelProps
+  pricePanelProps,
+  onMetaChange
 }) => {
+  const handleMetaChange = onMetaChange || (() => {});
   return (
     <div
       style={{
@@ -540,6 +604,12 @@ const ProductsAttributesContent = ({
                     </div>
                   </div>
                 </div>
+
+                <MetaFieldsSection
+                  values={editableProduct}
+                  onChange={(field, value) => handleMetaChange(idx, field, value)}
+                  baseValues={productInfo}
+                />
 
                 {attributeList.length > 0 && (
                   <div style={{ marginBottom: 20 }}>
@@ -796,6 +866,8 @@ export const AttributesModal = ({
   onImportSubmit,
   importSubmitDisabled,
   importSubmitLoading,
+  onImportMetaChange,
+  importBaseValues,
   productsState,
   onProductsRefresh,
   onProductsSave,
@@ -807,6 +879,7 @@ export const AttributesModal = ({
   onProductsSubmit,
   productsSubmitDisabled,
   productsSubmitLoading,
+  onProductsMetaChange,
   priceContextLabel
 }) => {
   const [priceInfo, setPriceInfo] = useState(null);
@@ -906,6 +979,7 @@ export const AttributesModal = ({
           submitDisabled={productsSubmitDisabled}
           submitLoading={productsSubmitLoading}
           pricePanelProps={pricePanelProps}
+          onMetaChange={onProductsMetaChange}
         />
       ) : (
         <ImportAttributesContent
@@ -918,6 +992,8 @@ export const AttributesModal = ({
           onSubmit={onImportSubmit}
           submitDisabled={importSubmitDisabled}
           submitLoading={importSubmitLoading}
+          onMetaChange={onImportMetaChange}
+          baseValues={importBaseValues}
         />
       )}
     </div>

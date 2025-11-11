@@ -1,4 +1,9 @@
 // src/services/ozon-api.js
+import {
+  REQUIRED_BASE_FIELDS,
+  NUMERIC_BASE_FIELDS
+} from '../constants/productFields';
+
 const DESCRIPTION_ATTRIBUTE_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
 const ATTRIBUTE_DICTIONARY_CACHE_TTL = 1000 * 60 * 60; // 60 minutes
 const descriptionCategoryAttributeCache = new Map();
@@ -41,6 +46,8 @@ const buildAttributeDictionarySearchKey = (
     limit ?? 100
   ].join(':');
 };
+
+const hasValue = (value) => value !== undefined && value !== null && value !== '';
 
 const normalizeHashtagAttributeValues = (values = []) => {
   const collectedTags = [];
@@ -230,16 +237,40 @@ export class OzonApiService {
               };
             })
             .filter(Boolean);
+          if (!prepared.attributes.length) {
+            delete prepared.attributes;
+          }
+        }
+
+        REQUIRED_BASE_FIELDS.forEach((field) => {
+          if (hasValue(item[field])) {
+            prepared[field] = String(item[field]);
+          }
+        });
+
+        const missingBaseFields = REQUIRED_BASE_FIELDS.filter((field) => {
+          const value = prepared[field];
+          if (!hasValue(value)) return true;
+          if (NUMERIC_BASE_FIELDS.includes(field)) {
+            const numeric = Number(value);
+            return !Number.isFinite(numeric) || numeric <= 0;
+          }
+          return false;
+        });
+
+        if (missingBaseFields.length) {
+          throw new Error(
+            `Товар ${prepared.offer_id || 'без offer_id'}: заполните поля ${missingBaseFields.join(', ')}`
+          );
         }
 
         return prepared;
       })
-      .filter(
-        (item) =>
-          item.offer_id &&
-          Array.isArray(item.attributes) &&
-          item.attributes.length > 0
-      );
+      .filter((item) => {
+        const hasAttributes = Array.isArray(item.attributes) && item.attributes.length > 0;
+        const hasBaseFields = REQUIRED_BASE_FIELDS.every((field) => hasValue(item[field]));
+        return item.offer_id && (hasAttributes || hasBaseFields);
+      });
 
     if (!normalizedItems.length) {
       throw new Error('Нет атрибутов для обновления');

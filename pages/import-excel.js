@@ -2,6 +2,13 @@ import { useState, useRef, useEffect, Fragment, useMemo } from 'react';
 import { OzonApiService } from '../src/services/ozon-api';
 import { ProfileManager } from '../src/utils/profileManager';
 import translationService from '../src/services/TranslationService';
+import {
+  PRICE_FIELDS,
+  DIMENSION_FIELDS,
+  REQUIRED_BASE_FIELDS,
+  NUMERIC_BASE_FIELDS,
+  BASE_FIELD_LABELS
+} from '../src/constants/productFields';
 import { AttributesModal } from '../src/components/attributes';
 
 // Сервис для работы с шаблонами
@@ -721,6 +728,14 @@ const buildImportItemFromRow = ({
     item.description = String(description);
   }
 
+  REQUIRED_BASE_FIELDS.forEach((field) => {
+    if (hasValue(rowValues?.[field])) {
+      item[field] = String(rowValues[field]);
+    } else if (hasValue(baseProductData?.[field])) {
+      item[field] = String(baseProductData[field]);
+    }
+  });
+
   item.attributes = buildAttributesPayload(
     template?.attributes || [],
     fieldMappings,
@@ -741,6 +756,23 @@ const buildImportItemFromRow = ({
 
   if (requiredFields.length > 0) {
     throw new Error(`Строка ${rowIndex + 1}: отсутствуют значения ${requiredFields.join(', ')}`);
+  }
+
+  const missingBaseFields = REQUIRED_BASE_FIELDS.filter((field) => {
+    const value = item[field];
+    if (!hasValue(value)) return true;
+    if (NUMERIC_BASE_FIELDS.includes(field)) {
+      const numeric = Number(value);
+      return !Number.isFinite(numeric) || numeric <= 0;
+    }
+    return false;
+  });
+
+  if (missingBaseFields.length > 0) {
+    const readable = missingBaseFields.map((field) => BASE_FIELD_LABELS[field] || field);
+    throw new Error(
+      `Строка ${rowIndex + 1}: заполните обязательные поля ${readable.join(', ')}`
+    );
   }
 
   ['price', 'old_price', 'premium_price', 'min_price'].forEach((field) => {
@@ -810,6 +842,13 @@ export default function ImportExcelPage() {
     category_id: '',
     price: '',
     old_price: '',
+    min_price: '',
+    depth: '',
+    width: '',
+    height: '',
+    dimension_unit: '',
+    weight: '',
+    weight_unit: '',
     vat: '0'
   });
 
@@ -820,7 +859,8 @@ export default function ImportExcelPage() {
   const [attributeModalState, setAttributeModalState] = useState({
     isOpen: false,
     rowIndex: null,
-    attributes: []
+    attributes: [],
+    metaValues: {}
   });
   const templateFieldKeys = Object.keys(fieldMappings);
   const editableTemplateKeys = templateFieldKeys.filter(
@@ -1059,10 +1099,22 @@ export default function ImportExcelPage() {
 
     modalAttributes.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
 
+    const metaValues = {};
+    REQUIRED_BASE_FIELDS.forEach((field) => {
+      if (hasValue(rowValues[field])) {
+        metaValues[field] = String(rowValues[field]);
+      } else if (hasValue(baseProductData[field])) {
+        metaValues[field] = String(baseProductData[field]);
+      } else {
+        metaValues[field] = '';
+      }
+    });
+
     setAttributeModalState({
       isOpen: true,
       rowIndex,
-      attributes: modalAttributes
+      attributes: modalAttributes,
+      metaValues
     });
   };
 
@@ -1070,7 +1122,8 @@ export default function ImportExcelPage() {
     setAttributeModalState({
       isOpen: false,
       rowIndex: null,
-      attributes: []
+      attributes: [],
+      metaValues: {}
     });
   };
 
@@ -1087,10 +1140,23 @@ export default function ImportExcelPage() {
     });
   };
 
+  const handleAttributeMetaValueChange = (field, value) => {
+    setAttributeModalState(prevState => {
+      if (!prevState.isOpen) return prevState;
+      return {
+        ...prevState,
+        metaValues: {
+          ...(prevState.metaValues || {}),
+          [field]: value
+        }
+      };
+    });
+  };
+
   const handleAttributeModalSave = () => {
     if (!attributeModalState.isOpen) return;
 
-    const { rowIndex, attributes } = attributeModalState;
+    const { rowIndex, attributes, metaValues } = attributeModalState;
 
     setRowData(prev => {
       const currentRowValues = prev[rowIndex] || {};
@@ -1102,6 +1168,20 @@ export default function ImportExcelPage() {
         didChange = true;
         updatedRowValues[attr.fieldKey] = attr.value || '';
       });
+
+      if (metaValues) {
+        REQUIRED_BASE_FIELDS.forEach(field => {
+          if (hasValue(metaValues[field])) {
+            if (updatedRowValues[field] !== metaValues[field]) {
+              didChange = true;
+            }
+            updatedRowValues[field] = metaValues[field];
+          } else if (field in updatedRowValues) {
+            didChange = true;
+            delete updatedRowValues[field];
+          }
+        });
+      }
 
       if (!didChange) {
         return prev;
@@ -1184,6 +1264,14 @@ export default function ImportExcelPage() {
         ru_color_name: userValues.ru_color_name || row.ru_color_name || '',
         ...generatedRow
       };
+
+      if (attributeModalState.metaValues) {
+        Object.entries(attributeModalState.metaValues).forEach(([field, value]) => {
+          if (hasValue(value)) {
+            rowValues[field] = value;
+          }
+        });
+      }
 
       const descriptionValue =
         typeof rowValues.description === 'string' ? rowValues.description.trim() : '';
@@ -1425,6 +1513,13 @@ export default function ImportExcelPage() {
     if (excelData.length > 0 && (key === 'brand_code' || key === 'ru_color_name')) {
       setTimeout(() => applyTemplatesToAll(), 100);
     }
+  };
+
+  const handleBaseFieldChange = (field, value) => {
+    setBaseProductData(prev => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   // Импорт товаров в OZON
@@ -2058,7 +2153,7 @@ export default function ImportExcelPage() {
                 <input
                   type="text"
                   value={baseProductData.price}
-                  onChange={(e) => setBaseProductData(prev => ({ ...prev, price: e.target.value }))}
+                  onChange={(e) => handleBaseFieldChange('price', e.target.value)}
                   style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
                 />
               </div>
@@ -2067,8 +2162,81 @@ export default function ImportExcelPage() {
                 <input
                   type="text"
                   value={baseProductData.old_price}
-                  onChange={(e) => setBaseProductData(prev => ({ ...prev, old_price: e.target.value }))}
+                  onChange={(e) => handleBaseFieldChange('old_price', e.target.value)}
                   style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Минимальная цена:</label>
+                <input
+                  type="text"
+                  value={baseProductData.min_price}
+                  onChange={(e) => handleBaseFieldChange('min_price', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+            </div>
+
+            <div style={{
+              marginTop: '15px',
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: '15px'
+            }}>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Глубина (depth):</label>
+                <input
+                  type="text"
+                  value={baseProductData.depth}
+                  onChange={(e) => handleBaseFieldChange('depth', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Ширина (width):</label>
+                <input
+                  type="text"
+                  value={baseProductData.width}
+                  onChange={(e) => handleBaseFieldChange('width', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Высота (height):</label>
+                <input
+                  type="text"
+                  value={baseProductData.height}
+                  onChange={(e) => handleBaseFieldChange('height', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Единица габаритов:</label>
+                <input
+                  type="text"
+                  value={baseProductData.dimension_unit}
+                  onChange={(e) => handleBaseFieldChange('dimension_unit', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                  placeholder="например: mm"
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Вес:</label>
+                <input
+                  type="text"
+                  value={baseProductData.weight}
+                  onChange={(e) => handleBaseFieldChange('weight', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Единица веса:</label>
+                <input
+                  type="text"
+                  value={baseProductData.weight_unit}
+                  onChange={(e) => handleBaseFieldChange('weight_unit', e.target.value)}
+                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                  placeholder="например: kg"
                 />
               </div>
             </div>
@@ -2305,6 +2473,8 @@ export default function ImportExcelPage() {
               !attributeModalState.isOpen ||
               !rowData[attributeModalState.rowIndex ?? -1]
             }
+            onImportMetaChange={handleAttributeMetaValueChange}
+            importBaseValues={baseProductData}
             fieldMappings={fieldMappings}
             profile={currentProfile}
             offerId={sampleOfferId}

@@ -294,10 +294,11 @@ export default async function handler(req, res) {
       let responseBody = null;
       let parsedProfile = null;
       let offerIdForLog = '';
+      let useImportMode = false;
 
       try {
         const { items, profile, mode } = req.body || {};
-        const useImportMode = mode === 'import';
+        useImportMode = mode === 'import';
 
         if (!Array.isArray(items) || items.length === 0) {
           statusCode = 400;
