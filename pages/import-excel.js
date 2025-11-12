@@ -14,6 +14,11 @@ import {
 import { TYPE_ATTRIBUTE_ID, TYPE_ATTRIBUTE_NUMERIC } from '../src/utils/attributesHelpers';
 import { AttributesModal } from '../src/components/attributes';
 import { useWarehouses } from '../src/hooks/useWarehouses';
+import { buildImportStatusSummary, logImportStatusSummary } from '../src/utils/importStatus';
+
+const STATUS_CHECK_DELAY_MS = 3000;
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // Сервис для работы с шаблонами
 const TemplateService = {
@@ -1646,17 +1651,29 @@ const [baseProductData, setBaseProductData] = useState({
       const taskId = response?.result?.task_id;
       if (taskId) {
         try {
+          console.log('[ImportExcel] Waiting before status check', {
+            taskId,
+            delay: STATUS_CHECK_DELAY_MS
+          });
+          await wait(STATUS_CHECK_DELAY_MS);
           console.log('[ImportExcel] Checking task status', taskId);
-          const status = await service.getProductImportStatus(taskId);
-          console.log('[ImportExcel] Task status response', status);
+          const statusResponse = await service.getProductImportStatus(taskId);
+          const summary = buildImportStatusSummary(statusResponse);
+          logImportStatusSummary(summary);
+          const message =
+            summary?.primaryMessage?.message ||
+            `Товар ${item.offer_id} отправлен в OZON. Задача ${taskId}.`;
+          alert(message);
         } catch (statusError) {
           console.error('[ImportExcel] Failed to check task status', statusError);
+          alert(
+            `Товар ${item.offer_id} отправлен в OZON, но не удалось проверить статус: ${statusError.message}`
+          );
         }
       } else {
         console.log('[ImportExcel] Task ID not returned, skipping status check');
+        alert(`Товар ${item.offer_id} отправлен в OZON.`);
       }
-
-      alert(`Товар ${item.offer_id} отправлен в OZON.`);
     } catch (error) {
       console.error('[ImportExcel] Send row to OZON error:', error);
       alert('Ошибка отправки в OZON: ' + (error.message || 'Неизвестная ошибка'));

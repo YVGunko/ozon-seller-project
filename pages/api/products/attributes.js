@@ -1,6 +1,7 @@
 // pages/api/attributes.js
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { addRequestLog } from '../../../src/server/requestLogStore';
+import { buildStatusCheckMessage } from '../../../src/utils/importStatus';
 
 const STATUS_CHECK_DELAY_MS = 5000;
 
@@ -46,41 +47,6 @@ const parseProfile = (rawProfile) => {
 };
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const buildStatusCheckMessage = (item = {}) => {
-  const statuses = item.statuses || {};
-  const statusName = statuses.status_name ?? statuses.statusName ?? '—';
-  const statusDescription =
-    statuses.status_description ?? statuses.statusDescription ?? '—';
-  const statusTooltip = statuses.status_tooltip ?? statuses.statusTooltip ?? '';
-
-  const lines = [
-    'Проверяю статус карточки...',
-    `🧾 Статус карточки: ${statusName}`,
-    `📄 Описание: ${statusDescription}`
-  ];
-
-  if (statusTooltip) {
-    lines.push(`💬 Подсказка: ${statusTooltip}`);
-  }
-
-  if (
-    typeof statusDescription === 'string' &&
-    statusDescription.trim().toLowerCase() === 'не обновлен'
-  ) {
-    lines.push(
-      '⚠️ Изменения не применились — проверь историю обновлений или блокировку поля.'
-    );
-  }
-
-  return {
-    offer_id: item.offer_id ?? item.offerId ?? null,
-    statusName,
-    statusDescription,
-    statusTooltip,
-    message: lines.join('\n')
-  };
-};
 
 export default async function handler(req, res) {
   try {

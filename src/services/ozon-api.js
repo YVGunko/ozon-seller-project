@@ -501,9 +501,15 @@ export class OzonApiService {
       throw new Error('Не передан task_id');
     }
 
-    return this.request('/v1/product/import/info', {
+    const response = await this.request('/v1/product/import/info', {
       task_id: String(taskId)
     });
+
+    if (!response?.result) {
+      return { result: response };
+    }
+
+    return response;
   }
 
   async getProductInfoList(offerIds = []) {
