@@ -172,6 +172,8 @@ export default function ProductsPage() {
 
   const closeAttributes = () => {
     setSelectedProduct(null);
+    setAttributes(null);
+    setEditableAttributes(null);
     setSavingAttributes(false);
     setSavingAttributesLabel('Отправляем...');
     setAttributesUpdateStatus({ message: '', error: '' });

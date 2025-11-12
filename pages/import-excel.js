@@ -2,6 +2,8 @@ import { useState, useRef, useEffect, Fragment, useMemo } from 'react';
 import { OzonApiService } from '../src/services/ozon-api';
 import { ProfileManager } from '../src/utils/profileManager';
 import translationService from '../src/services/TranslationService';
+import { useProductAttributes } from '../src/hooks/useProductAttributes';
+import { apiClient } from '../src/services/api-client';
 import {
   PRICE_FIELDS,
   DIMENSION_FIELDS,
@@ -760,7 +762,11 @@ const buildImportItemFromRow = ({
   }
 
   if (hasValue(description)) {
-    item.description = String(description);
+    const normalizedDescription = String(description)
+      .replace(/\s*\r?\n\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    item.description = normalizedDescription;
   }
 
   REQUIRED_BASE_FIELDS.forEach((field) => {
@@ -912,6 +918,10 @@ export default function ImportExcelPage() {
     return map;
   }, [fieldMappings]);
 
+  const {
+    loadAttributes: loadSampleAttributes
+  } = useProductAttributes(apiClient, currentProfile);
+
   useEffect(() => {
     if (descriptionMessage) {
       const timer = setTimeout(() => setDescriptionMessage(''), 4000);
@@ -1056,6 +1066,13 @@ export default function ImportExcelPage() {
 
     const rowValues = getRowValuesForIndex(rowIndex);
     const overridesForRow = rowAttributeOverrides[rowIndex] || {};
+    console.log('[ImportExcel] openAttributesModal row snapshot', {
+      rowIndex,
+      rowValues,
+      overridesForRow,
+      sampleAttrCount: sampleTemplate?.attributes?.length,
+      availableAttrCount: sampleTemplate?.available_attributes?.length
+    });
     const sampleAttributeValueMap = new Map();
     (sampleTemplate?.attributes || []).forEach((attr) => {
       const attrId = Number(attr?.attribute_id ?? attr?.id ?? attr?.attributeId);
@@ -1128,6 +1145,7 @@ export default function ImportExcelPage() {
     });
 
     modalAttributes.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+    console.log('[ImportExcel] openAttributesModal attributes final', modalAttributes);
 
     const metaValues = {};
     REQUIRED_BASE_FIELDS.forEach((field) => {
@@ -1139,6 +1157,7 @@ export default function ImportExcelPage() {
         metaValues[field] = '';
       }
     });
+    console.log('[ImportExcel] openAttributesModal meta values', metaValues);
 
     setAttributeModalState({
       isOpen: true,
@@ -1250,8 +1269,6 @@ export default function ImportExcelPage() {
 
       return nextOverrides;
     });
-
-    closeAttributesModal();
   };
 
   const handleAttributeModalSubmit = async () => {
@@ -1311,7 +1328,11 @@ export default function ImportExcelPage() {
         return;
       }
 
-      rowValues.description = descriptionValue;
+      const normalizedDescription = descriptionValue
+        .replace(/\s*\r?\n\s*/g, ' ')
+        .replace(/\s{2,}/g, ' ')
+        .trim();
+      rowValues.description = normalizedDescription;
 
       const item = buildImportItemFromRow({
         template: sampleTemplate,
@@ -1399,30 +1420,23 @@ export default function ImportExcelPage() {
       setSampleLoading(true);
       setSampleError('');
 
-      const params = new URLSearchParams({
-        offer_id: trimmedOffer,
-        profile: JSON.stringify(currentProfile)
-      });
-
-      const response = await fetch(`/api/products/attributes?${params.toString()}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(errorText || 'Не удалось загрузить образец товара');
-      }
-
-      const result = await response.json();
-      const productInfo = result?.result?.[0];
+      console.log('[ImportExcel] loadSampleProduct start', trimmedOffer);
+      const normalizedAttributes = await loadSampleAttributes(trimmedOffer);
+      console.log('[ImportExcel] normalized attributes', normalizedAttributes);
+      const productInfo = normalizedAttributes?.[0];
 
       if (!productInfo) {
+        console.warn('[ImportExcel] productInfo empty');
         throw new Error('Ответ OZON пуст. Проверьте правильность артикула.');
       }
 
       setSampleTemplate(deepClone(productInfo));
+      console.log('[ImportExcel] sampleTemplate set', productInfo);
       setRowAttributeOverrides({});
       setSampleOfferId(trimmedOffer);
 
       const templateBaseFields = extractBaseFieldsFromTemplate(productInfo);
+      console.log('[ImportExcel] template base fields', templateBaseFields);
       if (Object.keys(templateBaseFields).length > 0) {
         setBaseProductData(prev => ({
           ...prev,
@@ -1436,8 +1450,10 @@ export default function ImportExcelPage() {
           profile: encodeURIComponent(JSON.stringify(currentProfile))
         });
         const infoResponse = await fetch(`/api/products/info-list?${params.toString()}`);
+        console.log('[ImportExcel] info-list status', infoResponse.status);
         if (infoResponse.ok) {
           const infoData = await infoResponse.json();
+          console.log('[ImportExcel] info-list raw', infoData);
           const item = Array.isArray(infoData?.items) && infoData.items.length
             ? infoData.items[0]
             : Array.isArray(infoData?.raw?.items) && infoData.raw.items.length
@@ -1445,6 +1461,7 @@ export default function ImportExcelPage() {
               : null;
           if (item) {
             const extracted = extractBaseFieldsFromProductInfo(item);
+            console.log('[ImportExcel] info-list extracted', extracted);
             if (Object.keys(extracted).length > 0) {
               setBaseProductData(prev => ({
                 ...prev,
@@ -1454,13 +1471,14 @@ export default function ImportExcelPage() {
           }
         }
       } catch (infoError) {
-        console.error('Не удалось получить информацию о товаре', infoError);
+        console.error('[ImportExcel] Не удалось получить информацию о товаре', infoError);
       }
     } catch (error) {
-      console.error('Ошибка загрузки образца:', error);
+      console.error('[ImportExcel] Ошибка загрузки образца:', error);
       setSampleTemplate(null);
       setSampleError(error.message || 'Ошибка загрузки образца');
     } finally {
+      console.log('[ImportExcel] loadSampleProduct finished');
       setSampleLoading(false);
     }
   };
@@ -1685,7 +1703,11 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
           continue;
         }
 
-        rowValues.description = descriptionValue;
+        const normalizedDescription = descriptionValue
+          .replace(/\s*\r?\n\s*/g, ' ')
+          .replace(/\s{2,}/g, ' ')
+          .trim();
+        rowValues.description = normalizedDescription;
 
         preparedItems.push(
           buildImportItemFromRow({
