@@ -14,38 +14,74 @@ import {
 import { TYPE_ATTRIBUTE_ID, TYPE_ATTRIBUTE_NUMERIC } from '../src/utils/attributesHelpers';
 import { AttributesModal } from '../src/components/attributes';
 import { useWarehouses } from '../src/hooks/useWarehouses';
-import { buildImportStatusSummary, logImportStatusSummary } from '../src/utils/importStatus';
+import { fetchImportStatus, appendImportLog } from '../src/utils/importStatusClient';
 
 const STATUS_CHECK_DELAY_MS = 3000;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const appendImportLog = async ({
-  offerId,
-  status,
+const getOfferIdFromItem = (item = {}) => {
+  const raw = item?.offer_id ?? item?.offerId ?? '';
+  return raw ? String(raw) : '';
+};
+
+const logBatchImportResults = async ({
+  batch,
+  summary,
   durationMs,
-  errorMessage,
   taskId,
-  userName
+  profileName
 }) => {
-  try {
-    await fetch('/api/logs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        offer_id: offerId || '',
-        endpoint: '/v3/product/import',
-        method: 'POST',
-        status: status ?? null,
-        duration_ms: durationMs ?? null,
-        error_message: errorMessage || null,
-        user_id: userName || 'local-user',
-        task_id: taskId || null
+  const summaryItems = Array.isArray(summary?.items) ? summary.items : [];
+  const summaryMessages = Array.isArray(summary?.messages) ? summary.messages : [];
+  const statusMap = new Map(
+    summaryItems
+      .map((item) => [getOfferIdFromItem(item), item])
+      .filter(([key]) => !!key)
+  );
+  const messageMap = new Map(
+    summaryMessages
+      .map((entry) => [String(entry?.offer_id || ''), entry?.message || null])
+      .filter(([key]) => !!key)
+  );
+
+  await Promise.all(
+    batch.map(async (item) => {
+      const offerId = getOfferIdFromItem(item);
+      const statusEntry = statusMap.get(offerId);
+      const message = messageMap.get(offerId) || null;
+      const entryStatus = statusEntry?.status;
+      const isImported = entryStatus ? entryStatus.toLowerCase() === 'imported' : true;
+      const statusCode = isImported ? 200 : 422;
+      const errorMessage = !isImported ? entryStatus : null;
+
+      await appendImportLog({
+        offerId,
+        status: statusCode,
+        durationMs,
+        errorMessage,
+        taskId,
+        userName: profileName,
+        importMessage: message
+      });
+    })
+  );
+};
+
+const logBatchImportError = async ({ batch, durationMs, error, profileName }) => {
+  await Promise.all(
+    batch.map((item) =>
+      appendImportLog({
+        offerId: getOfferIdFromItem(item),
+        status: null,
+        durationMs,
+        errorMessage: error?.message || 'Ошибка импорта',
+        taskId: null,
+        userName: profileName,
+        importMessage: null
       })
-    });
-  } catch (logError) {
-    console.error('[ImportExcel] Failed to append import log', logError);
-  }
+    )
+  );
 };
 
 // Сервис для работы с шаблонами
@@ -716,8 +752,10 @@ const buildAttributesPayload = (
   templateAttributes = [],
   fieldMappings,
   rowValues,
-  attributeOverrides = null
+  attributeOverrides = null,
+  options = {}
 ) => {
+  const { templateTypeId = null, fallbackTypeId = null } = options;
   const attributesMap = new Map();
 
   templateAttributes.forEach((attr) => {
@@ -835,6 +873,24 @@ const buildAttributesPayload = (
     delete nameOverride.value;
     delete nameOverride.text_value;
     attributesMap.set(NAME_ATTRIBUTE_ID, nameOverride);
+  }
+
+  const resolvedTypeValue = hasValue(rowValues?.type_id)
+    ? rowValues.type_id
+    : hasValue(templateTypeId)
+    ? templateTypeId
+    : hasValue(fallbackTypeId)
+    ? fallbackTypeId
+    : null;
+
+  if (hasValue(resolvedTypeValue)) {
+    const typeAttribute = attributesMap.get(TYPE_ATTRIBUTE_NUMERIC) || {
+      id: TYPE_ATTRIBUTE_NUMERIC
+    };
+    if (!attributeHasNonEmptyValues(typeAttribute)) {
+      typeAttribute.values = [{ value: String(resolvedTypeValue) }];
+      attributesMap.set(TYPE_ATTRIBUTE_NUMERIC, typeAttribute);
+    }
   }
 
   const unitQuantityAttribute = attributesMap.get(UNIT_QUANTITY_ATTRIBUTE_ID) || {
@@ -1019,7 +1075,11 @@ const buildImportItemFromRow = ({
     template?.attributes || [],
     fieldMappings,
     rowValues,
-    attributeOverrides
+    attributeOverrides,
+    {
+      templateTypeId: template?.type_id,
+      fallbackTypeId: baseProductData?.type_id
+    }
   );
   ensureTypeAttributeValid(item.attributes, rowIndex);
 
@@ -1681,15 +1741,12 @@ const [baseProductData, setBaseProductData] = useState({
       taskId = response?.result?.task_id;
       if (taskId) {
         try {
-          console.log('[ImportExcel] Waiting before status check', {
+          const summary = await fetchImportStatus({
+            service,
             taskId,
-            delay: STATUS_CHECK_DELAY_MS
+            delayMs: STATUS_CHECK_DELAY_MS,
+            logger: console
           });
-          await wait(STATUS_CHECK_DELAY_MS);
-          console.log('[ImportExcel] Checking task status', taskId);
-          const statusResponse = await service.getProductImportStatus(taskId);
-          const summary = buildImportStatusSummary(statusResponse);
-          logImportStatusSummary(summary);
           const message =
             summary?.primaryMessage?.message ||
             `Товар ${item.offer_id} отправлен в OZON. Задача ${taskId}.`;
@@ -2108,6 +2165,8 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
 
     setLoading(true);
     setImportProgress({ current: 0, total: excelData.length });
+    const profileName = currentProfile?.name || currentProfile?.user_id;
+    const batchSummaries = [];
 
     try {
       const service = new OzonApiService(
@@ -2172,10 +2231,43 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
       let processed = 0;
 
       for (const batch of batches) {
-        await service.createProductsBatch(batch);
+        const batchStart = Date.now();
+        let taskId = null;
+        try {
+          const response = await service.createProductsBatch(batch);
+          taskId = response?.result?.task_id;
+          let summary = null;
+          if (taskId) {
+            summary = await fetchImportStatus({
+              service,
+              taskId,
+              delayMs: STATUS_CHECK_DELAY_MS,
+              logger: console
+            });
+          }
+          await logBatchImportResults({
+            batch,
+            summary,
+            durationMs: Date.now() - batchStart,
+            taskId,
+            profileName
+          });
+          if (summary) {
+            batchSummaries.push(summary);
+          }
+        } catch (batchError) {
+          await logBatchImportError({
+            batch,
+            durationMs: Date.now() - batchStart,
+            error: batchError,
+            profileName
+          });
+          throw batchError;
+        }
+
         processed += batch.length;
         setImportProgress({ current: processed, total: preparedItems.length });
-        await new Promise(resolve => setTimeout(resolve, 500));
+        await wait(500);
       }
 
       const successMessageParts = [`Успешно импортировано ${preparedItems.length} товаров!`];
