@@ -339,17 +339,18 @@ const ImportAttributesContent = ({
         }}
       >
         <button
-          onClick={onClose}
+          onClick={onSave}
           style={{
             padding: '10px 18px',
-            backgroundColor: '#6c757d',
+            backgroundColor: '#28a745',
             color: 'white',
             border: 'none',
             borderRadius: 6,
-            cursor: 'pointer'
+            cursor: 'pointer',
+            fontWeight: 'bold'
           }}
         >
-          Отмена
+          Сохранить
         </button>
         <button
           onClick={onSubmit}
@@ -368,18 +369,17 @@ const ImportAttributesContent = ({
           {submitLoading ? 'Отправляем...' : 'Отправить в OZON'}
         </button>
         <button
-          onClick={onSave}
+          onClick={onClose}
           style={{
             padding: '10px 18px',
-            backgroundColor: '#28a745',
+            backgroundColor: '#6c757d',
             color: 'white',
             border: 'none',
             borderRadius: 6,
-            cursor: 'pointer',
-            fontWeight: 'bold'
+            cursor: 'pointer'
           }}
         >
-          Сохранить
+          Закрыть
         </button>
       </div>
     </div>

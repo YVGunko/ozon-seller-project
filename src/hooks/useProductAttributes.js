@@ -19,11 +19,18 @@ export function useProductAttributes(apiClient, currentProfile) {
       setError(null);
       try {
         const data = await apiClient.getAttributes(offerId, currentProfile);
-        const normalized = normalizeProductAttributes(data?.result || []);
+        const rawProducts = Array.isArray(data?.result) ? data.result : [];
+        const normalized = normalizeProductAttributes(rawProducts);
         setAttributes(data);
         const editable = JSON.parse(JSON.stringify(normalized));
         setEditableAttributes(editable);
-        return editable;
+        const rawCopy = JSON.parse(JSON.stringify(rawProducts));
+        return {
+          editable,
+          normalized,
+          raw: rawCopy,
+          response: data
+        };
       } catch (err) {
         console.error('loadAttributes error', err);
         const message = err.message || 'Не удалось загрузить атрибуты';

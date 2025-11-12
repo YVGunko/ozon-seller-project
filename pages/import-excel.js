@@ -404,7 +404,8 @@ const TEMPLATE_ALLOWED_FIELDS = new Set([
   'hazard_class',
   'is_kgt',
   'is_prepayment',
-  'min_price'
+  'min_price',
+  'description_category_id'
 ]);
 
 const hasValue = (value) => value !== undefined && value !== null && value !== '';
@@ -505,6 +506,8 @@ const extractBaseFieldsFromTemplate = (template = {}) => {
 
   const result = {};
 
+  result.category_id = pickFirstValue(template.category_id);
+  result.description_category_id = pickFirstValue(template.description_category_id);
   result.price = pickFirstValue(template.price);
   result.old_price = pickFirstValue(template.old_price);
   result.min_price = pickFirstValue(template.min_price);
@@ -667,7 +670,15 @@ const prepareTemplateBaseData = (template = {}, baseProductData = {}) => {
   });
 
   if (hasValue(baseProductData.category_id)) {
-    base.category_id = baseProductData.category_id;
+    base.category_id = String(baseProductData.category_id);
+  } else if (hasValue(base.category_id)) {
+    base.category_id = String(base.category_id);
+  }
+
+  if (hasValue(baseProductData.description_category_id)) {
+    base.description_category_id = String(baseProductData.description_category_id);
+  } else if (hasValue(base.description_category_id)) {
+    base.description_category_id = String(base.description_category_id);
   }
 
   if (hasValue(baseProductData.price)) {
@@ -879,11 +890,12 @@ export default function ImportExcelPage() {
   } = useFieldTemplates();
 
   // Базовые данные товара
-  const [baseProductData, setBaseProductData] = useState({
-    category_id: '',
-    price: '',
-    old_price: '',
-    min_price: '',
+const [baseProductData, setBaseProductData] = useState({
+  category_id: '',
+  description_category_id: '',
+  price: '',
+  old_price: '',
+  min_price: '',
     depth: '',
     width: '',
     height: '',
@@ -1328,11 +1340,11 @@ export default function ImportExcelPage() {
         return;
       }
 
-      const normalizedDescription = descriptionValue
-        .replace(/\s*\r?\n\s*/g, ' ')
-        .replace(/\s{2,}/g, ' ')
-        .trim();
-      rowValues.description = normalizedDescription;
+    const normalizedDescription = descriptionValue
+      .replace(/\s*\r?\n\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    rowValues.description = normalizedDescription;
 
       const item = buildImportItemFromRow({
         template: sampleTemplate,
@@ -1342,17 +1354,39 @@ export default function ImportExcelPage() {
         rowIndex,
         attributeOverrides: rowAttributeOverrides[rowIndex]
       });
+      const mandatorySnapshot = REQUIRED_BASE_FIELDS.reduce((acc, field) => {
+        acc[field] = item[field] ?? '';
+        return acc;
+      }, {});
+      console.log('[ImportExcel] handleAttributeModalSubmit item', {
+        rowIndex,
+        offer_id: item.offer_id,
+        mandatorySnapshot
+      });
 
       const service = new OzonApiService(
         currentProfile.ozon_api_key,
         currentProfile.ozon_client_id
       );
-
-      await service.createProductsBatch([item]);
+      console.log('[ImportExcel] Sending single item to OZON', item);
+      const response = await service.createProductsBatch([item]);
+      console.log('[ImportExcel] createProductsBatch response', response);
+      const taskId = response?.result?.task_id;
+      if (taskId) {
+        try {
+          console.log('[ImportExcel] Checking task status', taskId);
+          const status = await service.getProductImportStatus(taskId);
+          console.log('[ImportExcel] Task status response', status);
+        } catch (statusError) {
+          console.error('[ImportExcel] Failed to check task status', statusError);
+        }
+      } else {
+        console.log('[ImportExcel] Task ID not returned, skipping status check');
+      }
 
       alert(`Товар ${item.offer_id} отправлен в OZON.`);
     } catch (error) {
-      console.error('Send row to OZON error:', error);
+      console.error('[ImportExcel] Send row to OZON error:', error);
       alert('Ошибка отправки в OZON: ' + (error.message || 'Неизвестная ошибка'));
     } finally {
       setRowSubmitLoading(false);
@@ -1421,9 +1455,16 @@ export default function ImportExcelPage() {
       setSampleError('');
 
       console.log('[ImportExcel] loadSampleProduct start', trimmedOffer);
-      const normalizedAttributes = await loadSampleAttributes(trimmedOffer);
-      console.log('[ImportExcel] normalized attributes', normalizedAttributes);
-      const productInfo = normalizedAttributes?.[0];
+      const loadResult = await loadSampleAttributes(trimmedOffer);
+      const editableProducts = Array.isArray(loadResult?.editable) ? loadResult.editable : [];
+      const rawProducts = Array.isArray(loadResult?.raw) ? loadResult.raw : [];
+      console.log('[ImportExcel] attributes load result', {
+        editableCount: editableProducts.length,
+        rawCount: rawProducts.length
+      });
+      console.log('[ImportExcel] normalized attributes snapshot', editableProducts);
+      console.log('[ImportExcel] raw attributes snapshot', rawProducts);
+      const productInfo = rawProducts[0] || editableProducts[0];
 
       if (!productInfo) {
         console.warn('[ImportExcel] productInfo empty');
@@ -1643,6 +1684,10 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
 
   if (hasValue(info?.category_id)) {
     result.category_id = String(info.category_id);
+  }
+
+  if (hasValue(info?.description_category_id)) {
+    result.description_category_id = String(info.description_category_id);
   }
 
   return result;
@@ -2270,19 +2315,29 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
             <h2>5. Базовые настройки товара</h2>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '15px' }}>
               <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>ID категории:</label>
-                <input
-                  type="text"
-                  value={baseProductData.category_id}
-                  onChange={(e) => setBaseProductData(prev => ({ ...prev, category_id: e.target.value }))}
-                  style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
-                />
-              </div>
-              <div>
-                <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Цена:</label>
-                <input
-                  type="text"
-                  value={baseProductData.price}
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>ID категории:</label>
+              <input
+                type="text"
+                value={baseProductData.category_id}
+                onChange={(e) => handleBaseFieldChange('category_id', e.target.value)}
+                style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>ID категории описания:</label>
+              <input
+                type="text"
+                value={baseProductData.description_category_id}
+                onChange={(e) => handleBaseFieldChange('description_category_id', e.target.value)}
+                style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
+                placeholder="description_category_id"
+              />
+            </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>Цена:</label>
+              <input
+                type="text"
+                value={baseProductData.price}
                   onChange={(e) => handleBaseFieldChange('price', e.target.value)}
                   style={{ width: '100%', padding: '8px', border: '1px solid #ddd', borderRadius: '4px' }}
                 />
