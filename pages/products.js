@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useRouter } from 'next/router';
 import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
+import { useProductAttributes } from '../src/hooks/useProductAttributes';
 import {
   REQUIRED_BASE_FIELDS,
   NUMERIC_BASE_FIELDS,
@@ -15,7 +16,6 @@ import {
   SINGLE_VALUE_STRING_ATTRIBUTE_IDS,
   parsePositiveTypeId,
   getAttributeKey,
-  normalizeProductAttributes,
   syncTypeAttributeWithTypeId,
   formatAttributeValues,
   parseAttributeInput,
@@ -50,12 +50,9 @@ export default function ProductsPage() {
     limit: 20
   });
 
-  const [attributes, setAttributes] = useState(null);
-  const [editableAttributes, setEditableAttributes] = useState(null);
   const [savingAttributes, setSavingAttributes] = useState(false);
   const [savingAttributesLabel, setSavingAttributesLabel] = useState('Отправляем...');
   const [attributesUpdateStatus, setAttributesUpdateStatus] = useState({ message: '', error: '' });
-  const [loadingAttributes, setLoadingAttributes] = useState(false);
   const [selectedProduct, setSelectedProduct] = useState(null);
 
   const [copyModalOpen, setCopyModalOpen] = useState(false);
@@ -70,6 +67,16 @@ export default function ProductsPage() {
   });
 
   const [error, setError] = useState(null);
+
+  const {
+    attributes,
+    setAttributes,
+    editableAttributes,
+    setEditableAttributes,
+    loadingAttributes,
+    error: attributesError,
+    loadAttributes
+  } = useProductAttributes(apiClient, currentProfile);
 
   // load profile once
   useEffect(() => {
@@ -151,34 +158,20 @@ export default function ProductsPage() {
       alert('Пожалуйста, выберите профиль');
       return;
     }
-    setLoadingAttributes(true);
     setSelectedProduct(offerId);
-    setAttributes(null);
-    setEditableAttributes(null);
     setAttributesUpdateStatus({ message: '', error: '' });
 
     try {
-      const data = await apiClient.getAttributes(offerId, currentProfile);
-      const normalizedResult = normalizeProductAttributes(data?.result || []);
-      const normalizedData = {
-        ...data,
-        result: normalizedResult
-      };
-      setAttributes(normalizedData);
-      const editable = JSON.parse(JSON.stringify(normalizedResult));
-      setEditableAttributes(editable);
+      await loadAttributes(offerId);
     } catch (err) {
       console.error('fetchAttributes error', err);
-      setAttributes({ error: err.message || 'Failed to load attributes' });
     } finally {
-      setLoadingAttributes(false);
+      // loading state управляется внутри useProductAttributes
     }
   };
 
   const closeAttributes = () => {
-    setAttributes(null);
     setSelectedProduct(null);
-    setEditableAttributes(null);
     setSavingAttributes(false);
     setSavingAttributesLabel('Отправляем...');
     setAttributesUpdateStatus({ message: '', error: '' });
