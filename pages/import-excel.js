@@ -13,6 +13,7 @@ import {
 } from '../src/constants/productFields';
 import { TYPE_ATTRIBUTE_ID, TYPE_ATTRIBUTE_NUMERIC } from '../src/utils/attributesHelpers';
 import { AttributesModal } from '../src/components/attributes';
+import { useWarehouses } from '../src/hooks/useWarehouses';
 
 // Сервис для работы с шаблонами
 const TemplateService = {
@@ -1112,6 +1113,15 @@ const [baseProductData, setBaseProductData] = useState({
     loadAttributes: loadSampleAttributes
   } = useProductAttributes(apiClient, currentProfile);
 
+  const {
+    warehouses,
+    loading: warehousesLoading,
+    error: warehouseError,
+    selectedWarehouse,
+    refreshWarehouses,
+    selectWarehouse
+  } = useWarehouses(currentProfile);
+
   useEffect(() => {
     if (descriptionMessage) {
       const timer = setTimeout(() => setDescriptionMessage(''), 4000);
@@ -2101,6 +2111,66 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
           </div>
         )}
       </div>
+
+      {currentProfile && (
+        <div
+          style={{
+            marginBottom: '20px',
+            padding: '15px',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            backgroundColor: '#fff'
+          }}
+        >
+          <div style={{ fontWeight: 'bold', marginBottom: 8 }}>Текущий склад</div>
+          {warehousesLoading ? (
+            <div style={{ fontSize: 13, color: '#6c757d' }}>Загрузка списка складов...</div>
+          ) : warehouses.length ? (
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', alignItems: 'center' }}>
+              <select
+                value={selectedWarehouse?.warehouse_id || ''}
+                onChange={(e) => selectWarehouse(e.target.value)}
+                style={{
+                  padding: '8px',
+                  borderRadius: '4px',
+                  border: '1px solid #ced4da',
+                  minWidth: '280px'
+                }}
+              >
+                <option value="">Не выбран</option>
+                {warehouses.map((warehouse) => (
+                  <option key={warehouse.warehouse_id} value={warehouse.warehouse_id}>
+                    {warehouse.name} — {warehouse.status_label || warehouse.status || '—'}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={refreshWarehouses}
+                style={{
+                  padding: '8px 12px',
+                  borderRadius: '4px',
+                  border: '1px solid #0070f3',
+                  backgroundColor: 'transparent',
+                  color: '#0070f3',
+                  cursor: 'pointer'
+                }}
+              >
+                Обновить
+              </button>
+            </div>
+          ) : (
+            <div style={{ fontSize: 13, color: '#6c757d' }}>Список складов пуст. Попробуйте обновить.</div>
+          )}
+          {selectedWarehouse && (
+            <div style={{ marginTop: 6, fontSize: 12, color: '#6c757d' }}>
+              Выбран: {selectedWarehouse.name} ({selectedWarehouse.status_label || selectedWarehouse.status || '—'})
+            </div>
+          )}
+          {warehouseError && (
+            <div style={{ marginTop: 6, fontSize: 12, color: '#dc3545' }}>{warehouseError}</div>
+          )}
+        </div>
+      )}
 
       {/* Индикатор загрузки шаблонов */}
       {templatesLoading && (

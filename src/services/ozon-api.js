@@ -170,6 +170,10 @@ export class OzonApiService {
     return data;
   }
 
+  async getWarehouses() {
+    return this.request('/v1/warehouse/list', {});
+  }
+
   async copyProduct(sourceOfferId, newOfferId, modifications = {}) {
     const body = {
       source_offer_id: sourceOfferId,

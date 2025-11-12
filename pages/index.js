@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import UserProfiles from '../src/components/UserProfiles';
 import { ProfileManager } from '../src/utils/profileManager';
+import { useWarehouses } from '../src/hooks/useWarehouses';
 
 export default function Home() {
   const [products, setProducts] = useState([]);
@@ -11,6 +12,14 @@ export default function Home() {
   const [showProfilesModal, setShowProfilesModal] = useState(false);
   const [requestLogs, setRequestLogs] = useState([]);
   const [logsLoading, setLogsLoading] = useState(false);
+  const {
+    warehouses,
+    loading: warehousesLoading,
+    error: warehouseError,
+    selectedWarehouse,
+    refreshWarehouses,
+    selectWarehouse
+  } = useWarehouses(currentProfile);
 
   // Загружаем текущий профиль при монтировании
   useEffect(() => {
@@ -128,6 +137,72 @@ export default function Home() {
           Управление профилями
         </button>
       </div>
+
+      {currentProfile && (
+        <div
+          style={{
+            marginBottom: '20px',
+            padding: '15px',
+            border: '1px solid #e5e7eb',
+            borderRadius: '8px',
+            backgroundColor: '#fff'
+          }}
+        >
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <div style={{ minWidth: '200px' }}>
+              <div style={{ fontWeight: 'bold', marginBottom: '4px' }}>Текущий склад</div>
+              {warehousesLoading ? (
+                <div style={{ fontSize: '13px', color: '#6c757d' }}>Загрузка списка складов...</div>
+              ) : warehouses.length ? (
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <select
+                    value={selectedWarehouse?.warehouse_id || ''}
+                    onChange={(e) => selectWarehouse(e.target.value)}
+                    style={{
+                      padding: '8px',
+                      borderRadius: '4px',
+                      border: '1px solid #ced4da',
+                      minWidth: '260px'
+                    }}
+                  >
+                    <option value="">Не выбран</option>
+                    {warehouses.map((warehouse) => (
+                      <option key={warehouse.warehouse_id} value={warehouse.warehouse_id}>
+                        {warehouse.name} — {warehouse.status_label || warehouse.status || '—'}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={refreshWarehouses}
+                    style={{
+                      padding: '8px 12px',
+                      borderRadius: '4px',
+                      border: '1px solid #0070f3',
+                      backgroundColor: 'transparent',
+                      color: '#0070f3',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Обновить
+                  </button>
+                </div>
+              ) : (
+                <div style={{ fontSize: '13px', color: '#6c757d' }}>
+                  Список складов пуст. Попробуйте обновить.
+                </div>
+              )}
+              {selectedWarehouse && (
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#6c757d' }}>
+                  Выбран: {selectedWarehouse.name} ({selectedWarehouse.status_label || selectedWarehouse.status || '—'})
+                </div>
+              )}
+              {warehouseError && (
+                <div style={{ marginTop: '6px', fontSize: '12px', color: '#dc3545' }}>{warehouseError}</div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ marginBottom: '20px' }}>
         <Link href="/import-excel" passHref>
