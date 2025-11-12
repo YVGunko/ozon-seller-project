@@ -1110,6 +1110,7 @@ const [baseProductData, setBaseProductData] = useState({
     attributes: [],
     metaValues: {}
   });
+  const [pendingTemplateRefresh, setPendingTemplateRefresh] = useState(false);
   const templateFieldKeys = Object.keys(fieldMappings);
   const editableTemplateKeys = templateFieldKeys.filter(
     (key) => !HIDDEN_TEMPLATE_FIELDS.includes(key)
@@ -1705,6 +1706,22 @@ const [baseProductData, setBaseProductData] = useState({
     setRowData(newRowData);
   };
 
+  useEffect(() => {
+    if (!pendingTemplateRefresh) {
+      return;
+    }
+    const refresh = async () => {
+      try {
+        await applyTemplatesToAll();
+      } catch (error) {
+        console.error('Auto template refresh failed', error);
+      } finally {
+        setPendingTemplateRefresh(false);
+      }
+    };
+    refresh();
+  }, [pendingTemplateRefresh]);
+
   const handleSampleOfferIdChange = (event) => {
     setSampleOfferId(event.target.value);
   };
@@ -1748,6 +1765,7 @@ const [baseProductData, setBaseProductData] = useState({
         { fieldKey: 'rich_content_json', attributeId: 11254 },
         { fieldKey: 'description', attributeId: 4191 }
       ];
+      let didPrefillTemplates = false;
       templatePrefills.forEach(({ fieldKey, attributeId }) => {
         const mapping = fieldMappings[fieldKey];
         if (!mapping || (mapping.template && mapping.template.trim())) {
@@ -1756,8 +1774,12 @@ const [baseProductData, setBaseProductData] = useState({
         const sampleValue = getProductAttributeValue(productInfo, attributeId);
         if (hasValue(sampleValue)) {
           updateFieldTemplate(fieldKey, sampleValue);
+          didPrefillTemplates = true;
         }
       });
+      if (didPrefillTemplates) {
+        setPendingTemplateRefresh(true);
+      }
 
       setSampleTemplate(deepClone(productInfo));
       console.log('[ImportExcel] sampleTemplate set', productInfo);
