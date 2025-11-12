@@ -271,6 +271,13 @@ const ImportAttributesContent = ({
         ) : (
           attributes.map((attr) => {
             const mappedField = attr.fieldKey ? fieldMappings?.[attr.fieldKey] : null;
+            const isTypeAttribute = String(attr.id) === TYPE_ATTRIBUTE_ID;
+            const typeDictionaryOptions = Array.isArray(attr.dictionaryValues)
+              ? attr.dictionaryValues
+              : [];
+            const typeSelectValue = isTypeAttribute
+              ? attr.selectedDictionaryId || attr.value || ''
+              : '';
             return (
               <div
                 key={attr.id}
@@ -302,27 +309,60 @@ const ImportAttributesContent = ({
                     </span>
                   )}
                 </div>
-                <textarea
-                  value={attr.value}
-                  onChange={(e) => onValueChange?.(attr.id, e.target.value)}
-                  rows={attr.fieldKey ? 3 : 4}
-                  style={{
-                    width: '100%',
-                    borderRadius: 6,
-                    border: '1px solid #d0d5dd',
-                    padding: 8,
-                    fontSize: 13,
-                    resize: 'vertical',
-                    backgroundColor: 'white',
-                    minHeight: attr.fieldKey ? '64px' : '88px'
-                  }}
-                  placeholder="Введите значение атрибута..."
-                />
-                <div style={{ fontSize: 11, color: '#6c757d', marginTop: 6 }}>
-                  {mappedField
-                    ? 'Изменение обновит соответствующее поле в таблице.'
-                    : 'Если оставить поле пустым, будет использовано значение из товара-образца.'}
-                </div>
+                {isTypeAttribute && typeDictionaryOptions.length > 0 ? (
+                  <>
+                    <select
+                      value={typeSelectValue}
+                      onChange={(e) =>
+                        onValueChange?.(attr.id, e.target.value, {
+                          selectedDictionaryId: e.target.value
+                        })
+                      }
+                      style={{
+                        width: '100%',
+                        borderRadius: 6,
+                        border: '1px solid #d0d5dd',
+                        padding: 8,
+                        fontSize: 13,
+                        backgroundColor: 'white'
+                      }}
+                    >
+                      <option value="">Выберите тип товара</option>
+                      {typeDictionaryOptions.map((option) => (
+                        <option key={option.id} value={option.id}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <div style={{ fontSize: 11, color: '#6c757d', marginTop: 6 }}>
+                      Обязательный атрибут. Можно выбрать только одно значение.
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <textarea
+                      value={attr.value}
+                      onChange={(e) => onValueChange?.(attr.id, e.target.value)}
+                      rows={attr.fieldKey ? 3 : 4}
+                      style={{
+                        width: '100%',
+                        borderRadius: 6,
+                        border: '1px solid #d0d5dd',
+                        padding: 8,
+                        fontSize: 13,
+                        resize: 'vertical',
+                        backgroundColor: 'white',
+                        minHeight: attr.fieldKey ? '64px' : '88px'
+                      }}
+                      placeholder="Введите значение атрибута..."
+                    />
+                    <div style={{ fontSize: 11, color: '#6c757d', marginTop: 6 }}>
+                      {mappedField
+                        ? 'Изменение обновит соответствующее поле в таблице.'
+                        : 'Если оставить поле пустым, будет использовано значение из товара-образца.'}
+                    </div>
+                  </>
+                )}
               </div>
             );
           })

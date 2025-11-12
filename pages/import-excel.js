@@ -11,6 +11,7 @@ import {
   NUMERIC_BASE_FIELDS,
   BASE_FIELD_LABELS
 } from '../src/constants/productFields';
+import { TYPE_ATTRIBUTE_ID, TYPE_ATTRIBUTE_NUMERIC } from '../src/utils/attributesHelpers';
 import { AttributesModal } from '../src/components/attributes';
 
 // Сервис для работы с шаблонами
@@ -443,6 +444,59 @@ const extractAttributeValue = (attribute) => {
   return '';
 };
 
+const extractFirstAttributeValueEntry = (attribute) => {
+  if (!attribute) return null;
+
+  if (Array.isArray(attribute.values) && attribute.values.length > 0) {
+    const first = attribute.values[0];
+    if (typeof first === 'string') {
+      return { value: first };
+    }
+    if (first && typeof first === 'object') {
+      return first;
+    }
+  }
+
+  if (hasValue(attribute.value)) {
+    return { value: attribute.value };
+  }
+  if (hasValue(attribute.text_value)) {
+    return { value: attribute.text_value };
+  }
+  if (hasValue(attribute.value_text)) {
+    return { value: attribute.value_text };
+  }
+
+  if (Array.isArray(attribute.dictionary_values) && attribute.dictionary_values.length > 0) {
+    const first = attribute.dictionary_values[0];
+    if (typeof first === 'string') {
+      return { value: first };
+    }
+    if (first && typeof first === 'object') {
+      return first;
+    }
+  }
+
+  return null;
+};
+
+const getAttributeDictionaryValueId = (attribute) => {
+  const entry = extractFirstAttributeValueEntry(attribute);
+  if (!entry) return null;
+
+  const raw =
+    entry?.dictionary_value_id ??
+    entry?.dictionaryValueId ??
+    entry?.value_id ??
+    entry?.id;
+
+  if (raw === undefined || raw === null || raw === '') {
+    return null;
+  }
+
+  return String(raw);
+};
+
 const stringifyAttributeValues = (attribute) => {
   if (!attribute) return '';
 
@@ -480,14 +534,56 @@ const stringifyAttributeValues = (attribute) => {
     .join('\n');
 };
 
-const parseAttributeTextareaValue = (rawValue = '') => {
+const parseAttributeTextareaValue = (rawValue = '', attributeId = null) => {
   if (!hasValue(rawValue)) return [];
 
-  return String(rawValue)
+  const normalizedValues = String(rawValue)
     .split(/\r?\n/)
     .map((value) => value.trim())
-    .filter(Boolean)
-    .map((value) => ({ value }));
+    .filter(Boolean);
+
+  if (attributeId && String(attributeId) === TYPE_ATTRIBUTE_ID) {
+    const firstValue = normalizedValues[0];
+    return firstValue ? [{ value: firstValue }] : [];
+  }
+
+  return normalizedValues.map((value) => ({ value }));
+};
+
+const normalizeDictionaryValues = (metaSource = {}) => {
+  const rawOptions =
+    metaSource?.dictionary_values ||
+    metaSource?.dictionaryValues ||
+    metaSource?.dictionary ||
+    [];
+
+  if (!Array.isArray(rawOptions)) {
+    return [];
+  }
+
+  return rawOptions
+    .map((option) => {
+      const optionId =
+        option?.dictionary_value_id ??
+        option?.value_id ??
+        option?.id ??
+        option?.value ??
+        option?.text;
+      if (optionId === undefined || optionId === null || optionId === '') {
+        return null;
+      }
+      const label =
+        option?.value ??
+        option?.text ??
+        option?.title ??
+        option?.name ??
+        String(optionId);
+      return {
+        id: String(optionId),
+        label
+      };
+    })
+    .filter(Boolean);
 };
 
 const pickFirstValue = (...candidates) => {
@@ -660,6 +756,40 @@ const buildAttributesPayload = (
   );
 };
 
+const ensureTypeAttributeValid = (attributes = [], rowIndex = -1) => {
+  const typeAttribute = attributes.find(
+    (attr) => Number(attr?.id ?? attr?.attribute_id ?? 0) === TYPE_ATTRIBUTE_NUMERIC
+  );
+  if (!typeAttribute) {
+    throw new Error(
+      `Строка ${rowIndex + 1}: заполните обязательный атрибут "Тип товара" (ID ${TYPE_ATTRIBUTE_NUMERIC}).`
+    );
+  }
+
+  const values = Array.isArray(typeAttribute.values) ? typeAttribute.values : [];
+  const meaningfulValues = values.filter((entry) => {
+    if (!entry) return false;
+    return (
+      hasValue(entry.value) ||
+      hasValue(entry.text) ||
+      hasValue(entry.value_text) ||
+      hasValue(entry.dictionary_value_id)
+    );
+  });
+
+  if (meaningfulValues.length === 0) {
+    throw new Error(
+      `Строка ${rowIndex + 1}: атрибут "Тип товара" (ID ${TYPE_ATTRIBUTE_NUMERIC}) должен содержать значение.`
+    );
+  }
+
+  if (meaningfulValues.length > 1) {
+    throw new Error(
+      `Строка ${rowIndex + 1}: атрибут "Тип товара" (ID ${TYPE_ATTRIBUTE_NUMERIC}) может содержать только одно значение.`
+    );
+  }
+};
+
 const prepareTemplateBaseData = (template = {}, baseProductData = {}) => {
   const base = {};
 
@@ -794,6 +924,7 @@ const buildImportItemFromRow = ({
     rowValues,
     attributeOverrides
   );
+  ensureTypeAttributeValid(item.attributes, rowIndex);
 
   const requiredFields = [];
   if (!hasValue(item.offer_id)) {
@@ -1104,21 +1235,46 @@ const [baseProductData, setBaseProductData] = useState({
     const buildAttributeEntry = (metaSource, attrId, order) => {
       const fieldKey = attributeFieldMap.get(attrId);
       const mapping = fieldKey ? fieldMappings[fieldKey] : null;
+      const sampleAttribute = sampleAttributeValueMap.get(attrId);
+      const overrideAttribute = overridesForRow[attrId];
       const sampleValue = sampleAttributeValueMap.has(attrId)
-        ? stringifyAttributeValues(sampleAttributeValueMap.get(attrId))
+        ? stringifyAttributeValues(sampleAttribute)
         : '';
+      const overrideValue = overridesForRow[attrId]
+        ? stringifyAttributeValues(overridesForRow[attrId])
+        : '';
+      const dictionaryValues = normalizeDictionaryValues(metaSource);
+      const sampleDictionaryId = getAttributeDictionaryValueId(sampleAttribute);
+      const overrideDictionaryId = getAttributeDictionaryValueId(overrideAttribute);
+      const rowTypeValue = hasValue(rowValues.type_id) ? String(rowValues.type_id) : '';
+      const templateTypeValue = hasValue(sampleTemplate?.type_id)
+        ? String(sampleTemplate.type_id)
+        : '';
+      let selectedDictionaryId = overrideDictionaryId || sampleDictionaryId || '';
 
       let currentValue = '';
       if (fieldKey && hasValue(rowValues[fieldKey])) {
         currentValue = String(rowValues[fieldKey]);
       } else if (attrId === NAME_ATTRIBUTE_ID && hasValue(rowValues.name)) {
         currentValue = String(rowValues.name);
-      } else if (overridesForRow[attrId]) {
-        currentValue = stringifyAttributeValues(overridesForRow[attrId]);
+      } else if (hasValue(overrideValue)) {
+        currentValue = overrideValue;
       } else if (hasValue(sampleValue)) {
         currentValue = sampleValue;
       } else {
         currentValue = stringifyAttributeValues(metaSource);
+      }
+
+      if (attrId === TYPE_ATTRIBUTE_NUMERIC) {
+        if (hasValue(rowTypeValue)) {
+          selectedDictionaryId = rowTypeValue;
+        } else if (!hasValue(selectedDictionaryId) && hasValue(templateTypeValue)) {
+          selectedDictionaryId = templateTypeValue;
+        }
+
+        if (hasValue(selectedDictionaryId)) {
+          currentValue = selectedDictionaryId;
+        }
       }
 
       return {
@@ -1136,7 +1292,9 @@ const [baseProductData, setBaseProductData] = useState({
             metaSource?.isRequired ??
             metaSource?.required
         ),
-        order
+        order,
+        dictionaryValues,
+        selectedDictionaryId
       };
     };
 
@@ -1188,15 +1346,26 @@ const [baseProductData, setBaseProductData] = useState({
     });
   };
 
-  const handleAttributeModalValueChange = (attrId, value) => {
+  const handleAttributeModalValueChange = (attrId, value, extra = {}) => {
     setAttributeModalState(prevState => {
       if (!prevState.isOpen) return prevState;
 
       return {
         ...prevState,
-        attributes: prevState.attributes.map(attr =>
-          attr.id === attrId ? { ...attr, value } : attr
-        )
+        attributes: prevState.attributes.map(attr => {
+          if (attr.id !== attrId) {
+            return attr;
+          }
+          const extraFields =
+            String(attrId) === TYPE_ATTRIBUTE_ID && extra.selectedDictionaryId === undefined
+              ? { ...extra, selectedDictionaryId: '' }
+              : extra;
+          return {
+            ...attr,
+            value,
+            ...extraFields
+          };
+        })
       };
     });
   };
@@ -1264,7 +1433,29 @@ const [baseProductData, setBaseProductData] = useState({
           return;
         }
 
-        const parsedValues = parseAttributeTextareaValue(attr.value);
+        if (String(attr.id) === TYPE_ATTRIBUTE_ID && !hasValue(attr.selectedDictionaryId) && !hasValue(attr.value)) {
+          delete currentOverrides[attr.id];
+          return;
+        }
+
+        if (hasValue(attr.selectedDictionaryId)) {
+          const optionLabel =
+            (Array.isArray(attr.dictionaryValues)
+              ? attr.dictionaryValues.find((option) => option.id === attr.selectedDictionaryId)?.label
+              : null) || attr.value || attr.selectedDictionaryId;
+          currentOverrides[attr.id] = {
+            id: attr.id,
+            values: [
+              {
+                value: optionLabel,
+                dictionary_value_id: Number(attr.selectedDictionaryId)
+              }
+            ]
+          };
+          return;
+        }
+
+        const parsedValues = parseAttributeTextareaValue(attr.value, attr.id);
         if (parsedValues.length > 0) {
           currentOverrides[attr.id] = { id: attr.id, values: parsedValues };
         } else {
