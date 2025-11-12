@@ -561,6 +561,22 @@ const stringifyAttributeValues = (attribute) => {
     .join('\n');
 };
 
+const getProductAttributeValue = (product, attributeId) => {
+  if (
+    !product ||
+    !Array.isArray(product.attributes) ||
+    !attributeId
+  ) {
+    return '';
+  }
+
+  const attribute = product.attributes.find((attr) => {
+    const attrId = Number(attr?.attribute_id ?? attr?.id ?? attr?.attributeId);
+    return attrId === Number(attributeId);
+  });
+
+  return stringifyAttributeValues(attribute);
+};
 const parseAttributeTextareaValue = (rawValue = '', attributeId = null) => {
   if (!hasValue(rawValue)) return [];
 
@@ -1726,6 +1742,22 @@ const [baseProductData, setBaseProductData] = useState({
         console.warn('[ImportExcel] productInfo empty');
         throw new Error('Ответ OZON пуст. Проверьте правильность артикула.');
       }
+
+      const templatePrefills = [
+        { fieldKey: 'hashtags', attributeId: 23171 },
+        { fieldKey: 'rich_content_json', attributeId: 11254 },
+        { fieldKey: 'description', attributeId: 4191 }
+      ];
+      templatePrefills.forEach(({ fieldKey, attributeId }) => {
+        const mapping = fieldMappings[fieldKey];
+        if (!mapping || (mapping.template && mapping.template.trim())) {
+          return;
+        }
+        const sampleValue = getProductAttributeValue(productInfo, attributeId);
+        if (hasValue(sampleValue)) {
+          updateFieldTemplate(fieldKey, sampleValue);
+        }
+      });
 
       setSampleTemplate(deepClone(productInfo));
       console.log('[ImportExcel] sampleTemplate set', productInfo);
