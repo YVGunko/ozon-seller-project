@@ -438,6 +438,8 @@ const hasValue = (value) => value !== undefined && value !== null && value !== '
 const deepClone = (value) => (value === undefined ? undefined : JSON.parse(JSON.stringify(value)));
 
 const NAME_ATTRIBUTE_ID = 4180;
+const UNIT_QUANTITY_ATTRIBUTE_ID = 23249;
+const DEFAULT_UNIT_QUANTITY_VALUE = '1';
 
 const extractAttributeValue = (attribute) => {
   if (!attribute) return '';
@@ -647,6 +649,19 @@ const extractBaseFieldsFromTemplate = (template = {}) => {
   }, {});
 };
 
+const attributeHasNonEmptyValues = (attribute) => {
+  if (!attribute || !Array.isArray(attribute.values)) return false;
+  return attribute.values.some((entry) => {
+    if (!entry || typeof entry !== 'object') return false;
+    return (
+      hasValue(entry.value) ||
+      hasValue(entry.text) ||
+      hasValue(entry.value_text) ||
+      hasValue(entry.name)
+    );
+  });
+};
+
 const buildAttributesPayload = (
   templateAttributes = [],
   fieldMappings,
@@ -770,6 +785,14 @@ const buildAttributesPayload = (
     delete nameOverride.value;
     delete nameOverride.text_value;
     attributesMap.set(NAME_ATTRIBUTE_ID, nameOverride);
+  }
+
+  const unitQuantityAttribute = attributesMap.get(UNIT_QUANTITY_ATTRIBUTE_ID) || {
+    id: UNIT_QUANTITY_ATTRIBUTE_ID
+  };
+  if (!attributeHasNonEmptyValues(unitQuantityAttribute)) {
+    unitQuantityAttribute.values = [{ value: DEFAULT_UNIT_QUANTITY_VALUE }];
+    attributesMap.set(UNIT_QUANTITY_ATTRIBUTE_ID, unitQuantityAttribute);
   }
 
   return Array.from(attributesMap.values()).filter(
