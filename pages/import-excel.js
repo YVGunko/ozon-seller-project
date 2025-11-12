@@ -20,6 +20,34 @@ const STATUS_CHECK_DELAY_MS = 3000;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const appendImportLog = async ({
+  offerId,
+  status,
+  durationMs,
+  errorMessage,
+  taskId,
+  userName
+}) => {
+  try {
+    await fetch('/api/logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        offer_id: offerId || '',
+        endpoint: '/v3/product/import',
+        method: 'POST',
+        status: status ?? null,
+        duration_ms: durationMs ?? null,
+        error_message: errorMessage || null,
+        user_id: userName || 'local-user',
+        task_id: taskId || null
+      })
+    });
+  } catch (logError) {
+    console.error('[ImportExcel] Failed to append import log', logError);
+  }
+};
+
 // Сервис для работы с шаблонами
 const TemplateService = {
   async loadTemplates(templateName = 'ozon-templates') {
@@ -1589,6 +1617,8 @@ const [baseProductData, setBaseProductData] = useState({
     }
 
     setRowSubmitLoading(true);
+    const requestStartedAt = Date.now();
+    let taskId = null;
     try {
       const ruCarBrand = await translationService.findBrand(row.carBrand);
 
@@ -1648,7 +1678,7 @@ const [baseProductData, setBaseProductData] = useState({
       console.log('[ImportExcel] Sending single item to OZON', item);
       const response = await service.createProductsBatch([item]);
       console.log('[ImportExcel] createProductsBatch response', response);
-      const taskId = response?.result?.task_id;
+      taskId = response?.result?.task_id;
       if (taskId) {
         try {
           console.log('[ImportExcel] Waiting before status check', {
@@ -1663,19 +1693,55 @@ const [baseProductData, setBaseProductData] = useState({
           const message =
             summary?.primaryMessage?.message ||
             `Товар ${item.offer_id} отправлен в OZON. Задача ${taskId}.`;
+          const durationMs = Date.now() - requestStartedAt;
+          await appendImportLog({
+            offerId: item.offer_id,
+            status: 200,
+            durationMs,
+            errorMessage: null,
+            taskId,
+            userName: currentProfile?.name || currentProfile?.user_id
+          });
           alert(message);
         } catch (statusError) {
           console.error('[ImportExcel] Failed to check task status', statusError);
+          const durationMs = Date.now() - requestStartedAt;
+          await appendImportLog({
+            offerId: item.offer_id,
+            status: null,
+            durationMs,
+            errorMessage: statusError.message,
+            taskId,
+            userName: currentProfile?.name || currentProfile?.user_id
+          });
           alert(
             `Товар ${item.offer_id} отправлен в OZON, но не удалось проверить статус: ${statusError.message}`
           );
         }
       } else {
         console.log('[ImportExcel] Task ID not returned, skipping status check');
+        const durationMs = Date.now() - requestStartedAt;
+        await appendImportLog({
+          offerId: item.offer_id,
+          status: 200,
+          durationMs,
+          errorMessage: null,
+          taskId: null,
+          userName: currentProfile?.name || currentProfile?.user_id
+        });
         alert(`Товар ${item.offer_id} отправлен в OZON.`);
       }
     } catch (error) {
       console.error('[ImportExcel] Send row to OZON error:', error);
+      const durationMs = Date.now() - requestStartedAt;
+      await appendImportLog({
+        offerId: row?.offer_id || row?.offerId || '',
+        status: null,
+        durationMs,
+        errorMessage: error.message,
+        taskId: null,
+        userName: currentProfile?.name || currentProfile?.user_id
+      });
       alert('Ошибка отправки в OZON: ' + (error.message || 'Неизвестная ошибка'));
     } finally {
       setRowSubmitLoading(false);
