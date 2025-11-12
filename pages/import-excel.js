@@ -342,6 +342,20 @@ const getFallbackTemplates = () => ({
     "enabled": true,
     "required": false
   },
+  "hashtags": {
+    "name": "#Хештеги",
+    "template": "",
+    "attributeId": 23171,
+    "enabled": true,
+    "required": false
+  },
+  "rich_content_json": {
+    "name": "Rich-контент JSON",
+    "template": "",
+    "attributeId": 11254,
+    "enabled": true,
+    "required": false
+  },
   "description": {
     "name": "SEO названия",
     "template": "",
@@ -361,6 +375,8 @@ const getFieldWidth = (fieldKey) => {
     brand_code: '100px',
     ru_color_name: '150px',
     ozon_color_name: '150px',
+    hashtags: '220px',
+    rich_content_json: '260px',
     model_name: '180px',
     alternative_offers: '200px',
     name: '400px',
