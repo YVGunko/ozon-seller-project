@@ -288,7 +288,7 @@ const getFallbackTemplates = () => ({
   },
   "color_code": {
     "name": "Цвет товара",
-    "template": "{ru_color_name}",
+    "template": "{ozon_color_name}",
     "attributeId": 10096,
     "enabled": true,
     "required": false
@@ -335,6 +335,13 @@ const getFallbackTemplates = () => ({
     "enabled": true,
     "required": false
   },
+  "ozon_color_name": {
+    "name": "Цвет OZON",
+    "template": "{ozon_color_name}",
+    "attributeId": null,
+    "enabled": true,
+    "required": false
+  },
   "description": {
     "name": "SEO названия",
     "template": "",
@@ -353,6 +360,7 @@ const getFieldWidth = (fieldKey) => {
     part_number: '100px',
     brand_code: '100px',
     ru_color_name: '150px',
+    ozon_color_name: '150px',
     model_name: '180px',
     alternative_offers: '200px',
     name: '400px',
@@ -1131,7 +1139,8 @@ const [baseProductData, setBaseProductData] = useState({
             // Добавленные поля
             ru_car_brand: ru_car_brand || row.carBrand,
             brand_code: userValues.brand_code || '',
-            ru_color_name: userValues.ru_color_name || ''
+            ru_color_name: userValues.ru_color_name || '',
+            ozon_color_name: userValues.ozon_color_name || ''
           };
         })
       );
@@ -1187,6 +1196,11 @@ const [baseProductData, setBaseProductData] = useState({
 
     if (!hasValue(mergedValues.ru_color_name)) {
       mergedValues.ru_color_name = userValues.ru_color_name || sourceRow.ru_color_name || '';
+    }
+
+    if (!hasValue(mergedValues.ozon_color_name)) {
+      mergedValues.ozon_color_name =
+        userValues.ozon_color_name || sourceRow.ozon_color_name || '';
     }
 
     if (!hasValue(mergedValues.ru_car_brand)) {
@@ -1512,6 +1526,7 @@ const [baseProductData, setBaseProductData] = useState({
         ru_car_brand: ruCarBrand || row.ru_car_brand || row.carBrand,
         brand_code: userValues.brand_code || row.brand_code || '',
         ru_color_name: userValues.ru_color_name || row.ru_color_name || '',
+        ozon_color_name: userValues.ozon_color_name || row.ozon_color_name || '',
         ...generatedRow
       };
 
@@ -1598,7 +1613,8 @@ const [baseProductData, setBaseProductData] = useState({
         ...originalRow,
         ru_car_brand: ru_car_brand || originalRow.carBrand,
         brand_code: userValues.brand_code || '',
-        ru_color_name: userValues.ru_color_name || ''
+        ru_color_name: userValues.ru_color_name || '',
+        ozon_color_name: userValues.ozon_color_name || ''
       };
 
       newRowData[index] = { ...(newRowData[index] || {}) };
@@ -1825,7 +1841,10 @@ const [baseProductData, setBaseProductData] = useState({
   const handleUserValueChange = (key, value) => {
     updateUserValue(key, value);
     // Применяем шаблоны ко всем строкам при изменении brand_code или ru_color_name
-    if (excelData.length > 0 && (key === 'brand_code' || key === 'ru_color_name')) {
+    if (
+      excelData.length > 0 &&
+      (key === 'brand_code' || key === 'ru_color_name' || key === 'ozon_color_name')
+    ) {
       setTimeout(() => applyTemplatesToAll(), 100);
     }
   };
@@ -1928,6 +1947,7 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
           ru_car_brand: ruCarBrand || row.ru_car_brand || row.carBrand,
           brand_code: userValues.brand_code || row.brand_code || '',
           ru_color_name: userValues.ru_color_name || row.ru_color_name || '',
+          ozon_color_name: userValues.ozon_color_name || row.ozon_color_name || '',
           ...generatedRow
         };
 
@@ -2173,6 +2193,26 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
                 Используется в шаблонах как {'{ru_color_name}'}
               </div>
             </div>
+            <div>
+              <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
+                Цвет OZON (ozon_color_name):
+              </label>
+              <input
+                type="text"
+                value={userValues.ozon_color_name || ''}
+                onChange={(e) => handleUserValueChange('ozon_color_name', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: '8px',
+                  border: '1px solid #ddd',
+                  borderRadius: '4px'
+                }}
+                placeholder="Например: Черный перламутр"
+              />
+              <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
+                Используется в шаблонах как {'{ozon_color_name}'}
+              </div>
+            </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
                 Ключевые слова для SEO названий:
@@ -2204,6 +2244,7 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
             • {'{ru_car_brand}'} - русское название марки автомобиля<br />
             • {'{brand_code}'} - код бренда (задается выше)<br />
             • {'{ru_color_name}'} - русское название цвета (задается выше)<br />
+            • {'{ozon_color_name}'} - значение поля «Цвет OZON» (задается выше)<br />
             • Поле SEO названий генерируется автоматически на основе ключевых слов
           </div>
         </div>
