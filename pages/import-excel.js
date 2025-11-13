@@ -1787,20 +1787,38 @@ const [baseProductData, setBaseProductData] = useState({
       taskId = response?.result?.task_id;
       if (taskId) {
         try {
-          const summary = await fetchImportStatus({
-            service,
-            taskId,
-            delayMs: STATUS_CHECK_DELAY_MS,
-            logger: console
-          });
+          let summary = null;
+          let lastRawStatus = null;
+          for (let attempt = 1; attempt <= 3; attempt++) {
+            const { summary: fetchedSummary, raw } = await fetchImportStatus({
+              service,
+              taskId,
+              delayMs: STATUS_CHECK_DELAY_MS,
+              logger: console,
+              attempt,
+              maxAttempts: 3
+            });
+            summary = fetchedSummary;
+            lastRawStatus = raw;
+            const entries = buildBarcodeEntriesFromSummary(summary);
+            if (entries.length > 0 || attempt === 3) {
+              break;
+            }
+            console.log('[ImportExcel] Waiting for product_id, attempt', attempt);
+          }
           const summaryEntries = buildBarcodeEntriesFromSummary(summary);
+          console.log('[ImportExcel] summary entries for barcode', summaryEntries);
           let barcodeMap = new Map();
           if (summaryEntries.length) {
+            console.log('[ImportExcel] Generating barcodes for productIds', summaryEntries.map((entry) => entry.productId));
             barcodeMap = await generateBarcodesForEntries({
               service,
               entries: summaryEntries,
               logger: console
             });
+            console.log('[ImportExcel] barcodeMap', barcodeMap);
+          } else {
+            console.log('[ImportExcel] No productIds available for barcode generation');
           }
           const productId = summaryEntries[0]?.productId || '';
           const barcodeInfo = productId
@@ -2314,20 +2332,37 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
         try {
           const response = await service.createProductsBatch(batch);
           taskId = response?.result?.task_id;
+          let summaryRaw = null;
           if (taskId) {
-            summary = await fetchImportStatus({
-              service,
-              taskId,
-              delayMs: STATUS_CHECK_DELAY_MS,
-              logger: console
-            });
+            for (let attempt = 1; attempt <= 3; attempt++) {
+              const { summary: fetchedSummary, raw } = await fetchImportStatus({
+                service,
+                taskId,
+                delayMs: STATUS_CHECK_DELAY_MS,
+                logger: console,
+                attempt,
+                maxAttempts: 3
+              });
+              summary = fetchedSummary;
+              summaryRaw = raw;
+              const entries = buildBarcodeEntriesFromSummary(summary);
+              if (entries.length > 0 || attempt === 3) {
+                break;
+              }
+              console.log('[ImportExcel] Waiting for product_id in batch, attempt', attempt);
+            }
             const summaryEntries = buildBarcodeEntriesFromSummary(summary);
+            console.log('[ImportExcel] Batch summary entries for barcode', summaryEntries);
             if (summaryEntries.length) {
+              console.log('[ImportExcel] Generating barcodes for batch productIds', summaryEntries.map((entry) => entry.productId));
               barcodeMap = await generateBarcodesForEntries({
                 service,
                 entries: summaryEntries,
                 logger: console
               });
+              console.log('[ImportExcel] Batch barcodeMap', barcodeMap);
+            } else {
+              console.log('[ImportExcel] No productIds in batch for barcode generation');
             }
           }
           await logBatchImportResults({
