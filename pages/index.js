@@ -233,6 +233,19 @@ export default function Home() {
             📦 Управление товарами
           </div>
         </Link>
+        <Link href="/attention" passHref>
+          <div style={{
+            display: 'inline-block',
+            padding: '12px 24px',
+            backgroundColor: '#ffc107',
+            color: '#212529',
+            textDecoration: 'none',
+            borderRadius: '4px',
+            fontWeight: 'bold'
+          }}>
+            ⚠️ Товары без внимания
+          </div>
+        </Link>
         
         <div style={{ marginTop: '15px' }}>
           <button

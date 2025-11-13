@@ -541,4 +541,52 @@ export class OzonApiService {
       product_ids: ids
     });
   }
+
+  async updateProductStocks(stocks = []) {
+    if (!Array.isArray(stocks) || !stocks.length) {
+      throw new Error('Не переданы остатки для обновления');
+    }
+
+    const normalizedStocks = stocks
+      .map((entry) => {
+        const offerId = entry?.offer_id ?? entry?.offerId ?? '';
+        const productNumeric = Number(entry?.product_id ?? entry?.productId);
+        const stockNumeric = Number(entry?.stock);
+        const warehouseNumeric = Number(entry?.warehouse_id ?? entry?.warehouseId);
+
+        if (!Number.isFinite(stockNumeric) || stockNumeric < 0) {
+          return null;
+        }
+        if (!Number.isFinite(warehouseNumeric) || warehouseNumeric <= 0) {
+          return null;
+        }
+
+        const payload = {
+          stock: stockNumeric,
+          warehouse_id: warehouseNumeric
+        };
+
+        if (offerId) {
+          payload.offer_id = String(offerId);
+        }
+        if (Number.isFinite(productNumeric) && productNumeric > 0) {
+          payload.product_id = productNumeric;
+        }
+
+        if (!payload.offer_id && payload.product_id === undefined) {
+          return null;
+        }
+
+        return payload;
+      })
+      .filter(Boolean);
+
+    if (!normalizedStocks.length) {
+      throw new Error('Нет валидных записей для обновления остатков');
+    }
+
+    return this.request('/v2/products/stocks', {
+      stocks: normalizedStocks
+    });
+  }
 }
