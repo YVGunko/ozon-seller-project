@@ -525,4 +525,20 @@ export class OzonApiService {
       offer_id: ids
     });
   }
+
+  async generateBarcodes(productIds = []) {
+    const ids = Array.isArray(productIds)
+      ? productIds
+          .filter((id) => id !== undefined && id !== null && id !== '')
+          .map((id) => String(id))
+      : [];
+
+    if (!ids.length) {
+      throw new Error('Не переданы product_ids для генерации штрихкодов');
+    }
+
+    return this.request('/v1/barcode/generate', {
+      product_ids: ids
+    });
+  }
 }

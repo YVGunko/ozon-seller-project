@@ -14,9 +14,13 @@ import {
 import { TYPE_ATTRIBUTE_ID, TYPE_ATTRIBUTE_NUMERIC } from '../src/utils/attributesHelpers';
 import { AttributesModal } from '../src/components/attributes';
 import { useWarehouses } from '../src/hooks/useWarehouses';
-import { fetchImportStatus, appendImportLog } from '../src/utils/importStatusClient';
+import {
+  fetchImportStatus,
+  appendImportLog,
+  generateBarcodesForEntries
+} from '../src/utils/importStatusClient';
 
-const STATUS_CHECK_DELAY_MS = 3000;
+const STATUS_CHECK_DELAY_MS = 5000;
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -25,12 +29,32 @@ const getOfferIdFromItem = (item = {}) => {
   return raw ? String(raw) : '';
 };
 
+const buildBarcodeEntriesFromSummary = (summary) => {
+  if (!summary || !Array.isArray(summary.items)) {
+    return [];
+  }
+  return summary.items
+    .map((item) => {
+      const productId = item?.product_id ?? item?.productId;
+      const numericProductId = Number(productId);
+      if (!Number.isFinite(numericProductId) || numericProductId <= 0) {
+        return null;
+      }
+      return {
+        offerId: getOfferIdFromItem(item),
+        productId: String(numericProductId)
+      };
+    })
+    .filter(Boolean);
+};
+
 const logBatchImportResults = async ({
   batch,
   summary,
   durationMs,
   taskId,
-  profileName
+  profileName,
+  barcodeMap = new Map()
 }) => {
   const summaryItems = Array.isArray(summary?.items) ? summary.items : [];
   const summaryMessages = Array.isArray(summary?.messages) ? summary.messages : [];
@@ -44,12 +68,21 @@ const logBatchImportResults = async ({
       .map((entry) => [String(entry?.offer_id || ''), entry?.message || null])
       .filter(([key]) => !!key)
   );
+  const productMap = new Map(
+    summaryItems
+      .map((item) => [getOfferIdFromItem(item), item?.product_id ?? item?.productId ?? null])
+      .filter(([key]) => !!key)
+  );
 
   await Promise.all(
     batch.map(async (item) => {
       const offerId = getOfferIdFromItem(item);
       const statusEntry = statusMap.get(offerId);
       const message = messageMap.get(offerId) || null;
+      const productId = productMap.get(offerId);
+      const barcodeInfo = productId
+        ? barcodeMap.get(String(productId)) || { barcode: null, barcodeError: null }
+        : { barcode: null, barcodeError: null };
       const entryStatus = statusEntry?.status;
       const isImported = entryStatus ? entryStatus.toLowerCase() === 'imported' : true;
       const statusCode = isImported ? 200 : 422;
@@ -57,12 +90,15 @@ const logBatchImportResults = async ({
 
       await appendImportLog({
         offerId,
+        productId: productId ? String(productId) : '',
         status: statusCode,
         durationMs,
         errorMessage,
         taskId,
         userName: profileName,
-        importMessage: message
+        importMessage: message,
+        barcode: barcodeInfo.barcode || null,
+        barcodeError: barcodeInfo.barcodeError || null
       });
     })
   );
@@ -73,12 +109,15 @@ const logBatchImportError = async ({ batch, durationMs, error, profileName }) =>
     batch.map((item) =>
       appendImportLog({
         offerId: getOfferIdFromItem(item),
+        productId: '',
         status: null,
         durationMs,
         errorMessage: error?.message || 'Ошибка импорта',
         taskId: null,
         userName: profileName,
-        importMessage: null
+        importMessage: null,
+        barcode: null,
+        barcodeError: null
       })
     )
   );
@@ -1754,17 +1793,34 @@ const [baseProductData, setBaseProductData] = useState({
             delayMs: STATUS_CHECK_DELAY_MS,
             logger: console
           });
+          const summaryEntries = buildBarcodeEntriesFromSummary(summary);
+          let barcodeMap = new Map();
+          if (summaryEntries.length) {
+            barcodeMap = await generateBarcodesForEntries({
+              service,
+              entries: summaryEntries,
+              logger: console
+            });
+          }
+          const productId = summaryEntries[0]?.productId || '';
+          const barcodeInfo = productId
+            ? barcodeMap.get(productId) || { barcode: null, barcodeError: null }
+            : { barcode: null, barcodeError: null };
           const message =
             summary?.primaryMessage?.message ||
             `Товар ${item.offer_id} отправлен в OZON. Задача ${taskId}.`;
           const durationMs = Date.now() - requestStartedAt;
           await appendImportLog({
             offerId: item.offer_id,
+            productId,
             status: 200,
             durationMs,
             errorMessage: null,
             taskId,
-            userName: currentProfile?.name || currentProfile?.user_id
+            userName: currentProfile?.name || currentProfile?.user_id,
+            importMessage: summary?.primaryMessage?.message || null,
+            barcode: barcodeInfo.barcode || null,
+            barcodeError: barcodeInfo.barcodeError || null
           });
           alert(message);
         } catch (statusError) {
@@ -1772,11 +1828,15 @@ const [baseProductData, setBaseProductData] = useState({
           const durationMs = Date.now() - requestStartedAt;
           await appendImportLog({
             offerId: item.offer_id,
+            productId: '',
             status: null,
             durationMs,
             errorMessage: statusError.message,
             taskId,
-            userName: currentProfile?.name || currentProfile?.user_id
+            userName: currentProfile?.name || currentProfile?.user_id,
+            importMessage: null,
+            barcode: null,
+            barcodeError: null
           });
           alert(
             `Товар ${item.offer_id} отправлен в OZON, но не удалось проверить статус: ${statusError.message}`
@@ -1787,11 +1847,15 @@ const [baseProductData, setBaseProductData] = useState({
         const durationMs = Date.now() - requestStartedAt;
         await appendImportLog({
           offerId: item.offer_id,
+          productId: '',
           status: 200,
           durationMs,
           errorMessage: null,
           taskId: null,
-          userName: currentProfile?.name || currentProfile?.user_id
+          userName: currentProfile?.name || currentProfile?.user_id,
+          importMessage: null,
+          barcode: null,
+          barcodeError: null
         });
         alert(`Товар ${item.offer_id} отправлен в OZON.`);
       }
@@ -1800,11 +1864,15 @@ const [baseProductData, setBaseProductData] = useState({
       const durationMs = Date.now() - requestStartedAt;
       await appendImportLog({
         offerId: row?.offer_id || row?.offerId || '',
+        productId: '',
         status: null,
         durationMs,
         errorMessage: error.message,
         taskId: null,
-        userName: currentProfile?.name || currentProfile?.user_id
+        userName: currentProfile?.name || currentProfile?.user_id,
+        importMessage: null,
+        barcode: null,
+        barcodeError: null
       });
       alert('Ошибка отправки в OZON: ' + (error.message || 'Неизвестная ошибка'));
     } finally {
@@ -2241,10 +2309,11 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
       for (const batch of batches) {
         const batchStart = Date.now();
         let taskId = null;
+        let summary = null;
+        let barcodeMap = new Map();
         try {
           const response = await service.createProductsBatch(batch);
           taskId = response?.result?.task_id;
-          let summary = null;
           if (taskId) {
             summary = await fetchImportStatus({
               service,
@@ -2252,13 +2321,22 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
               delayMs: STATUS_CHECK_DELAY_MS,
               logger: console
             });
+            const summaryEntries = buildBarcodeEntriesFromSummary(summary);
+            if (summaryEntries.length) {
+              barcodeMap = await generateBarcodesForEntries({
+                service,
+                entries: summaryEntries,
+                logger: console
+              });
+            }
           }
           await logBatchImportResults({
             batch,
             summary,
             durationMs: Date.now() - batchStart,
             taskId,
-            profileName
+            profileName,
+            barcodeMap
           });
           if (summary) {
             batchSummaries.push(summary);

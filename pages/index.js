@@ -342,6 +342,7 @@ export default function Home() {
               <thead>
                 <tr style={{ backgroundColor: '#f1f3f5' }}>
                   <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Offer ID</th>
+                  <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Product ID</th>
                   <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Endpoint</th>
                   <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Method</th>
                   <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Status</th>
@@ -349,6 +350,9 @@ export default function Home() {
                   <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Error</th>
                   <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>User</th>
                   <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Task ID</th>
+                  <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Status message</th>
+                  <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Barcode</th>
+                  <th style={{ padding: '8px', border: '1px solid #dee2e6', textAlign: 'left' }}>Barcode error</th>
                 </tr>
               </thead>
               <tbody>
@@ -374,6 +378,7 @@ export default function Home() {
                         <span style={{ color: '#6c757d' }}>—</span>
                       )}
                     </td>
+                    <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{log.product_id || '—'}</td>
                     <td style={{ padding: '8px', border: '1px solid #dee2e6', fontFamily: 'monospace' }}>{log.endpoint || '—'}</td>
                     <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{log.method || '—'}</td>
                     <td style={{ padding: '8px', border: '1px solid #dee2e6', color: log.status >= 400 ? '#dc3545' : '#28a745' }}>
@@ -387,6 +392,11 @@ export default function Home() {
                     </td>
                     <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{log.user_id || '—'}</td>
                     <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{log.task_id || '—'}</td>
+                    <td style={{ padding: '8px', border: '1px solid #dee2e6', fontSize: '12px', color: '#495057' }}>
+                      {log.import_message || '—'}
+                    </td>
+                    <td style={{ padding: '8px', border: '1px solid #dee2e6' }}>{log.barcode || '—'}</td>
+                    <td style={{ padding: '8px', border: '1px solid #dee2e6', color: '#dc3545' }}>{log.barcode_error || '—'}</td>
                   </tr>
                 ))}
               </tbody>
