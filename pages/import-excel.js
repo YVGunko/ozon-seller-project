@@ -1125,6 +1125,13 @@ const buildImportItemFromRow = ({
     item.vat = String(item.vat);
   }
 
+  if ('barcode' in item) {
+    delete item.barcode;
+  }
+  if ('barcodes' in item) {
+    delete item.barcodes;
+  }
+
   return cleanObject(item);
 };
 
@@ -2167,6 +2174,7 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
     setImportProgress({ current: 0, total: excelData.length });
     const profileName = currentProfile?.name || currentProfile?.user_id;
     const batchSummaries = [];
+    const batchInfos = [];
 
     try {
       const service = new OzonApiService(
@@ -2255,6 +2263,11 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
           if (summary) {
             batchSummaries.push(summary);
           }
+          batchInfos.push({
+            taskId,
+            count: batch.length,
+            summary
+          });
         } catch (batchError) {
           await logBatchImportError({
             batch,
@@ -2275,6 +2288,19 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
         successMessageParts.push(
           `Пропущено строк без описания: ${skippedRows.length} (№ ${skippedRows.join(', ')})`
         );
+      }
+
+      if (batchInfos.length > 0) {
+        successMessageParts.push('\nСтатусы по батчам:');
+        batchInfos.forEach((info, idx) => {
+          const summaryMessage =
+            info.summary?.primaryMessage?.message ||
+            (info.summary?.messages && info.summary.messages[0]?.message) ||
+            `Задача ${info.taskId || '—'} отправлена.`;
+          successMessageParts.push(
+            `#${idx + 1} (товаров: ${info.count}): ${summaryMessage}`
+          );
+        });
       }
 
       alert(successMessageParts.join('\n'));
