@@ -1,302 +1,413 @@
-export class OzonApiService {
-  constructor(apiKey, clientId) {
-    // 🔥 ЯВНО УКАЗЫВАЕМ, что на сервере используем только переданные аргументы
-    if (typeof window === 'undefined') {
-      // Серверная среда - используем только переданные аргументы
-      if (!apiKey || !clientId) {
-        throw new Error('OZON API credentials are required for server-side usage.');
-      }
-      this.apiKey = apiKey;
-      this.clientId = clientId;
-    } else {
-      // Клиентская среда - используем логику с localStorage
-      const config = this.getCurrentConfig();
+// src/services/ozon-api.js
+import {
+  REQUIRED_BASE_FIELDS,
+  NUMERIC_BASE_FIELDS
+} from '../constants/productFields';
 
-      if (!config.clientId || !config.apiKey) {
-        throw new Error('OZON API credentials are required. Please add a profile in settings.');
-      }
+const DESCRIPTION_ATTRIBUTE_CACHE_TTL = 1000 * 60 * 30; // 30 minutes
+const ATTRIBUTE_DICTIONARY_CACHE_TTL = 1000 * 60 * 60; // 60 minutes
+const descriptionCategoryAttributeCache = new Map();
+const attributeDictionaryCache = new Map();
+const attributeDictionarySearchCache = new Map();
+const HASHTAG_ATTRIBUTE_ID = 23171;
+const HASHTAG_ATTRIBUTE_LABEL = '#Хештеги';
+const HASHTAG_ATTRIBUTE_MAX_TAGS = 30;
+const HASHTAG_VALUE_REGEX = /^#[a-zA-Zа-яА-Я0-9_]{2,30}$/;
 
-      this.apiKey = config.apiKey;
-      this.clientId = config.clientId;
+const buildDescriptionAttributeCacheKey = (descriptionCategoryId, typeId, language) => {
+  return `${language || 'DEFAULT'}:${descriptionCategoryId || 'none'}:${typeId || 'none'}`;
+};
+
+const buildAttributeDictionaryCacheKey = (attributeId, descriptionCategoryId, typeId, language, lastValueId, limit) => {
+  return [
+    attributeId || 'none',
+    descriptionCategoryId || 'none',
+    typeId || 'none',
+    language || 'DEFAULT',
+    lastValueId ?? 0,
+    limit ?? 100
+  ].join(':');
+};
+
+const buildAttributeDictionarySearchKey = (
+  attributeId,
+  descriptionCategoryId,
+  typeId,
+  language,
+  value,
+  limit
+) => {
+  return [
+    attributeId || 'none',
+    descriptionCategoryId || 'none',
+    typeId || 'none',
+    language || 'DEFAULT',
+    value || '',
+    limit ?? 100
+  ].join(':');
+};
+
+const hasValue = (value) => value !== undefined && value !== null && value !== '';
+
+const normalizeHashtagAttributeValues = (values = []) => {
+  const collectedTags = [];
+
+  values.forEach((entry) => {
+    const raw =
+      entry?.value ??
+      entry?.text ??
+      entry?.value_text ??
+      '';
+    if (raw === undefined || raw === null) {
+      return;
     }
 
-    this.baseURL = 'https://api-seller.ozon.ru';
+    const normalized = String(raw)
+      .replace(/[\r\n]+/g, ' ')
+      .trim();
+    if (!normalized) {
+      return;
+    }
+
+    const tags = normalized.split(/\s+/).filter(Boolean);
+    tags.forEach((tag) => {
+      if (!HASHTAG_VALUE_REGEX.test(tag)) {
+        throw new Error(
+          `Тег "${tag}" в атрибуте "${HASHTAG_ATTRIBUTE_LABEL}" имеет неверный формат. Используйте символ #, буквы, цифры или _.`
+        );
+      }
+      collectedTags.push(tag);
+    });
+  });
+
+  if (collectedTags.length > HASHTAG_ATTRIBUTE_MAX_TAGS) {
+    throw new Error(
+      `Атрибут "${HASHTAG_ATTRIBUTE_LABEL}" может содержать максимум ${HASHTAG_ATTRIBUTE_MAX_TAGS} тегов. Сейчас указано ${collectedTags.length}.`
+    );
   }
 
-  getCurrentConfig() {
-    if (typeof window === 'undefined') {
-      // На сервере - возвращаем пустые значения
-      return { clientId: '', apiKey: '' };
-    }
+  if (!collectedTags.length) {
+    return [];
+  }
 
-    const currentProfile = JSON.parse(localStorage.getItem('currentOzonProfile') || 'null');
-    if (currentProfile) {
-      return {
-        clientId: currentProfile.ozon_client_id,
-        apiKey: currentProfile.ozon_api_key
-      };
+  return [
+    {
+      value: collectedTags.join(' ')
     }
+  ];
+};
 
-    // Пробуем взять из env переменных (для fallback)
-    return {
-      clientId: process.env.NEXT_PUBLIC_OZON_CLIENT_ID || '',
-      apiKey: process.env.NEXT_PUBLIC_OZON_API_KEY || ''
+export class OzonApiService {
+  constructor(apiKey, clientId) {
+    this.baseUrl = 'https://api-seller.ozon.ru';
+    this.headers = {
+      'Client-Id': clientId,
+      'Api-Key': apiKey,
+      'Content-Type': 'application/json'
     };
   }
 
-  async makeRequest(endpoint, body = {}) {
-    console.log(`🔄 Making request to: ${endpoint}`);
-    console.log('📦 Request body:', JSON.stringify(body, null, 2));
+  async request(endpoint, body) {
+    const response = await fetch(`${this.baseUrl}${endpoint}`, {
+      method: 'POST',
+      headers: this.headers,
+      body: JSON.stringify(body)
+    });
 
-    try {
-      const response = await fetch(`${this.baseURL}${endpoint}`, {
-        method: 'POST',
-        headers: {
-          'Client-Id': this.clientId,
-          'Api-Key': this.apiKey,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(body),
-      });
-
-      console.log(`📊 Response status: ${response.status}`);
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`❌ API Error ${response.status}:`, errorText);
-        throw new Error(`OZON API Error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      console.log('✅ Request successful');
-      return data;
-    } catch (error) {
-      console.error('❌ Fetch error:', error.message);
+    const data = await response.json();
+    if (!response.ok) {
+      const error = new Error(data?.message || `OZON API error: ${response.status}`);
+      error.status = response.status;
+      error.data = data;
       throw error;
     }
+    return data;
   }
 
-  // Метод для получения заказов (если нужен)
-  async getOrders() {
-    return this.makeRequest('/v2/order/list', {
-      filter: {},
-      limit: 10,
-      sort_by: 'created_at',
-      sort_order: 'desc'
-    });
+  async getProducts({ limit = 20, last_id = '', filter = {} } = {}) {
+    const body = { limit, last_id, filter };
+    return this.request('/v3/product/list', body);
+  }
+
+  async getAttributes(offer_id) {
+    return this.request('/v3/products/info/attributes', { offer_id: [offer_id] });
   }
 
   async getProductAttributes(offerId) {
-    const body = {
-      filter: {
-        offer_id: [offerId] // Массив с одним offer_id
-      },
+    const ids = Array.isArray(offerId) ? offerId : [offerId];
+    return this.request('/v4/product/info/attributes', {
+      filter: { offer_id: ids },
       limit: 1
-    };
+    });
+  }
 
-    console.log('📋 Fetching attributes for offer:', offerId);
-    return this.makeRequest('/v4/product/info/attributes', body);
+  async getDescriptionCategoryAttributes(descriptionCategoryId, typeId, language = 'DEFAULT') {
+    if (!descriptionCategoryId || !typeId) {
+      throw new Error('descriptionCategoryId и typeId обязательны для запроса характеристик категории');
+    }
+
+    const cacheKey = buildDescriptionAttributeCacheKey(descriptionCategoryId, typeId, language);
+    const cached = descriptionCategoryAttributeCache.get(cacheKey);
+
+    if (cached) {
+      if (cached.expiresAt > Date.now()) {
+        return cached.data;
+      }
+      descriptionCategoryAttributeCache.delete(cacheKey);
+    }
+
+    const data = await this.request('/v1/description-category/attribute', {
+      description_category_id: descriptionCategoryId,
+      language,
+      type_id: typeId
+    });
+
+    descriptionCategoryAttributeCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + DESCRIPTION_ATTRIBUTE_CACHE_TTL
+    });
+
+    return data;
+  }
+
+  async getWarehouses() {
+    return this.request('/v1/warehouse/list', {});
   }
 
   async copyProduct(sourceOfferId, newOfferId, modifications = {}) {
-    console.log(`📋 Copying product from ${sourceOfferId} to ${newOfferId}`);
-
-    try {
-      // 1. Получаем данные исходного товара
-      const sourceAttributes = await this.getProductAttributes(sourceOfferId);
-
-      if (!sourceAttributes.result || sourceAttributes.result.length === 0) {
-        throw new Error('Source product not found');
-      }
-
-      const sourceProduct = sourceAttributes.result[0];
-
-      // 2. Подготавливаем данные для нового товара
-      const newProductData = this.prepareProductData(sourceProduct, newOfferId, modifications);
-
-      // 3. Создаем новый товар
-      return await this.createProduct(newProductData);
-    } catch (error) {
-      console.error('Error copying product:', error);
-      throw error;
-    }
-  }
-
-  async createProduct(productData) {
     const body = {
-      items: [productData]
+      source_offer_id: sourceOfferId,
+      new_offer_id: newOfferId,
+      modifications
     };
-
-    console.log('🆕 Creating new product:', JSON.stringify(body, null, 2));
-    return this.makeRequest('/v3/product/import', body);
+    return this.request('/v3/product/import', body);
   }
 
-  prepareProductData(sourceProduct, newOfferId, modifications) {
-    // Базовые данные из исходного товара
-    const newProduct = {
-      offer_id: newOfferId,
-      name: modifications.name || sourceProduct.name,
-      category_id: sourceProduct.description_category_id,
-      price: modifications.price || "0",
-      old_price: modifications.old_price || "0",
-      premium_price: modifications.premium_price || "0",
-      vat: "0"
-    };
-
-    // Обрабатываем атрибуты
-    if (sourceProduct.attributes) {
-      newProduct.attributes = this.processAttributes(
-        sourceProduct.attributes,
-        modifications
-      );
+  normalizeAttributeUpdateItems(items) {
+    if (!Array.isArray(items) || items.length === 0) {
+      throw new Error('Не переданы товары для обновления');
     }
 
-    // Обрабатываем изображения
-    if (sourceProduct.images && sourceProduct.images.length > 0) {
-      newProduct.images = sourceProduct.images.map((image, index) => ({
-        file_name: image,
-        default: index === 0
-      }));
-    }
+    const normalizedItems = items
+      .map((item) => {
+        const offerId = item.offer_id || item.offerId;
+        const prepared = {
+          ...item,
+          offer_id: offerId ? String(offerId) : undefined
+        };
 
-    // Добавляем размеры и вес, если есть
-    if (sourceProduct.depth) newProduct.depth = sourceProduct.depth;
-    if (sourceProduct.height) newProduct.height = sourceProduct.height;
-    if (sourceProduct.width) newProduct.width = sourceProduct.width;
-    if (sourceProduct.weight) newProduct.weight = sourceProduct.weight;
-    if (sourceProduct.dimension_unit) newProduct.dimension_unit = sourceProduct.dimension_unit;
-    if (sourceProduct.weight_unit) newProduct.weight_unit = sourceProduct.weight_unit;
+        const typeId = Number(item.type_id ?? item.typeId);
+        if (Number.isFinite(typeId) && typeId > 0) {
+          prepared.type_id = typeId;
+        } else {
+          delete prepared.type_id;
+          delete prepared.typeId;
+        }
 
-    // Применяем дополнительные модификации
-    Object.keys(modifications).forEach(key => {
-      if (!['name', 'price', 'old_price', 'premium_price'].includes(key)) {
-        newProduct[key] = modifications[key];
-      }
-    });
+        if (Array.isArray(item.attributes)) {
+          prepared.attributes = item.attributes
+            .map((attr) => {
+              const id = Number(attr?.id ?? attr?.attribute_id);
+              if (!id) return null;
 
-    return newProduct;
-  }
+              const values = (attr.values || [])
+                .map((valueEntry) => {
+                  const raw =
+                    valueEntry?.value ??
+                    valueEntry?.text ??
+                    valueEntry?.value_text ??
+                    valueEntry;
+                  if (raw === undefined || raw === null) return null;
+                  const str = String(raw).trim();
+                  if (!str) return null;
+                  return { value: str };
+                })
+                .filter(Boolean);
 
-  processAttributes(attributes, modifications) {
-    return attributes.map(attr => {
-      const attributeCopy = { ...attr };
+              if (!values.length) return null;
 
-      // Применяем модификации к определенным атрибутам
-      if (modifications.color && this.isColorAttribute(attr)) {
-        attributeCopy.values = [{ value: modifications.color }];
-      }
+              if (id === HASHTAG_ATTRIBUTE_ID) {
+                const normalizedHashtags = normalizeHashtagAttributeValues(values);
+                if (!normalizedHashtags.length) return null;
+                return {
+                  id,
+                  values: normalizedHashtags
+                };
+              }
 
-      if (modifications.description && this.isDescriptionAttribute(attr)) {
-        attributeCopy.values = [{ value: modifications.description }];
-      }
+              return {
+                id,
+                values
+              };
+            })
+            .filter(Boolean);
+          if (!prepared.attributes.length) {
+            delete prepared.attributes;
+          }
+        }
 
-      // Добавьте другие обработки атрибутов по необходимости
+        REQUIRED_BASE_FIELDS.forEach((field) => {
+          if (hasValue(item[field])) {
+            prepared[field] = String(item[field]);
+          }
+        });
 
-      return attributeCopy;
-    });
-  }
+        const missingBaseFields = REQUIRED_BASE_FIELDS.filter((field) => {
+          const value = prepared[field];
+          if (!hasValue(value)) return true;
+          if (NUMERIC_BASE_FIELDS.includes(field)) {
+            const numeric = Number(value);
+            return !Number.isFinite(numeric) || numeric <= 0;
+          }
+          return false;
+        });
 
-  isColorAttribute(attr) {
-    // Определяем, является ли атрибут цветом (зависит от вашей структуры атрибутов)
-    const colorKeywords = ['color', 'цвет', 'colore', 'farbe'];
-    return colorKeywords.some(keyword =>
-      attr.id.toString().toLowerCase().includes(keyword) ||
-      (attr.values && attr.values.some(v =>
-        v.value && v.value.toLowerCase().includes(keyword)
-      ))
-    );
-  }
+        if (missingBaseFields.length) {
+          throw new Error(
+            `Товар ${prepared.offer_id || 'без offer_id'}: заполните поля ${missingBaseFields.join(', ')}`
+          );
+        }
 
-  isDescriptionAttribute(attr) {
-    // Определяем, является ли атрибут описанием
-    const descriptionKeywords = ['description', 'описание', 'beschreibung'];
-    return descriptionKeywords.some(keyword =>
-      attr.id.toString().toLowerCase().includes(keyword)
-    );
-  }
-  // Упрощенный метод для быстрого получения продуктов
-  // В методе, который делает запрос к /v3/product/list
-  async getSimpleProducts(options = {}) {
-    try {
-      const url = `${this.baseURL}/v3/product/list`;
-      const body = {
-        filter: {
-          offer_id: options.filter?.offer_id || [], // Should be an array
-          product_id: options.filter?.product_ids || [],
-          visibility: options.filter?.visibility || "ALL"
-        },
-        last_id: options.last_id || "",
-        limit: options.limit || 100
-      };
-
-      console.log('🚀 Sending request to OZON API...');
-
-      const response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Client-Id': this.clientId,
-          'Api-Key': this.apiKey,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify(body)
+        return prepared;
+      })
+      .filter((item) => {
+        const hasAttributes = Array.isArray(item.attributes) && item.attributes.length > 0;
+        const hasBaseFields = REQUIRED_BASE_FIELDS.every((field) => hasValue(item[field]));
+        return item.offer_id && (hasAttributes || hasBaseFields);
       });
 
-      const responseText = await response.text();
-
-      if (!response.ok) {
-        throw new Error(`OZON API error: ${response.status} - ${responseText}`);
-      }
-
-      // Парсим JSON
-      const data = JSON.parse(responseText);
-
-      if (data.result && data.result.items && Array.isArray(data.result.items)) {
-        console.log(`✅ Extracted ${data.result.items.length} products from result.items`);
-        return data.result.items; // <- Возвращаем массив продуктов
-      } else {
-        console.warn('⚠️ Unexpected response structure, returning empty array');
-        return [];
-      }
-
-    } catch (error) {
-      console.error('❌ OZON API request failed:', error);
-      throw error;
+    if (!normalizedItems.length) {
+      throw new Error('Нет атрибутов для обновления');
     }
+
+    return normalizedItems;
   }
 
-  // НОВЫЙ МЕТОД: Получение списка продуктов
-  async getProducts(options = {}) {
-    const body = {
-      filter: {
-        offer_id: options.filter?.offer_id || [], // Should be an array
-        product_id: options.filter?.product_ids || [],
-        visibility: options.filter?.visibility || "ALL"
-      },
-      last_id: options.last_id || "",
-      limit: options.limit || 100
-    };
-    console.log('Sending request body to OZON:', JSON.stringify(body, null, 2));
-    return this.makeRequest('/v3/product/list', body);
+  async getAttributeDictionaryValues({
+    attribute_id,
+    description_category_id,
+    type_id,
+    language = 'DEFAULT',
+    last_value_id = 0,
+    limit = 100
+  }) {
+    if (!attribute_id || !description_category_id || !type_id) {
+      throw new Error('attribute_id, description_category_id и type_id обязательны для запроса справочника атрибутов');
+    }
+
+    const cacheKey = buildAttributeDictionaryCacheKey(
+      attribute_id,
+      description_category_id,
+      type_id,
+      language,
+      last_value_id,
+      limit
+    );
+
+    const cached = attributeDictionaryCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const data = await this.request('/v1/description-category/attribute/values', {
+      attribute_id,
+      description_category_id,
+      language,
+      last_value_id,
+      limit,
+      type_id
+    });
+
+    attributeDictionaryCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + ATTRIBUTE_DICTIONARY_CACHE_TTL
+    });
+
+    return data;
   }
 
-  // Метод для массового создания товаров
-  async createProductsBatch(products) {
-    const body = {
-      items: products
-    };
+  async searchAttributeDictionaryValues({
+    attribute_id,
+    description_category_id,
+    type_id,
+    language = 'DEFAULT',
+    value = '',
+    limit = 100
+  }) {
+    if (!attribute_id || !description_category_id || !type_id || !value) {
+      throw new Error('attribute_id, description_category_id, type_id и value обязательны для поиска в справочнике атрибутов');
+    }
 
-    console.log('🆕 Creating products batch:', JSON.stringify(body, null, 2));
-    return this.makeRequest('/v2/product/import', body);
+    const cacheKey = buildAttributeDictionarySearchKey(
+      attribute_id,
+      description_category_id,
+      type_id,
+      language,
+      value,
+      limit
+    );
+
+    const cached = attributeDictionarySearchCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.data;
+    }
+
+    const data = await this.request('/v1/description-category/attribute/values/search', {
+      attribute_id,
+      description_category_id,
+      language,
+      limit,
+      type_id,
+      value
+    });
+
+    attributeDictionarySearchCache.set(cacheKey, {
+      data,
+      expiresAt: Date.now() + ATTRIBUTE_DICTIONARY_CACHE_TTL
+    });
+
+    return data;
   }
 
-  // Метод для создания одного товара
-  async createProduct(productData) {
-    const body = {
-      items: [productData]
-    };
 
-    console.log('🆕 Creating product:', JSON.stringify(body, null, 2));
-    return this.makeRequest('/v2/product/import', body);
+  // Метод для парсинга Excel файла
+  async parseExcelFile(file) {
+    const ExcelJS = require('exceljs');
+    const workbook = new ExcelJS.Workbook();
+    await workbook.xlsx.load(file); // 'file' should be a Buffer
+
+    const worksheet = workbook.worksheets[0]; // Get first sheet
+    const jsonData = [];
+
+    // Process rows. Note: ExcelJS rows are 1-indexed.
+    worksheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // Skip header row if your file has one
+
+      // Access cell values by column number (1-indexed)
+      const processedRow = {
+        index: rowNumber - 1, // Adjust for zero-based index
+        colourCode: row.getCell(2).value?.toString(), // Assuming Colour Code is col A
+        colourName: row.getCell(3).value?.toString(), // Assuming Colour Name is col B
+        carBrand: row.getCell(5).value?.toString(),   // Assuming Car Brand is col C
+        rawData: row.values // Gets all values as an array
+      };
+
+      // Only push rows that have data
+      if (processedRow.colourCode) {
+        jsonData.push(processedRow);
+      }
+    });
+
+    return jsonData;
+  }
+
+  findColumnValue(row, possibleColumnNames) {
+    for (const colName of possibleColumnNames) {
+      if (row[colName] !== undefined) {
+        return row[colName];
+      }
+    }
+    return '';
   }
 
   // Вспомогательный метод для формирования данных товара
@@ -359,44 +470,123 @@ export class OzonApiService {
     console.log(`Final value for ${fieldKey}: ${value}`);
     return value;
   }
+  // Метод для массового создания товаров
+  async createProductsBatch(items) {
+    if (!Array.isArray(items)) {
+      throw new Error('Для импорта требуется массив товаров');
+    }
 
-  // Метод для парсинга Excel файла
-  async parseExcelFile(file) {
-    const ExcelJS = require('exceljs');
-    const workbook = new ExcelJS.Workbook();
-    await workbook.xlsx.load(file); // 'file' should be a Buffer
+    const body = {
+      items
+    };
 
-    const worksheet = workbook.worksheets[0]; // Get first sheet
-    const jsonData = [];
-
-    // Process rows. Note: ExcelJS rows are 1-indexed.
-    worksheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // Skip header row if your file has one
-
-      // Access cell values by column number (1-indexed)
-      const processedRow = {
-        index: rowNumber - 1, // Adjust for zero-based index
-        colourCode: row.getCell(2).value?.toString(), // Assuming Colour Code is col A
-        colourName: row.getCell(3).value?.toString(), // Assuming Colour Name is col B
-        carBrand: row.getCell(5).value?.toString(),   // Assuming Car Brand is col C
-        rawData: row.values // Gets all values as an array
-      };
-
-      // Only push rows that have data
-      if (processedRow.colourCode) {
-        jsonData.push(processedRow);
-      }
-    });
-
-    return jsonData;
+    console.log('🆕 Creating products batch:', JSON.stringify(body, null, 2));
+    return this.request('/v3/product/import', body);
   }
 
-  findColumnValue(row, possibleColumnNames) {
-    for (const colName of possibleColumnNames) {
-      if (row[colName] !== undefined) {
-        return row[colName];
-      }
+  async updateProductAttributes(items) {
+    const normalizedItems = this.normalizeAttributeUpdateItems(items);
+    return this.request('/v1/product/attributes/update', {
+      items: normalizedItems
+    });
+  }
+
+  async importProductAttributes(items) {
+    const normalizedItems = this.normalizeAttributeUpdateItems(items);
+    return this.createProductsBatch(normalizedItems);
+  }
+
+  async getProductImportStatus(taskId) {
+    if (!taskId) {
+      throw new Error('Не передан task_id');
     }
-    return '';
+
+    const response = await this.request('/v1/product/import/info', {
+      task_id: String(taskId)
+    });
+
+    if (!response?.result) {
+      return { result: response };
+    }
+
+    return response;
+  }
+
+  async getProductInfoList(offerIds = []) {
+    const ids = Array.isArray(offerIds)
+      ? offerIds.filter(Boolean).map((id) => String(id))
+      : [];
+
+    if (!ids.length) {
+      throw new Error('Не переданы offer_id для проверки статуса товара');
+    }
+
+    return this.request('/v3/product/info/list', {
+      offer_id: ids
+    });
+  }
+
+  async generateBarcodes(productIds = []) {
+    const ids = Array.isArray(productIds)
+      ? productIds
+          .filter((id) => id !== undefined && id !== null && id !== '')
+          .map((id) => String(id))
+      : [];
+
+    if (!ids.length) {
+      throw new Error('Не переданы product_ids для генерации штрихкодов');
+    }
+
+    return this.request('/v1/barcode/generate', {
+      product_ids: ids
+    });
+  }
+
+  async updateProductStocks(stocks = []) {
+    if (!Array.isArray(stocks) || !stocks.length) {
+      throw new Error('Не переданы остатки для обновления');
+    }
+
+    const normalizedStocks = stocks
+      .map((entry) => {
+        const offerId = entry?.offer_id ?? entry?.offerId ?? '';
+        const productNumeric = Number(entry?.product_id ?? entry?.productId);
+        const stockNumeric = Number(entry?.stock);
+        const warehouseNumeric = Number(entry?.warehouse_id ?? entry?.warehouseId);
+
+        if (!Number.isFinite(stockNumeric) || stockNumeric < 0) {
+          return null;
+        }
+        if (!Number.isFinite(warehouseNumeric) || warehouseNumeric <= 0) {
+          return null;
+        }
+
+        const payload = {
+          stock: stockNumeric,
+          warehouse_id: warehouseNumeric
+        };
+
+        if (offerId) {
+          payload.offer_id = String(offerId);
+        }
+        if (Number.isFinite(productNumeric) && productNumeric > 0) {
+          payload.product_id = productNumeric;
+        }
+
+        if (!payload.offer_id && payload.product_id === undefined) {
+          return null;
+        }
+
+        return payload;
+      })
+      .filter(Boolean);
+
+    if (!normalizedStocks.length) {
+      throw new Error('Нет валидных записей для обновления остатков');
+    }
+
+    return this.request('/v2/products/stocks', {
+      stocks: normalizedStocks
+    });
   }
 }

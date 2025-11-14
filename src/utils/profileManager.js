@@ -1,61 +1,42 @@
-export class ProfileManager {
-  static getProfiles() {
-    if (typeof window === 'undefined') return [];
-    return JSON.parse(localStorage.getItem('ozonProfiles') || '[]');
-  }
+const STORAGE_KEY = 'currentProfileMeta';
 
+export class ProfileManager {
   static getCurrentProfile() {
+    if (typeof window === 'undefined') return null;
     try {
-      const profile = localStorage.getItem('currentProfile');
-      return profile ? JSON.parse(profile) : null;
+      const stored = window.localStorage.getItem(STORAGE_KEY);
+      return stored ? JSON.parse(stored) : null;
     } catch (error) {
-      console.error('Error getting current profile:', error);
+      console.error('[ProfileManager] Failed to read profile', error);
       return null;
     }
   }
 
-  static saveProfiles(profiles) {
-    if (typeof window === 'undefined') return;
-    localStorage.setItem('ozonProfiles', JSON.stringify(profiles));
-  }
-
   static setCurrentProfile(profile) {
+    if (typeof window === 'undefined') return;
     try {
       if (profile) {
-        localStorage.setItem('currentProfile', JSON.stringify(profile));
+        const payload = {
+          id: profile.id,
+          name: profile.name,
+          client_hint: profile.client_hint || '',
+          description: profile.description || ''
+        };
+        window.localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
       } else {
-        localStorage.removeItem('currentProfile');
+        window.localStorage.removeItem(STORAGE_KEY);
       }
     } catch (error) {
-      console.error('Error setting current profile:', error);
+      console.error('[ProfileManager] Failed to persist profile', error);
     }
   }
 
-  static exportProfiles() {
-    const profiles = this.getProfiles();
-    const dataStr = JSON.stringify(profiles, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    
-    const link = document.createElement('a');
-    link.href = URL.createObjectURL(dataBlob);
-    link.download = 'ozon-profiles-backup.json';
-    link.click();
-  }
-
-  static importProfiles(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = (e) => {
-        try {
-          const profiles = JSON.parse(e.target.result);
-          this.saveProfiles(profiles);
-          resolve(profiles);
-        } catch (error) {
-          reject(new Error('Invalid file format'));
-        }
-      };
-      reader.onerror = () => reject(new Error('Failed to read file'));
-      reader.readAsText(file);
-    });
+  static clearProfile() {
+    if (typeof window === 'undefined') return;
+    try {
+      window.localStorage.removeItem(STORAGE_KEY);
+    } catch (error) {
+      console.error('[ProfileManager] Failed to clear profile', error);
+    }
   }
 }

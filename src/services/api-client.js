@@ -1,92 +1,51 @@
-class ApiClient {
-  constructor() {
-    this.baseURL = '/api';
+// src/services/api-client.js
+const getProfileId = (profile) => {
+  if (!profile || !profile.id) {
+    throw new Error('Не выбран профиль OZON');
   }
+  return profile.id;
+};
 
-  async request(endpoint, options = {}) {
-    const url = `${this.baseURL}${endpoint}`;
-    
-    const config = {
-      headers: {
-        'Content-Type': 'application/json',
-        ...options.headers,
-      },
-      ...options,
-    };
-    console.log(`✅ request options: ${options}`);  
-    if (config.body && typeof config.body === 'object') {
-      config.body = JSON.stringify(config.body);
+export const apiClient = {
+  async getProducts(limit = 20, profile, params = {}) {
+    const query = new URLSearchParams();
+
+    query.append('limit', params.limit || limit);
+    if (params.last_id) query.append('last_id', params.last_id);
+    if (params.offer_id) query.append('offer_id', params.offer_id);
+    query.append('profileId', getProfileId(profile));
+
+    const response = await fetch(`/api/products?${query.toString()}`);
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`Failed to fetch products: ${text}`);
     }
+    return response.json();
+  },
 
-    try {
-      const response = await fetch(url, config);
-      
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API Error: ${response.status} - ${errorText}`);
-      }
-
-      return await response.json();
-    } catch (error) {
-      console.error(`API Request failed for ${url}:`, error);
-      throw error;
+  async getAttributes(offer_id, profile = null) {
+    if (!profile) {
+      throw new Error('Не выбран профиль OZON');
     }
-  }
+    const query = new URLSearchParams({ offer_id, profileId: getProfileId(profile) });
 
-  // Метод для продуктов с поддержкой профиля
-  async getProducts(limit = 20, profile = null) {
-    const params = new URLSearchParams({ limit: limit.toString() });
-    
-    if (profile) {
-      params.append('profile', encodeURIComponent(JSON.stringify(profile)));
-    }
-    console.log(`✅ getProducts params: ${params}`);
-    return this.request(`/products?${params}`);
-  }
+    const res = await fetch(`/api/products/attributes?${query.toString()}`);
+    if (!res.ok) throw new Error('Failed to fetch attributes');
+    return res.json();
+  },
 
-  // Метод для импорта товаров
-  async importProducts(products, profile) {
-    return this.request('/import-products', {
+  async copyProduct(sourceOfferId, newOfferId, modifications, profile) {
+    const res = await fetch('/api/products/copy', {
       method: 'POST',
-      body: {
-        products,
-        profile
-      }
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sourceOfferId,
+        newOfferId,
+        modifications,
+        profileId: getProfileId(profile)
+      })
     });
+    if (!res.ok) throw new Error('Failed to copy product');
+    return res.json();
   }
-
-  // Метод для массового импорта (батчами)
-  async importProductsBatch(batches, profile, onProgress = null) {
-    const results = [];
-    
-    for (let i = 0; i < batches.length; i++) {
-      try {
-        const result = await this.request('/import-products', {
-          method: 'POST',
-          body: {
-            products: batches[i],
-            profile
-          }
-        });
-        
-        results.push(result);
-        
-        if (onProgress) {
-          onProgress(i + 1, batches.length);
-        }
-        
-        // Задержка между батчами
-        if (i < batches.length - 1) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
-        }
-      } catch (error) {
-        console.error(`Batch ${i} failed:`, error);
-        throw error;
-      }
-    }
-    
-    return results;
-  }
-}
-
-export const apiClient = new ApiClient();
+};

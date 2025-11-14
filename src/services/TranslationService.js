@@ -29,8 +29,11 @@ class TranslationService {
                 throw new Error('Failed to load translation tables');
             }
 
-            this.colorTranslations = await colorResponse.json();
-            this.brandTranslations = await brandResponse.json();
+            const colorsRaw = await colorResponse.json();
+            const brandsRaw = await brandResponse.json();
+
+            this.colorTranslations = this.normalizeDictionaryKeys(colorsRaw);
+            this.brandTranslations = this.normalizeDictionaryKeys(brandsRaw);
             this.isLoaded = true;
             
             console.log('Translation tables loaded successfully');
@@ -43,17 +46,27 @@ class TranslationService {
 
     // Fallback на случай если файлы не загрузятся
     loadFallbackTranslations() {
-        this.colorTranslations = {
+        this.colorTranslations = this.normalizeDictionaryKeys({
             'red': 'Красный',
             'blue': 'Синий',
             'green': 'Зеленый'
-        };
-        this.brandTranslations = {
+        });
+        this.brandTranslations = this.normalizeDictionaryKeys({
             'fiat': 'Фиат',
             'toyota': 'Тойота',
             'bmw': 'БМВ'
-        };
+        });
         this.isLoaded = true;
+    }
+
+    normalizeDictionaryKeys(dictionary = {}) {
+        const normalized = {};
+        Object.entries(dictionary || {}).forEach(([key, value]) => {
+            if (typeof key !== 'string') return;
+            const normalizedKey = key.toLowerCase();
+            normalized[normalizedKey] = value;
+        });
+        return normalized;
     }
 
     // Поиск цвета с проверкой загрузки
