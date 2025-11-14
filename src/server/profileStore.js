@@ -1,3 +1,5 @@
+const { OZON_PROFILES, OZON_CLIENT_ID, OZON_API_KEY } = process.env;
+
 const parseJsonEnv = (value, fallback = []) => {
   if (!value) return fallback;
   try {
@@ -30,8 +32,8 @@ const normalizeProfiles = (rawProfiles = []) => {
 };
 
 const buildFallbackProfiles = () => {
-  const clientId = process.env.OZON_CLIENT_ID;
-  const apiKey = process.env.OZON_API_KEY;
+  const clientId = OZON_CLIENT_ID;
+  const apiKey = OZON_API_KEY;
   if (!clientId || !apiKey) {
     return [];
   }
@@ -48,7 +50,7 @@ const buildFallbackProfiles = () => {
 };
 
 const cachedProfiles = (() => {
-  const configured = normalizeProfiles(parseJsonEnv(process.env.OZON_PROFILES, []));
+  const configured = normalizeProfiles(parseJsonEnv(OZON_PROFILES, []));
   if (configured.length > 0) return configured;
   return normalizeProfiles(buildFallbackProfiles());
 })();
