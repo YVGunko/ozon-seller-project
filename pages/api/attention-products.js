@@ -1,4 +1,5 @@
 import { OzonApiService } from '../../src/services/ozon-api';
+import { resolveProfileFromRequest } from '../../src/server/profileResolver';
 
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 1000;
@@ -104,22 +105,12 @@ export default async function handler(req, res) {
 
   try {
     const {
-      profile,
       filters = {},
       limit = DEFAULT_LIMIT,
       maxPages = DEFAULT_MAX_PAGES
     } = req.body || {};
 
-    if (!profile) {
-      return res.status(400).json({ error: 'Missing OZON profile' });
-    }
-
-    const { ozon_client_id, ozon_api_key } = profile;
-    if (!ozon_client_id || !ozon_api_key) {
-      return res
-        .status(400)
-        .json({ error: 'Profile must include ozon_client_id and ozon_api_key' });
-    }
+    const { profile } = await resolveProfileFromRequest(req, res);
 
     const requestLimit = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT));
     const pagesLimit = Math.max(
@@ -127,7 +118,7 @@ export default async function handler(req, res) {
       Math.min(Number(maxPages) || DEFAULT_MAX_PAGES, HARD_MAX_PAGES)
     );
 
-    const ozon = new OzonApiService(ozon_api_key, ozon_client_id);
+    const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
     let lastId = '';
     let page = 0;

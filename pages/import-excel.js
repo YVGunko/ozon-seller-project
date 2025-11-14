@@ -1777,10 +1777,7 @@ const [baseProductData, setBaseProductData] = useState({
         mandatorySnapshot
       });
 
-      const service = new OzonApiService(
-        currentProfile.ozon_api_key,
-        currentProfile.ozon_client_id
-      );
+      const service = new OzonProxyService(currentProfile);
       console.log('[ImportExcel] Sending single item to OZON', item);
       const response = await service.createProductsBatch([item]);
       console.log('[ImportExcel] createProductsBatch response', response);
@@ -2031,7 +2028,7 @@ const [baseProductData, setBaseProductData] = useState({
       try {
         const params = new URLSearchParams({
           offer_id: trimmedOffer,
-          profile: encodeURIComponent(JSON.stringify(currentProfile))
+          profileId: currentProfile.id
         });
         const infoResponse = await fetch(`/api/products/info-list?${params.toString()}`);
         console.log('[ImportExcel] info-list status', infoResponse.status);
@@ -2263,10 +2260,7 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
     const batchInfos = [];
 
     try {
-      const service = new OzonApiService(
-        currentProfile.ozon_api_key,
-        currentProfile.ozon_client_id
-      );
+        const service = new OzonProxyService(currentProfile);
 
       const preparedItems = [];
       const skippedRows = [];
@@ -2463,7 +2457,7 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
               ✅ {currentProfile.name}
             </div>
             <div style={{ fontSize: '12px' }}>
-              Client ID: {currentProfile.ozon_client_id?.slice(0, 8)}...
+              Client ID: {currentProfile?.client_hint || '—'}
             </div>
           </div>
         ) : (

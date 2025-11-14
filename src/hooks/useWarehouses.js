@@ -2,8 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { WarehouseManager, WarehouseStatusMap } from '../utils/warehouseManager';
 
 const buildProfileQuery = (profile) => {
-  if (!profile) return '';
-  return encodeURIComponent(JSON.stringify(profile));
+  if (!profile || !profile.id) return '';
+  return String(profile.id);
 };
 
 const getStatusLabel = (status) => {
@@ -45,7 +45,7 @@ export const useWarehouses = (profile) => {
     setError('');
     try {
       const profileQuery = buildProfileQuery(profile);
-      const query = profileQuery ? `?profile=${profileQuery}` : '';
+      const query = profileQuery ? `?profileId=${encodeURIComponent(profileQuery)}` : '';
       const response = await fetch(`/api/warehouses${query}`);
       if (!response.ok) {
         const text = await response.text();

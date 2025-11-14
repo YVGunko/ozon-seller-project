@@ -1,23 +1,17 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
+import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
 
 export default async function handler(req, res) {
   try {
     if (req.method !== 'POST') return res.status(405).json({ error: 'Method not allowed' });
 
-    const { source_offer_id, new_offer_id, modifications = {}, profile } = req.body || {};
+    const { source_offer_id, new_offer_id, modifications = {} } = req.body || {};
     if (!source_offer_id || !new_offer_id) {
       return res.status(400).json({ error: 'source_offer_id and new_offer_id required' });
     }
-    if (!profile) return res.status(400).json({ error: 'profile required' });
 
-    let parsedProfile = profile;
-    if (typeof profile === 'string') {
-      try { parsedProfile = JSON.parse(decodeURIComponent(profile)); } catch {}
-    }
-    const { ozon_client_id, ozon_api_key } = parsedProfile || {};
-    if (!ozon_client_id || !ozon_api_key) {
-      return res.status(400).json({ error: 'Profile must include credentials' });
-    }
+    const { profile } = await resolveProfileFromRequest(req, res);
+    const { ozon_client_id, ozon_api_key } = profile;
 
     const service = new OzonApiService(ozon_api_key, ozon_client_id);
     const result = await service.copyProduct(source_offer_id, new_offer_id, modifications);

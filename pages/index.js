@@ -3,8 +3,10 @@ import Link from 'next/link';
 import UserProfiles from '../src/components/UserProfiles';
 import { ProfileManager } from '../src/utils/profileManager';
 import { useWarehouses } from '../src/hooks/useWarehouses';
+import { signOut, useSession } from 'next-auth/react';
 
 export default function Home() {
+  const { data: session } = useSession();
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeTab, setActiveTab] = useState('products');
@@ -37,7 +39,15 @@ export default function Home() {
   const fetchProducts = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/products?limit=5');
+      if (!currentProfile) {
+        alert('Сначала выберите профиль');
+        return;
+      }
+      const query = new URLSearchParams({
+        limit: '5',
+        profileId: currentProfile.id
+      });
+      const response = await fetch(`/api/products?${query.toString()}`);
       const data = await response.json();
       setProducts(data.result?.items || []);
     } catch (error) {
@@ -50,7 +60,11 @@ export default function Home() {
   const fetchOrders = async () => {
     setLoading(true);
     try {
-      const response = await fetch('/api/orders');
+      if (!currentProfile) {
+        alert('Сначала выберите профиль');
+        return;
+      }
+      const response = await fetch(`/api/orders?profileId=${encodeURIComponent(currentProfile.id)}`);
       const data = await response.json();
       console.log('Orders:', data);
       // Обработка заказов
@@ -112,7 +126,7 @@ export default function Home() {
               <span style={{ fontWeight: 'bold', color: '#28a745' }}>✅ Активный профиль:</span>
               <span style={{ marginLeft: '10px' }}><strong>{currentProfile.name}</strong></span>
               <div style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                Client ID: {currentProfile.ozon_client_id?.slice(0, 10)}...
+                Client ID: {currentProfile?.client_hint || '—'}
               </div>
             </div>
           ) : (
@@ -121,21 +135,45 @@ export default function Home() {
             </div>
           )}
         </div>
-        
-        <button
-          onClick={() => setShowProfilesModal(true)}
-          style={{
-            padding: '10px 20px',
-            backgroundColor: '#0070f3',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-            fontSize: '14px'
-          }}
-        >
-          Управление профилями
-        </button>
+        {session?.user && (
+          <div style={{ fontSize: '12px', color: '#6c757d', marginTop: '8px' }}>
+            Вошли как: {session.user.name || session.user.id}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={() => setShowProfilesModal(true)}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#0070f3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            Управление профилями
+          </button>
+          <button
+            onClick={() => {
+              ProfileManager.clearProfile();
+              signOut({ callbackUrl: '/auth/signin' });
+            }}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#dc3545',
+              color: 'white',
+              border: 'none',
+              borderRadius: '4px',
+              cursor: 'pointer',
+              fontSize: '14px'
+            }}
+          >
+            Выйти
+          </button>
+        </div>
       </div>
 
       {currentProfile && (
@@ -205,101 +243,95 @@ export default function Home() {
       )}
 
       <div style={{ marginBottom: '20px' }}>
-        <Link href="/import-excel" passHref>
-          <div style={{
-            display: 'inline-block',
-            padding: '12px 24px',
-            backgroundColor: '#28a745',
+        <button
+          onClick={() => setActiveTab('products')}
+          style={{
+            marginRight: '10px',
+            padding: '10px 15px',
+            backgroundColor: activeTab === 'products' ? '#0070f3' : '#ccc',
             color: 'white',
-            textDecoration: 'none',
-            borderRadius: '4px',
-            fontWeight: 'bold',
-            marginRight: '10px'
-          }}>
-            📊 Импорт из Excel
-          </div>
-        </Link>
-        <Link href="/products" passHref>
-          <div style={{
-            display: 'inline-block',
-            padding: '12px 24px',
-            backgroundColor: '#17a2b8',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer'
+          }}
+        >
+          Товары
+        </button>
+        <button
+          onClick={() => setActiveTab('orders')}
+          style={{
+            padding: '10px 15px',
+            backgroundColor: activeTab === 'orders' ? '#0070f3' : '#ccc',
             color: 'white',
-            textDecoration: 'none',
-            borderRadius: '4px',
-            fontWeight: 'bold',
-            marginRight: '10px'
-          }}>
-            📦 Управление товарами
-          </div>
-        </Link>
-        <Link href="/attention" passHref>
-          <div style={{
-            display: 'inline-block',
-            padding: '12px 24px',
-            backgroundColor: '#ffc107',
-            color: '#212529',
-            textDecoration: 'none',
-            borderRadius: '4px',
-            fontWeight: 'bold'
-          }}>
-            ⚠️ Товары без внимания
-          </div>
-        </Link>
-        
-        <div style={{ marginTop: '15px' }}>
-          <button
-            onClick={() => setActiveTab('products')}
-            style={{ 
-              marginRight: '10px', 
-              padding: '10px 15px', 
-              backgroundColor: activeTab === 'products' ? '#0070f3' : '#ccc', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '5px',
-              cursor: 'pointer'
-            }}
-          >
-            Products
-          </button>
-          <button
-            onClick={() => setActiveTab('orders')}
-            style={{ 
-              padding: '10px 15px', 
-              backgroundColor: activeTab === 'orders' ? '#0070f3' : '#ccc', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '5px',
-              cursor: 'pointer'
-            }}
-          >
-            Orders
-          </button>
-        </div>
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer'
+          }}
+        >
+          Заказы
+        </button>
       </div>
 
       {activeTab === 'products' && (
         <div>
-          <button
-            onClick={fetchProducts}
-            disabled={loading}
-            style={{ 
-              padding: '10px 20px', 
-              backgroundColor: '#0070f3', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '5px', 
-              cursor: loading ? 'not-allowed' : 'pointer' 
-            }}
-          >
-            {loading ? 'Loading...' : 'Get Products'}
-          </button>
+          <div style={{ marginBottom: '15px' }}>
+            <Link href="/import-excel" passHref>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 24px',
+                  backgroundColor: '#28a745',
+                  color: 'white',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  marginRight: '10px'
+                }}
+              >
+                📊 Импорт из Excel
+              </div>
+            </Link>
+            <Link href="/products" passHref>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 24px',
+                  backgroundColor: '#17a2b8',
+                  color: 'white',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  marginRight: '10px'
+                }}
+              >
+                📦 Управление товарами
+              </div>
+            </Link>
+            <Link href="/attention" passHref>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 24px',
+                  backgroundColor: '#ffc107',
+                  color: '#212529',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                  fontWeight: 'bold'
+                }}
+              >
+                ⚠️ Товары без внимания
+              </div>
+            </Link>
+          </div>
 
-          {products.length > 0 && (
+          {products.length > 0 ? (
             <div style={{ marginTop: '20px' }}>
-              <h2>Products ({products.length})</h2>
-              {products.map(product => (
-                <div key={product.product_id} style={{ border: '1px solid #ddd', margin: '10px 0', padding: '15px', borderRadius: '5px' }}>
+              <h2>Товары ({products.length})</h2>
+              {products.map((product) => (
+                <div
+                  key={product.product_id}
+                  style={{ border: '1px solid #ddd', margin: '10px 0', padding: '15px', borderRadius: '5px' }}
+                >
                   <h3>Product ID: {product.product_id}</h3>
                   <p>Offer ID: {product.offer_id}</p>
                   <p>Archived: {product.archived ? 'Yes' : 'No'}</p>
@@ -308,6 +340,10 @@ export default function Home() {
                   <p>FBO Stocks: {product.has_fbo_stocks ? 'Yes' : 'No'}</p>
                 </div>
               ))}
+            </div>
+          ) : (
+            <div style={{ marginTop: '10px', color: '#6c757d' }}>
+              Вы пока не загружали список товаров.
             </div>
           )}
         </div>
@@ -327,7 +363,7 @@ export default function Home() {
               cursor: loading ? 'not-allowed' : 'pointer' 
             }}
           >
-            {loading ? 'Loading...' : 'Get Orders'}
+            {loading ? 'Загрузка…' : 'Загрузить заказы'}
           </button>
           <p style={{ marginTop: '10px' }}>Orders functionality coming soon...</p>
         </div>

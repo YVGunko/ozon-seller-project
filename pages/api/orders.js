@@ -1,41 +1,21 @@
 import { OzonApiService } from '../../src/services/ozon-api';
+import { resolveProfileFromRequest } from '../../src/server/profileResolver';
 
 export default async function handler(req, res) {
-  console.log('🔍 API Route /api/orders called');
-  
   if (req.method !== 'GET') {
-    console.log('❌ Method not allowed:', req.method);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    console.log('🔑 Environment variables check:');
-    console.log('OZON_CLIENT_ID exists:', !!process.env.OZON_CLIENT_ID);
-    console.log('OZON_API_KEY exists:', !!process.env.OZON_API_KEY);
-
-    // Проверяем наличие переменных окружения
-    if (!process.env.OZON_API_KEY || !process.env.OZON_CLIENT_ID) {
-      throw new Error('Missing OZON API credentials in environment variables');
-    }
-
-    const service = new OzonApiService(
-      process.env.OZON_API_KEY,
-      process.env.OZON_CLIENT_ID
-    );
-    
-    console.log('🔄 Fetching orders from OZON API...');
+    const { profile } = await resolveProfileFromRequest(req, res);
+    const service = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const orders = await service.getOrders();
-    console.log('✅ Orders fetched successfully:', orders);
-    
     res.status(200).json(orders);
   } catch (error) {
-    console.error('❌ API Error details:', error);
-    console.error('❌ Error message:', error.message);
-    console.error('❌ Error stack:', error.stack);
-    
-    res.status(500).json({ 
+    console.error('[orders] Failed to fetch orders', error);
+    res.status(500).json({
       error: 'Failed to fetch orders',
-      details: error.message 
+      details: error.message
     });
   }
 }

@@ -3,6 +3,7 @@ const STORAGE_KEY = 'currentWarehouse';
 const getProfileKey = (profile) => {
   if (!profile || typeof profile !== 'object') return null;
   if (profile.profileKey) return profile.profileKey;
+  if (profile.id) return String(profile.id);
   if (profile.ozon_client_id) return String(profile.ozon_client_id);
   if (profile.clientId) return String(profile.clientId);
   return null;

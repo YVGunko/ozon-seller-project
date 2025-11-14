@@ -2,6 +2,7 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { addRequestLog } from '../../../src/server/requestLogStore';
 import { buildStatusCheckMessage } from '../../../src/utils/importStatus';
+import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
 
 const STATUS_CHECK_DELAY_MS = 5000;
 
@@ -30,43 +31,19 @@ const getAttributeValueDictionaryId = (valueEntry) => {
   return String(raw);
 };
 
-const parseProfile = (rawProfile) => {
-  if (!rawProfile) {
-    throw new Error('Missing OZON profile');
-  }
-
-  if (typeof rawProfile === 'string') {
-    try {
-      return JSON.parse(decodeURIComponent(rawProfile));
-    } catch {
-      throw new Error('Invalid profile format');
-    }
-  }
-
-  return rawProfile;
-};
-
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async function handler(req, res) {
   try {
     if (req.method === 'GET') {
-      const { offer_id, profile } = req.query;
+      const { offer_id } = req.query;
 
       if (!offer_id) {
         return res.status(400).json({ error: 'Missing offer_id' });
       }
 
-      const parsedProfile = parseProfile(profile);
-
-      const { ozon_client_id, ozon_api_key } = parsedProfile || {};
-      if (!ozon_client_id || !ozon_api_key) {
-        return res.status(400).json({
-          error: 'Profile must include ozon_client_id and ozon_api_key'
-        });
-      }
-
-      const ozon = new OzonApiService(ozon_api_key, ozon_client_id);
+      const { profile } = await resolveProfileFromRequest(req, res);
+      const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
       const result = await ozon.getProductAttributes(offer_id);
       const products = Array.isArray(result?.result) ? result.result : [];
@@ -258,12 +235,12 @@ export default async function handler(req, res) {
       const startTime = Date.now();
       let statusCode = 200;
       let responseBody = null;
-      let parsedProfile = null;
       let offerIdForLog = '';
       let useImportMode = false;
+      let session = null;
 
       try {
-        const { items, profile, mode } = req.body || {};
+        const { items, mode } = req.body || {};
         useImportMode = mode === 'import';
 
         if (!Array.isArray(items) || items.length === 0) {
@@ -273,19 +250,12 @@ export default async function handler(req, res) {
           return;
         }
 
-        parsedProfile = parseProfile(profile);
-        const { ozon_client_id, ozon_api_key } = parsedProfile || {};
-
-        if (!ozon_client_id || !ozon_api_key) {
-          statusCode = 400;
-          responseBody = { error: 'Profile must include ozon_client_id and ozon_api_key' };
-          res.status(statusCode).json(responseBody);
-          return;
-        }
+        const resolved = await resolveProfileFromRequest(req, res);
+        session = resolved.session;
+        const { profile } = resolved;
+        const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
         offerIdForLog = String(items?.[0]?.offer_id || items?.[0]?.offerId || '');
-
-        const ozon = new OzonApiService(ozon_api_key, ozon_client_id);
 
         const updateResult = useImportMode
           ? await ozon.importProductAttributes(items)
@@ -379,7 +349,7 @@ export default async function handler(req, res) {
             status: statusCode,
             duration_ms: duration,
             error_message: statusCode >= 400 ? responseBody?.error || null : null,
-            user_id: parsedProfile?.user_id || parsedProfile?.userId || 'local-user',
+            user_id: session?.user?.name || session?.user?.id || 'authenticated-user',
             task_id: responseBody?.update?.result?.task_id || null
           });
         } catch (logError) {

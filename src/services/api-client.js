@@ -1,5 +1,10 @@
 // src/services/api-client.js
-import { BaseHttpClient } from './base-http-client';
+const getProfileId = (profile) => {
+  if (!profile || !profile.id) {
+    throw new Error('Не выбран профиль OZON');
+  }
+  return profile.id;
+};
 
 export const apiClient = {
   async getProducts(limit = 20, profile, params = {}) {
@@ -8,8 +13,7 @@ export const apiClient = {
     query.append('limit', params.limit || limit);
     if (params.last_id) query.append('last_id', params.last_id);
     if (params.offer_id) query.append('offer_id', params.offer_id);
-
-    query.append('profile', encodeURIComponent(JSON.stringify(profile)));
+    query.append('profileId', getProfileId(profile));
 
     const response = await fetch(`/api/products?${query.toString()}`);
     if (!response.ok) {
@@ -20,32 +24,28 @@ export const apiClient = {
   },
 
   async getAttributes(offer_id, profile = null) {
-    const query = new URLSearchParams({ offer_id });
-    if (profile) query.append('profile', encodeURIComponent(JSON.stringify(profile)));
-
-    console.log('🔍 getAttributes request:', `/api/products/attributes?${query.toString()}`);
+    if (!profile) {
+      throw new Error('Не выбран профиль OZON');
+    }
+    const query = new URLSearchParams({ offer_id, profileId: getProfileId(profile) });
 
     const res = await fetch(`/api/products/attributes?${query.toString()}`);
-    console.log('🔍 getAttributes response status:', res.status);
-
     if (!res.ok) throw new Error('Failed to fetch attributes');
     return res.json();
   },
 
   async copyProduct(sourceOfferId, newOfferId, modifications, profile) {
-    const res = await fetch('/api/copy-product', {
+    const res = await fetch('/api/products/copy', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         sourceOfferId,
         newOfferId,
         modifications,
-        profile
+        profileId: getProfileId(profile)
       })
     });
     if (!res.ok) throw new Error('Failed to copy product');
     return res.json();
   }
 };
-
-//export const apiClient = new ApiClient();

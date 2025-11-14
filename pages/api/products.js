@@ -1,5 +1,6 @@
 // pages/api/products.js
 import { OzonApiService } from '../../src/services/ozon-api';
+import { resolveProfileFromRequest } from '../../src/server/profileResolver';
 
 /**
  * Универсальный API route для получения списка товаров OZON.
@@ -15,25 +16,9 @@ export default async function handler(req, res) {
       return res.status(405).json({ error: 'Method not allowed' });
     }
 
-    const { limit = 20, last_id = '', offer_id, profile } = req.query;
-
-    if (!profile) {
-      return res.status(400).json({ error: 'Missing OZON profile' });
-    }
-
-    let parsedProfile;
-    try {
-      parsedProfile = JSON.parse(decodeURIComponent(profile));
-    } catch {
-      return res.status(400).json({ error: 'Invalid profile format' });
-    }
-
-    const { ozon_client_id, ozon_api_key } = parsedProfile;
-    if (!ozon_client_id || !ozon_api_key) {
-      return res.status(400).json({ error: 'Profile must include ozon_client_id and ozon_api_key' });
-    }
-
-    const ozon = new OzonApiService(ozon_api_key, ozon_client_id);
+    const { limit = 20, last_id = '', offer_id } = req.query;
+    const { profile } = await resolveProfileFromRequest(req, res);
+    const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
     const options = {
       limit: Number(limit),
@@ -55,4 +40,3 @@ export default async function handler(req, res) {
     });
   }
 }
-

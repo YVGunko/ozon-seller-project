@@ -530,7 +530,7 @@ export default function ProductsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           items,
-          profile: currentProfile,
+          profileId: currentProfile.id,
           mode: 'import'
         })
       });
@@ -659,7 +659,7 @@ export default function ProductsPage() {
         {currentProfile ? (
           <div style={{ fontSize: 14, color: '#666', textAlign: 'right' }}>
             <div style={{ fontWeight: 'bold', color: '#28a745' }}>✅ {currentProfile.name}</div>
-            <div style={{ fontSize: 12 }}>Client ID: {currentProfile.ozon_client_id?.slice(0, 8)}...</div>
+            <div style={{ fontSize: 12 }}>Client ID: {currentProfile?.client_hint || '—'}</div>
           </div>
         ) : (
           <div style={{ fontSize: 14, color: '#dc3545', textAlign: 'right' }}>

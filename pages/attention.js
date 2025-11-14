@@ -140,7 +140,7 @@ export default function AttentionPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          profile: currentProfile,
+          profileId: currentProfile.id,
           filters,
           limit: 1000,
           maxPages: 10
@@ -269,7 +269,7 @@ export default function AttentionPage() {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            profile: currentProfile,
+            profileId: currentProfile.id,
             stocks: chunk
           })
         });
@@ -330,9 +330,9 @@ export default function AttentionPage() {
           {currentProfile ? (
             <div>
               <div style={{ fontWeight: 'bold', color: '#28a745' }}>✅ Используется профиль</div>
-              <div style={{ marginTop: 4 }}>
-                {currentProfile.name} (Client ID: {currentProfile.ozon_client_id?.slice(0, 10)}…)
-              </div>
+            <div style={{ marginTop: 4 }}>
+              {currentProfile.name} (Client ID: {currentProfile.client_hint || '—'})
+            </div>
             </div>
           ) : (
             <div style={{ color: '#dc3545' }}>

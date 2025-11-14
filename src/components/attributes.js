@@ -959,8 +959,8 @@ export const AttributesModal = ({
   const [priceLoading, setPriceLoading] = useState(false);
   const [priceError, setPriceError] = useState('');
   const profileKey = useMemo(() => {
-    if (!profile) return '';
-    return `${profile.ozon_client_id || ''}:${profile.ozon_api_key || ''}`;
+    if (!profile || !profile.id) return '';
+    return String(profile.id);
   }, [profile]);
 
   useEffect(() => {
@@ -970,7 +970,7 @@ export const AttributesModal = ({
       setPriceError('');
       return;
     }
-    if (!profile || !offerId) {
+    if (!profile?.id || !offerId) {
       setPriceInfo(null);
       setPriceError('');
       setPriceLoading(false);
@@ -985,7 +985,7 @@ export const AttributesModal = ({
       try {
         const query = new URLSearchParams({
           offer_id: offerId,
-          profile: encodeURIComponent(JSON.stringify(profile))
+          profileId: profile.id
         });
         const response = await fetch(`/api/products/info-list?${query.toString()}`);
         if (!response.ok) {
@@ -1017,7 +1017,7 @@ export const AttributesModal = ({
     return () => {
       cancelled = true;
     };
-  }, [isOpen, offerId, profileKey, profile]);
+  }, [isOpen, offerId, profileKey]);
 
   useEffect(() => {
     if (!isOpen || !priceInfo) return;
