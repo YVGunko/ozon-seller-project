@@ -1,3 +1,4 @@
+const { AUTH_USERS, ADMIN_USER, ADMIN_PASS, ADMIN_PROFILES } = process.env;
 const parseJsonEnv = (value, fallback = null) => {
   if (!value) return fallback;
   try {
@@ -31,12 +32,12 @@ const normalizeUsers = (rawUsers = []) => {
 };
 
 const buildFallbackUsers = () => {
-  const username = process.env.ADMIN_USER;
-  const password = process.env.ADMIN_PASS;
+  const username = ADMIN_USER;
+  const password = ADMIN_PASS;
   if (!username || !password) {
     return [];
   }
-  const rawProfiles = process.env.ADMIN_PROFILES || '';
+  const rawProfiles = ADMIN_PROFILES || '';
   const profiles = rawProfiles
     .split(',')
     .map((entry) => entry.trim())
@@ -53,7 +54,7 @@ const buildFallbackUsers = () => {
 };
 
 const cachedUsers = (() => {
-  const configured = normalizeUsers(parseJsonEnv(process.env.AUTH_USERS, []));
+  const configured = normalizeUsers(parseJsonEnv(AUTH_USERS, []));
   if (configured.length > 0) {
     return configured;
   }
@@ -75,4 +76,3 @@ export const findUserByCredentials = (username, password) => {
     allowedProfiles: user.profiles || []
   };
 };
-

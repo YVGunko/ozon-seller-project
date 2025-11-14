@@ -1,6 +1,7 @@
 import CredentialsProvider from 'next-auth/providers/credentials';
 import { findUserByCredentials } from './userStore';
 
+const { NEXTAUTH_SECRET } = process.env;
 const buildAuthOptions = () => ({
   providers: [
     CredentialsProvider({
@@ -43,7 +44,7 @@ const buildAuthOptions = () => ({
   pages: {
     signIn: '/auth/signin'
   },
-  secret: process.env.NEXTAUTH_SECRET
+  secret: NEXTAUTH_SECRET
 });
 
 export const authOptions = buildAuthOptions();
