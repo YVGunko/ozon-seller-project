@@ -2436,7 +2436,7 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
       <div style={{ marginBottom: '12px' }}>
         <a href="/" style={{ color: '#0070f3', textDecoration: 'none', fontSize: '14px' }}>← На главную</a>
         <a href="/products" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px', fontSize: '14px' }}>📦 Товары</a>
-        <a href="/logs" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px', fontSize: '14px' }}>📦 Логи импорта</a>
+        <a href="/logs" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px', fontSize: '14px' }}>📜 Логи импорта</a>
       </div>
 
       {/* Компактное отображение профиля */}

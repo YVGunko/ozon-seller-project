@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import UserProfiles from '../src/components/UserProfiles';
 import { ProfileManager } from '../src/utils/profileManager';
@@ -48,15 +48,6 @@ export default function Home() {
       console.error('Failed to fetch orders:', error);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const handleLogOfferClick = (offerId) => {
-    if (!offerId) return;
-
-    if (typeof window !== 'undefined') {
-      window.localStorage.setItem('openAttributesOffer', offerId);
-      window.location.href = `/products?offer_id=${encodeURIComponent(offerId)}&openAttributes=true`;
     }
   };
 
