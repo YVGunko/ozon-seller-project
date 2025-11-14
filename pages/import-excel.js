@@ -2436,6 +2436,7 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
       <div style={{ marginBottom: '12px' }}>
         <a href="/" style={{ color: '#0070f3', textDecoration: 'none', fontSize: '14px' }}>← На главную</a>
         <a href="/products" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px', fontSize: '14px' }}>📦 Товары</a>
+        <a href="/logs" style={{ color: '#0070f3', textDecoration: 'none', marginLeft: '15px', fontSize: '14px' }}>📦 Логи импорта</a>
       </div>
 
       {/* Компактное отображение профиля */}
@@ -2445,33 +2446,38 @@ const extractBaseFieldsFromProductInfo = (info = {}) => {
         alignItems: 'flex-start',
         marginBottom: '20px'
       }}>
-        <h1 style={{ margin: 0 }}>Импорт товаров из Excel</h1>
-
-        {currentProfile ? (
-          <div style={{
-            fontSize: '14px',
-            color: '#666',
-            textAlign: 'right'
-          }}>
-            <div style={{ fontWeight: 'bold', color: '#28a745' }}>
-              ✅ {currentProfile.name}
-            </div>
-            <div style={{ fontSize: '12px' }}>
-              Client ID: {currentProfile?.client_hint || '—'}
-            </div>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between', width: '100%' }}>
+          <h1 style={{ margin: 0 }}>Импорт товаров из Excel</h1>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {currentProfile ? (
+              <div style={{
+                fontSize: '14px',
+                color: '#666',
+                textAlign: 'right'
+              }}>
+                <div style={{ fontWeight: 'bold', color: '#28a745' }}>
+                  ✅ {currentProfile.name}
+                </div>
+                <div style={{ fontSize: '12px' }}>
+                  Client ID: {currentProfile?.client_hint || '—'}
+                </div>
+              </div>
+            ) : (
+              <div style={{
+                fontSize: '14px',
+                color: '#dc3545',
+                textAlign: 'right'
+              }}>
+                <div>⚠️ Профиль не выбран</div>
+                <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', marginTop: '4px' }}>
+                  <a href="/" style={{ fontSize: '12px', color: '#0070f3' }}>
+                    Выбрать на главной
+                  </a>
+                </div>
+              </div>
+            )}
           </div>
-        ) : (
-          <div style={{
-            fontSize: '14px',
-            color: '#dc3545',
-            textAlign: 'right'
-          }}>
-            <div>⚠️ Профиль не выбран</div>
-            <a href="/" style={{ fontSize: '12px', color: '#0070f3' }}>
-              Выбрать на главной
-            </a>
-          </div>
-        )}
+        </div>
       </div>
 
       {currentProfile && (
