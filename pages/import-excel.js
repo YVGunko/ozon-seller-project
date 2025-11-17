@@ -11,7 +11,13 @@ import {
   NUMERIC_BASE_FIELDS,
   BASE_FIELD_LABELS
 } from '../src/constants/productFields';
-import { TYPE_ATTRIBUTE_ID, TYPE_ATTRIBUTE_NUMERIC } from '../src/utils/attributesHelpers';
+import {
+  TYPE_ATTRIBUTE_ID,
+  TYPE_ATTRIBUTE_NUMERIC,
+  LARGE_TEXT_ATTRIBUTE_IDS,
+  collapseLargeTextAttributeValues,
+  attributeHasValues
+} from '../src/utils/attributesHelpers';
 import { AttributesModal } from '../src/components/attributes';
 import { useWarehouses } from '../src/hooks/useWarehouses';
 import {
@@ -19,6 +25,12 @@ import {
   appendImportLog,
   generateBarcodesForEntries
 } from '../src/utils/importStatusClient';
+import {
+  normalizeImageList,
+  normalizePrimaryImage,
+  clampImageListToLimit,
+  areImageListsEqual
+} from '../src/utils/imageHelpers';
 
 const STATUS_CHECK_DELAY_MS = 5000;
 
@@ -687,18 +699,27 @@ const getProductAttributeValue = (product, attributeId) => {
 };
 const parseAttributeTextareaValue = (rawValue = '', attributeId = null) => {
   if (!hasValue(rawValue)) return [];
+  const attrKey = attributeId !== null ? String(attributeId) : null;
+  const normalizedString = String(rawValue);
 
-  const normalizedValues = String(rawValue)
-    .split(/\r?\n/)
-    .map((value) => value.trim())
-    .filter(Boolean);
-
-  if (attributeId && String(attributeId) === TYPE_ATTRIBUTE_ID) {
-    const firstValue = normalizedValues[0];
+  if (attrKey && attrKey === TYPE_ATTRIBUTE_ID) {
+    const firstValue = normalizedString.split(/\r?\n/).map((value) => value.trim()).find(Boolean);
     return firstValue ? [{ value: firstValue }] : [];
   }
 
-  return normalizedValues.map((value) => ({ value }));
+  if (attrKey && LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey)) {
+    const singleValue = normalizedString
+      .replace(/\s*\r?\n\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return singleValue ? [{ value: singleValue }] : [];
+  }
+
+  return normalizedString
+    .split(/\r?\n/)
+    .map((value) => value.trim())
+    .filter(Boolean)
+    .map((value) => ({ value }));
 };
 
 const normalizeDictionaryValues = (metaSource = {}) => {
@@ -794,7 +815,11 @@ const buildAttributesPayload = (
   attributeOverrides = null,
   options = {}
 ) => {
-  const { templateTypeId = null, fallbackTypeId = null } = options;
+  const {
+    templateTypeId = null,
+    fallbackTypeId = null,
+    availableAttributesMeta = []
+  } = options;
   const attributesMap = new Map();
 
   templateAttributes.forEach((attr) => {
@@ -844,6 +869,7 @@ const buildAttributesPayload = (
     }
 
     clonedAttribute.values = values;
+    clonedAttribute.values = collapseLargeTextAttributeValues(attrId, clonedAttribute.values);
 
     attributesMap.set(attrId, clonedAttribute);
   });
@@ -861,6 +887,7 @@ const buildAttributesPayload = (
 
     const overrideAttribute = attributesMap.get(attrId) || { id: attrId };
     overrideAttribute.values = [{ value: String(rawValue) }];
+    overrideAttribute.values = collapseLargeTextAttributeValues(attrId, overrideAttribute.values);
     delete overrideAttribute.dictionary_value_id;
     delete overrideAttribute.dictionary_values;
     delete overrideAttribute.value;
@@ -878,7 +905,7 @@ const buildAttributesPayload = (
       const valuesSource = Array.isArray(override?.values) ? override.values : null;
 
       if (valuesSource) {
-        overrideAttribute.values = valuesSource
+        const normalizedValues = valuesSource
           .map((entry) => {
             if (typeof entry === 'string') {
               return { value: entry };
@@ -896,8 +923,10 @@ const buildAttributesPayload = (
             return null;
           })
           .filter(Boolean);
+        overrideAttribute.values = collapseLargeTextAttributeValues(attrId, normalizedValues);
       } else if (hasValue(override?.value)) {
         overrideAttribute.values = [{ value: String(override.value) }];
+        overrideAttribute.values = collapseLargeTextAttributeValues(attrId, overrideAttribute.values);
       }
 
       attributesMap.set(attrId, overrideAttribute);
@@ -938,6 +967,24 @@ const buildAttributesPayload = (
   if (!attributeHasNonEmptyValues(unitQuantityAttribute)) {
     unitQuantityAttribute.values = [{ value: DEFAULT_UNIT_QUANTITY_VALUE }];
     attributesMap.set(UNIT_QUANTITY_ATTRIBUTE_ID, unitQuantityAttribute);
+  }
+
+  const requiredAttributesMeta = Array.isArray(availableAttributesMeta)
+    ? availableAttributesMeta.filter((meta) => meta?.is_required)
+    : [];
+  const missingRequiredAttributes = [];
+  requiredAttributesMeta.forEach((meta) => {
+    const attrId = Number(meta?.id ?? meta?.attribute_id);
+    if (!attrId) return;
+    const attrEntry = attributesMap.get(attrId);
+    if (!attributeHasValues(attrEntry)) {
+      missingRequiredAttributes.push(meta?.name || `ID ${attrId}`);
+    }
+  });
+  if (missingRequiredAttributes.length) {
+    throw new Error(
+      `Заполните обязательные характеристики: ${missingRequiredAttributes.join(', ')}`
+    );
   }
 
   return Array.from(attributesMap.values()).filter(
@@ -1110,6 +1157,21 @@ const buildImportItemFromRow = ({
     }
   });
 
+  const resolvedDescriptionCategoryId =
+    rowValues?.description_category_id ??
+    rowValues?.descriptionCategoryId ??
+    template?.description_category_id ??
+    template?.descriptionCategoryId ??
+    baseProductData?.description_category_id ??
+    baseProductData?.descriptionCategoryId ??
+    null;
+  if (hasValue(resolvedDescriptionCategoryId)) {
+    const numericCategoryId = Number(resolvedDescriptionCategoryId);
+    item.description_category_id = Number.isFinite(numericCategoryId)
+      ? numericCategoryId
+      : String(resolvedDescriptionCategoryId);
+  }
+
   item.attributes = buildAttributesPayload(
     template?.attributes || [],
     fieldMappings,
@@ -1117,7 +1179,8 @@ const buildImportItemFromRow = ({
     attributeOverrides,
     {
       templateTypeId: template?.type_id,
-      fallbackTypeId: baseProductData?.type_id
+      fallbackTypeId: baseProductData?.type_id,
+      availableAttributesMeta: template?.available_attributes || []
     }
   );
   ensureTypeAttributeValid(item.attributes, rowIndex);
@@ -1162,6 +1225,32 @@ const buildImportItemFromRow = ({
 
   if (hasValue(item.vat)) {
     item.vat = String(item.vat);
+  }
+
+  const hasRowImages = Object.prototype.hasOwnProperty.call(rowValues, 'images');
+  const hasRowPrimaryImage = Object.prototype.hasOwnProperty.call(rowValues, 'primary_image');
+  const resolvedPrimaryImage = hasRowPrimaryImage
+    ? normalizePrimaryImage(rowValues.primary_image)
+    : normalizePrimaryImage(item.primary_image);
+  const resolvedImagesSource = hasRowImages
+    ? rowValues.images || []
+    : item.images || [];
+  const resolvedImages = clampImageListToLimit(resolvedImagesSource, resolvedPrimaryImage);
+
+  if (hasRowImages || resolvedImages.length) {
+    if (resolvedImages.length) {
+      item.images = resolvedImages;
+    } else {
+      delete item.images;
+    }
+  }
+
+  if (hasRowPrimaryImage || resolvedPrimaryImage) {
+    if (resolvedPrimaryImage) {
+      item.primary_image = resolvedPrimaryImage;
+    } else {
+      delete item.primary_image;
+    }
   }
 
   if ('barcode' in item) {
@@ -1546,6 +1635,23 @@ const [baseProductData, setBaseProductData] = useState({
         metaValues[field] = '';
       }
     });
+    const baseImages = normalizeImageList(baseProductData?.images || []);
+    const templateImages = normalizeImageList(sampleTemplate?.images || []);
+    const rowImages = Object.prototype.hasOwnProperty.call(rowValues, 'images')
+      ? normalizeImageList(rowValues.images)
+      : [];
+    const resolvedPrimary = normalizePrimaryImage(
+      Object.prototype.hasOwnProperty.call(rowValues, 'primary_image')
+        ? rowValues.primary_image
+        : sampleTemplate?.primary_image ?? baseProductData?.primary_image ?? ''
+    );
+    const fallbackImages = rowImages.length
+      ? rowImages
+      : templateImages.length
+      ? templateImages
+      : baseImages;
+    metaValues.images = clampImageListToLimit(fallbackImages, resolvedPrimary);
+    metaValues.primary_image = resolvedPrimary;
     console.log('[ImportExcel] openAttributesModal meta values', metaValues);
 
     setAttributeModalState({
@@ -1630,6 +1736,35 @@ const [baseProductData, setBaseProductData] = useState({
             delete updatedRowValues[field];
           }
         });
+
+        if (Object.prototype.hasOwnProperty.call(metaValues, 'images')) {
+          const normalizedImages = clampImageListToLimit(
+            Array.isArray(metaValues.images) ? metaValues.images : [],
+            metaValues.primary_image
+          );
+          const previousImages = normalizeImageList(updatedRowValues.images || []);
+          if (!areImageListsEqual(normalizedImages, previousImages)) {
+            didChange = true;
+            if (normalizedImages.length) {
+              updatedRowValues.images = normalizedImages;
+            } else {
+              delete updatedRowValues.images;
+            }
+          }
+        }
+
+        if (Object.prototype.hasOwnProperty.call(metaValues, 'primary_image')) {
+          const normalizedPrimary = normalizePrimaryImage(metaValues.primary_image);
+          const previousPrimary = normalizePrimaryImage(updatedRowValues.primary_image);
+          if (normalizedPrimary !== previousPrimary) {
+            didChange = true;
+            if (normalizedPrimary) {
+              updatedRowValues.primary_image = normalizedPrimary;
+            } else {
+              delete updatedRowValues.primary_image;
+            }
+          }
+        }
       }
 
       if (!didChange) {
@@ -1738,7 +1873,29 @@ const [baseProductData, setBaseProductData] = useState({
       };
 
       if (attributeModalState.metaValues) {
-        Object.entries(attributeModalState.metaValues).forEach(([field, value]) => {
+        const meta = attributeModalState.metaValues;
+        Object.entries(meta).forEach(([field, value]) => {
+          if (field === 'images') {
+            const normalizedImages = clampImageListToLimit(
+              Array.isArray(value) ? value : [],
+              meta.primary_image
+            );
+            if (normalizedImages.length) {
+              rowValues.images = normalizedImages;
+            } else {
+              delete rowValues.images;
+            }
+            return;
+          }
+          if (field === 'primary_image') {
+            const normalizedPrimary = normalizePrimaryImage(value);
+            if (normalizedPrimary) {
+              rowValues.primary_image = normalizedPrimary;
+            } else {
+              delete rowValues.primary_image;
+            }
+            return;
+          }
           if (hasValue(value)) {
             rowValues[field] = value;
           }

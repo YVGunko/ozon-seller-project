@@ -1,7 +1,8 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   TYPE_ATTRIBUTE_ID,
   LARGE_TEXT_ATTRIBUTE_IDS,
+  attributeHasValues,
   formatAttributeValues,
   getDictionaryOptionKey,
   getDictionaryOptionLabel,
@@ -15,6 +16,10 @@ import {
   REQUIRED_BASE_FIELDS,
   BASE_FIELD_LABELS
 } from '../constants/productFields';
+import {
+  MAX_IMAGE_COUNT,
+  normalizeImageList
+} from '../utils/imageHelpers';
 
 const overlayStyle = {
   position: 'fixed',
@@ -28,6 +33,12 @@ const overlayStyle = {
 };
 
 const hasValue = (value) => value !== undefined && value !== null && value !== '';
+const isValidImageUrl = (value) => {
+  if (!value) return false;
+  const trimmed = String(value).trim();
+  if (!trimmed) return false;
+  return /^https?:\/\//i.test(trimmed);
+};
 
 const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
   if (!priceLoading && !priceInfo && !priceError) {
@@ -80,6 +91,385 @@ const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) =
               <div style={{ color: '#6c757d' }}>{field.label}</div>
               <div style={{ fontWeight: 'bold' }}>
                 {field.value ? String(field.value) : '—'}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};
+
+const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
+
+const ImagesManager = ({
+  title = 'Изображения',
+  images = [],
+  primaryImage = '',
+  onImagesChange = () => {},
+  onPrimaryChange = () => {},
+  disabled = false
+}) => {
+  const [newUrl, setNewUrl] = useState('');
+  const [error, setError] = useState('');
+  const [uploadError, setUploadError] = useState('');
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef(null);
+  const normalizedImages = useMemo(() => normalizeImageList(images), [images]);
+  const normalizedPrimary = primaryImage ? String(primaryImage).trim() : '';
+  const effectiveLimit = normalizedPrimary ? MAX_IMAGE_COUNT - 1 : MAX_IMAGE_COUNT;
+  const limitReached = normalizedImages.length >= effectiveLimit;
+  const limitExceeded = normalizedImages.length > effectiveLimit;
+
+  useEffect(() => {
+    setError('');
+    setUploadError('');
+  }, [normalizedImages.length, normalizedPrimary]);
+
+  const handleAdd = () => {
+    const trimmed = newUrl.trim();
+    if (!trimmed) {
+      setError('Введите ссылку на изображение');
+      return;
+    }
+    if (!isValidImageUrl(trimmed)) {
+      setError('Ссылка должна начинаться с http(s) и быть доступной');
+      return;
+    }
+    if (normalizedImages.includes(trimmed)) {
+      setError('Такое изображение уже добавлено');
+      return;
+    }
+    if (limitReached) {
+      setError(
+        normalizedPrimary
+          ? 'При заданном основном изображении можно добавить не более 29 ссылок'
+          : 'Нельзя добавить больше 30 изображений'
+      );
+      return;
+    }
+    onImagesChange([...normalizedImages, trimmed]);
+    setNewUrl('');
+    setError('');
+  };
+
+  const handleRemove = (index) => {
+    const next = normalizedImages.filter((_, idx) => idx !== index);
+    onImagesChange(next);
+    if (normalizedPrimary && normalizedPrimary === normalizedImages[index]) {
+      onPrimaryChange('');
+    }
+  };
+
+  const moveItem = (index, direction) => {
+    const nextIndex = index + direction;
+    if (nextIndex < 0 || nextIndex >= normalizedImages.length) return;
+    const next = [...normalizedImages];
+    [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+    onImagesChange(next);
+  };
+
+  const handleSetPrimary = (url) => {
+    if (!url) return;
+    onPrimaryChange(url);
+  };
+
+  const handlePrimaryInputChange = (value) => {
+    onPrimaryChange(value.trim());
+  };
+
+  const handleUploadClick = () => {
+    if (disabled || uploading) return;
+    fileInputRef.current?.click();
+  };
+
+  const handleFileChange = async (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+    try {
+      if (!file.type.startsWith('image/')) {
+        setUploadError('Можно загружать только изображения (JPG/PNG).');
+        return;
+      }
+      if (file.size > MAX_UPLOAD_SIZE_BYTES) {
+        setUploadError('Файл слишком большой. Максимум 8 МБ.');
+        return;
+      }
+      if (limitReached) {
+        setUploadError('Сначала удалите лишние изображения перед загрузкой.');
+        return;
+      }
+      setUploadError('');
+      setUploading(true);
+      const params = new URLSearchParams({
+        filename: file.name,
+        contentType: file.type || 'application/octet-stream'
+      });
+      const response = await fetch(`/api/uploads/blob?${params.toString()}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': file.type || 'application/octet-stream'
+        },
+        body: file
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Не удалось загрузить файл');
+      }
+      if (data?.url) {
+        onImagesChange([...normalizedImages, data.url]);
+        if (!normalizedPrimary) {
+          onPrimaryChange(data.url);
+        }
+      }
+    } catch (uploadErr) {
+      console.error('Image upload error', uploadErr);
+      setUploadError(uploadErr?.message || 'Не удалось загрузить изображение');
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
+  };
+
+  return (
+    <div
+      style={{
+        border: '1px solid #dfe3e8',
+        borderRadius: 8,
+        padding: 16,
+        marginBottom: 20,
+        backgroundColor: '#fff'
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 10 }}>
+        <h4 style={{ margin: 0 }}>{title}</h4>
+        <span style={{ fontSize: 12, color: '#6c757d' }}>
+          {normalizedImages.length}
+          {normalizedPrimary ? '/29' : '/30'}
+        </span>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold', fontSize: 13 }}>
+          Главное изображение
+        </label>
+        <input
+          type="text"
+          value={normalizedPrimary}
+          onChange={(e) => handlePrimaryInputChange(e.target.value)}
+          placeholder="Вставьте ссылку или выберите из списка ниже"
+          disabled={disabled}
+          style={{
+            width: '100%',
+            padding: '6px 10px',
+            borderRadius: 6,
+            border: '1px solid #ced4da'
+          }}
+        />
+        <small style={{ color: '#6c757d', display: 'block', marginTop: 4 }}>
+          Если поле пустое, первое изображение в списке станет главным на OZON.
+        </small>
+      </div>
+
+      <div style={{ marginBottom: 12 }}>
+        <label style={{ display: 'block', marginBottom: 4, fontWeight: 'bold', fontSize: 13 }}>
+          Добавить изображение
+        </label>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <input
+            type="text"
+            value={newUrl}
+            onChange={(e) => setNewUrl(e.target.value)}
+            placeholder="https://example.com/image.jpg"
+            disabled={disabled}
+            style={{
+              flex: 1,
+              padding: '6px 10px',
+              borderRadius: 6,
+              border: '1px solid #ced4da'
+            }}
+          />
+          <button
+            type="button"
+            onClick={handleAdd}
+            disabled={disabled}
+            style={{
+              padding: '6px 14px',
+              border: 'none',
+              borderRadius: 6,
+              backgroundColor: '#0070f3',
+              color: '#fff',
+              cursor: 'pointer'
+            }}
+          >
+            Добавить
+          </button>
+          <button
+            type="button"
+            onClick={handleUploadClick}
+            disabled={disabled || uploading}
+            style={{
+              padding: '6px 14px',
+              borderRadius: 6,
+              border: '1px solid #ced4da',
+              backgroundColor: uploading ? '#f1f3f5' : '#fff',
+              cursor: disabled || uploading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {uploading ? 'Загрузка...' : 'Загрузить файл'}
+          </button>
+          <input
+            type="file"
+            accept="image/*"
+            ref={fileInputRef}
+            style={{ display: 'none' }}
+            onChange={handleFileChange}
+          />
+        </div>
+        {error && (
+          <div style={{ color: '#dc3545', fontSize: 12, marginTop: 6 }}>{error}</div>
+        )}
+        {uploadError && (
+          <div style={{ color: '#dc3545', fontSize: 12, marginTop: 6 }}>{uploadError}</div>
+        )}
+      </div>
+
+      {limitExceeded && (
+        <div
+          style={{
+            padding: '8px 10px',
+            borderRadius: 6,
+            backgroundColor: '#fff3cd',
+            color: '#856404',
+            fontSize: 13,
+            marginBottom: 10
+          }}
+        >
+          Для указанного количества изображений уменьшите список до {effectiveLimit}{' '}
+          ссылок или очистите поле с главным изображением.
+        </div>
+      )}
+
+      {normalizedImages.length === 0 ? (
+        <div style={{ color: '#6c757d', fontSize: 13 }}>
+          Изображения не добавлены. Вставьте публичную ссылку из Google Drive или другого
+          хранилища и нажмите «Добавить».
+        </div>
+      ) : (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {normalizedImages.map((url, index) => (
+            <div
+              key={`${url}-${index}`}
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 12,
+                border: '1px solid #e9ecef',
+                borderRadius: 8,
+                padding: '8px 10px',
+                backgroundColor: '#f8f9fa'
+              }}
+            >
+              <div
+                style={{
+                  width: 62,
+                  height: 62,
+                  borderRadius: 6,
+                  border: '1px solid #ced4da',
+                  overflow: 'hidden',
+                  backgroundColor: '#fff',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center'
+                }}
+              >
+                <img
+                  src={url}
+                  alt={`img-${index}`}
+                  style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'cover' }}
+                  onError={(e) => {
+                    e.currentTarget.style.visibility = 'hidden';
+                    if (e.currentTarget.parentElement) {
+                      e.currentTarget.parentElement.style.backgroundColor = '#f8d7da';
+                    }
+                  }}
+                />
+              </div>
+              <div style={{ flex: 1 }}>
+                <div
+                  style={{
+                    fontSize: 13,
+                    wordBreak: 'break-all',
+                    color: '#212529'
+                  }}
+                >
+                  {url}
+                </div>
+                <div style={{ display: 'flex', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    onClick={() => moveItem(index, -1)}
+                    disabled={disabled || index === 0}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor: index === 0 ? '#f1f3f5' : '#fff',
+                      cursor: index === 0 ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    ↑
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => moveItem(index, 1)}
+                    disabled={disabled || index === normalizedImages.length - 1}
+                    style={{
+                      padding: '4px 8px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor:
+                        index === normalizedImages.length - 1 ? '#f1f3f5' : '#fff',
+                      cursor:
+                        index === normalizedImages.length - 1 ? 'not-allowed' : 'pointer'
+                    }}
+                  >
+                    ↓
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleSetPrimary(url)}
+                    disabled={disabled}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor:
+                        normalizedPrimary === url ? '#28a745' : 'transparent',
+                      color: normalizedPrimary === url ? '#fff' : '#212529',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    {normalizedPrimary === url ? 'Главное' : 'Сделать главным'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRemove(index)}
+                    disabled={disabled}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor: '#fff',
+                      color: '#dc3545',
+                      cursor: 'pointer'
+                    }}
+                  >
+                    Удалить
+                  </button>
+                </div>
               </div>
             </div>
           ))}
@@ -263,6 +653,12 @@ const ImportAttributesContent = ({
           values={metaValues}
           onChange={handleMetaChange}
           baseValues={combinedBaseValues}
+        />
+        <ImagesManager
+          images={metaValues.images || []}
+          primaryImage={metaValues.primary_image || ''}
+          onImagesChange={(next) => handleMetaChange('images', next)}
+          onPrimaryChange={(next) => handleMetaChange('primary_image', next)}
         />
         {attributes.length === 0 ? (
           <div style={{ textAlign: 'center', color: '#6c757d' }}>
@@ -589,14 +985,39 @@ const ProductsAttributesContent = ({
         <div>
           {attributes.result.map((productInfo, idx) => {
             const editableProduct = editableAttributes?.[idx] || productInfo;
-            const attributeList = (editableProduct?.attributes || [])
-              .map((attr, index) => ({ ...attr, __order: index }))
-              .sort(attributeComparator);
+            const availableAttributesMeta = Array.isArray(productInfo.available_attributes)
+              ? productInfo.available_attributes
+              : [];
             const attributeMetaMap = new Map(
-              (productInfo.available_attributes || [])
+              availableAttributesMeta
                 .map((meta) => [getAttributeKey(meta?.id ?? meta?.attribute_id), meta])
                 .filter(([key]) => !!key)
             );
+            const attributeList = (editableProduct?.attributes || [])
+              .map((attr, index) => ({
+                ...attr,
+                __order: index,
+                __attrKey: getAttributeKey(attr?.id ?? attr?.attribute_id)
+              }))
+              .sort((a, b) => {
+                const metaA = attributeMetaMap.get(a.__attrKey);
+                const metaB = attributeMetaMap.get(b.__attrKey);
+                const reqA = metaA?.is_required ? 1 : 0;
+                const reqB = metaB?.is_required ? 1 : 0;
+                if (reqA !== reqB) {
+                  return reqA ? -1 : 1;
+                }
+                return attributeComparator(a, b);
+              });
+            const requiredAttributeCount = availableAttributesMeta.filter(
+              (meta) => meta?.is_required
+            ).length;
+            const missingRequiredCount = attributeList.filter((attr) => {
+              const attrKey = attr.__attrKey || getAttributeKey(attr?.id ?? attr?.attribute_id);
+              if (!attrKey) return false;
+              const meta = attributeMetaMap.get(attrKey);
+              return meta?.is_required && !attributeHasValues(attr);
+            }).length;
             const typeMeta = attributeMetaMap.get(TYPE_ATTRIBUTE_ID);
             const typeAttributeFromList = attributeList.find(
               (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === TYPE_ATTRIBUTE_ID
@@ -683,6 +1104,40 @@ const ProductsAttributesContent = ({
                   onChange={(field, value) => handleMetaChange(idx, field, value)}
                   baseValues={{ ...(priceInfo || {}), ...productInfo }}
                 />
+                <ImagesManager
+                  title="Изображения товара"
+                  images={editableProduct?.images ?? productInfo.images ?? []}
+                  primaryImage={
+                    editableProduct?.primary_image ?? productInfo.primary_image ?? ''
+                  }
+                  onImagesChange={(next) =>
+                    onMetaChange?.(idx, 'images', Array.isArray(next) ? next : [])
+                  }
+                  onPrimaryChange={(value) => onMetaChange?.(idx, 'primary_image', value)}
+                  disabled={savingAttributes}
+                />
+
+                {requiredAttributeCount > 0 && (
+                  <div
+                    style={{
+                      margin: '12px 0',
+                      padding: '8px 12px',
+                      borderRadius: 6,
+                      backgroundColor: '#eef2ff',
+                      color: '#312e81',
+                      border: '1px solid #c7d2fe',
+                      fontSize: 13
+                    }}
+                  >
+                    Обязательные характеристики отмечены{' '}
+                    <strong style={{ color: '#d97706' }}>*</strong>.
+                    {missingRequiredCount > 0 && (
+                      <span style={{ marginLeft: 6, color: '#b91c1c' }}>
+                        Не заполнено: {missingRequiredCount}
+                      </span>
+                    )}
+                  </div>
+                )}
 
                 {attributeList.length > 0 && (
                   <div style={{ marginBottom: 20 }}>
@@ -714,7 +1169,7 @@ const ProductsAttributesContent = ({
                       }}
                     >
                       {attributeList.map((attr, aIdx) => {
-                        const attrKey = getAttributeKey(attr?.id ?? attr?.attribute_id);
+                        const attrKey = attr.__attrKey || getAttributeKey(attr?.id ?? attr?.attribute_id);
                         if (!attrKey) return null;
 
                         const meta = attributeMetaMap.get(attrKey);
@@ -776,6 +1231,9 @@ const ProductsAttributesContent = ({
                         const isLargeField =
                           LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey) ||
                           ['text', 'html', 'richtext'].includes(metaType);
+                        const isRequired = Boolean(meta?.is_required);
+                        const hasValue = attributeHasValues(attr);
+                        const showMissing = isRequired && !hasValue;
 
                         const rows = isLargeField ? 6 : 3;
                         const textareaMinHeight = isLargeField ? 140 : 70;
@@ -793,10 +1251,10 @@ const ProductsAttributesContent = ({
                           <div
                             key={`${attrKey}-${aIdx}`}
                             style={{
-                              border: '1px solid #e9ecef',
+                              border: `1px solid ${showMissing ? '#f8b4b4' : '#e9ecef'}`,
                               borderRadius: 6,
                               padding: 12,
-                              backgroundColor: 'white'
+                              backgroundColor: showMissing ? '#fff5f5' : 'white'
                             }}
                           >
                             <div
@@ -806,11 +1264,38 @@ const ProductsAttributesContent = ({
                                 marginBottom: 6
                               }}
                             >
-                              <div style={{ fontWeight: 'bold' }}>
+                              <div
+                                style={{
+                                  fontWeight: 'bold',
+                                  color: showMissing ? '#b91c1c' : 'inherit'
+                                }}
+                              >
                                 {meta?.name || attr.name || `ID ${attrKey}`}
+                                {isRequired && (
+                                  <span
+                                    style={{
+                                      marginLeft: 8,
+                                      color: showMissing ? '#b91c1c' : '#d97706',
+                                      fontSize: 13
+                                    }}
+                                  >
+                                    * Обязательное
+                                  </span>
+                                )}
                               </div>
                               <div style={{ fontSize: 12, color: '#6c757d' }}>ID: {attrKey}</div>
                             </div>
+                            {showMissing && (
+                              <div
+                                style={{
+                                  fontSize: 12,
+                                  color: '#b91c1c',
+                                  marginBottom: 6
+                                }}
+                              >
+                                Заполните это поле перед отправкой в OZON
+                              </div>
+                            )}
                             {hasDictionaryOptions && (
                               <div>
                                 <div style={{ fontSize: 13, fontWeight: 'bold', marginBottom: 6 }}>

@@ -28,8 +28,16 @@ import {
   isDictionaryValueEntry,
   normalizeAttributeValues,
   areAttributeValuesEqual,
-  normalizeProductAttributes
+  normalizeProductAttributes,
+  attributeHasValues,
+  collapseLargeTextAttributeValues
 } from '../src/utils/attributesHelpers';
+import {
+  normalizeImageList,
+  clampImageListToLimit,
+  normalizePrimaryImage,
+  areImageListsEqual
+} from '../src/utils/imageHelpers';
 
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
 const hasValue = (value) => value !== undefined && value !== null && value !== '';
@@ -275,11 +283,12 @@ export default function ProductsPage() {
   const handleProductMetaChange = (productIndex, field, value) => {
     setEditableAttributes(prev => {
       if (!prev) return prev;
+      const nextValue = Array.isArray(value) ? [...value] : value;
       return prev.map((product, idx) => {
         if (idx !== productIndex) return product;
         return {
           ...product,
-          [field]: value
+          [field]: nextValue
         };
       });
     });
@@ -437,19 +446,52 @@ export default function ProductsPage() {
         const originalTypeId = parsePositiveTypeId(originalProduct?.type_id ?? originalProduct?.typeId);
         const resolvedTypeId = userTypeId ?? originalTypeId ?? null;
 
+        const metaSource = isNewProduct
+          ? (attributes?.result && attributes.result[idx]) || {}
+          : originalProduct;
+        const requiredAttributeMeta = (metaSource?.available_attributes || []).filter(
+          (meta) => meta?.is_required
+        );
+        const requiredAttributeIds = new Set(
+          requiredAttributeMeta
+            .map((meta) => Number(meta?.id ?? meta?.attribute_id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        );
+        const missingRequiredAttributes = [];
+        requiredAttributeMeta.forEach((meta) => {
+          const attrKey = getAttributeKey(meta?.id ?? meta?.attribute_id);
+          if (!attrKey) return;
+          const editableAttr = (item.attributes || []).find(
+            (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === attrKey
+          );
+          if (!attributeHasValues(editableAttr)) {
+            missingRequiredAttributes.push(meta?.name || `ID ${attrKey}`);
+          }
+        });
+        if (missingRequiredAttributes.length) {
+          throw new Error(
+            `Товар ${offerId}: заполните обязательные характеристики ${missingRequiredAttributes.join(
+              ', '
+            )}`
+          );
+        }
+
         const attributesPayload = (item.attributes || [])
           .map(attr => {
             const id = Number(attr?.id ?? attr?.attribute_id);
             if (!id) return null;
-            const values = normalizeAttributeValues(attr.values);
+            let values = normalizeAttributeValues(attr.values);
+            values = collapseLargeTextAttributeValues(id, values);
             if (!values.length) return null;
 
             const originalAttr = (originalProduct.attributes || []).find(
               original => Number(original?.id ?? original?.attribute_id) === id
             );
-            const originalValues = normalizeAttributeValues(originalAttr?.values || []);
+            let originalValues = normalizeAttributeValues(originalAttr?.values || []);
+            originalValues = collapseLargeTextAttributeValues(id, originalValues);
 
-            if (areAttributeValuesEqual(values, originalValues)) {
+            const isRequiredAttr = requiredAttributeIds.has(id);
+            if (!isRequiredAttr && areAttributeValuesEqual(values, originalValues)) {
               return null;
             }
 
@@ -465,6 +507,7 @@ export default function ProductsPage() {
         const payload = {
           offer_id: String(offerId)
         };
+        let hasMediaUpdates = false;
 
         if (attributesPayload.length) {
           payload.attributes = attributesPayload;
@@ -476,6 +519,24 @@ export default function ProductsPage() {
 
         if (item.name && item.name !== originalProduct.name) {
           payload.name = item.name;
+        }
+
+        const normalizedPrimary = normalizePrimaryImage(item.primary_image);
+        const originalPrimary = normalizePrimaryImage(originalProduct.primary_image);
+        const normalizedImages = clampImageListToLimit(
+          Array.isArray(item.images) ? item.images : [],
+          normalizedPrimary
+        );
+        const originalImages = normalizeImageList(originalProduct.images || []);
+
+        if (!areImageListsEqual(normalizedImages, originalImages)) {
+          payload.images = normalizedImages;
+          hasMediaUpdates = true;
+        }
+
+        if (normalizedPrimary !== originalPrimary) {
+          payload.primary_image = normalizedPrimary || '';
+          hasMediaUpdates = true;
         }
 
         const baseFieldUpdates = {};
@@ -514,8 +575,29 @@ export default function ProductsPage() {
           Object.assign(payload, baseFieldUpdates);
         }
 
+        const resolvedDescriptionCategoryId =
+          item.description_category_id ??
+          item.descriptionCategoryId ??
+          originalProduct.description_category_id ??
+          originalProduct.descriptionCategoryId ??
+          metaSource?.description_category_id ??
+          metaSource?.descriptionCategoryId ??
+          null;
+
+        if (resolvedDescriptionCategoryId !== null && resolvedDescriptionCategoryId !== undefined) {
+          const numericCategoryId = Number(resolvedDescriptionCategoryId);
+          payload.description_category_id = Number.isFinite(numericCategoryId)
+            ? numericCategoryId
+            : resolvedDescriptionCategoryId;
+        }
+
         if (isNewProduct) {
-          if (!payload.attributes && !hasBaseFields && !payload.name) {
+          if (
+            !payload.attributes &&
+            !hasBaseFields &&
+            !payload.name &&
+            !hasMediaUpdates
+          ) {
             payload.attributes = [];
           }
           return payload;
@@ -525,7 +607,8 @@ export default function ProductsPage() {
           !payload.attributes &&
           !typeChanged &&
           !hasBaseFields &&
-          !payload.name
+          !payload.name &&
+          !hasMediaUpdates
         ) {
           return null;
         }

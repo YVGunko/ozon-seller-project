@@ -150,6 +150,14 @@ export const parseAttributeInput = (rawValue = '', attributeId = null) => {
   const attrKey = attributeId !== null ? String(attributeId) : null;
   const normalizedValue = String(rawValue);
 
+  if (attrKey && LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey)) {
+    const singleValue = normalizedValue
+      .replace(/\s*\r?\n\s*/g, ' ')
+      .replace(/\s{2,}/g, ' ')
+      .trim();
+    return singleValue ? [{ value: singleValue }] : [];
+  }
+
   if (attrKey && SINGLE_VALUE_STRING_ATTRIBUTE_IDS.has(attrKey)) {
     const singleLineValue = normalizedValue
       .replace(/[\r\n]+/g, ' ')
@@ -165,6 +173,40 @@ export const parseAttributeInput = (rawValue = '', attributeId = null) => {
     .map((value) => value.trim())
     .filter(Boolean)
     .map((value) => ({ value }));
+};
+
+const extractPlainValue = (entry) => {
+  if (!entry) return '';
+  if (typeof entry === 'string') return entry.trim();
+  const raw =
+    entry.value ??
+    entry.text ??
+    entry.value_text ??
+    entry.name ??
+    entry.label;
+  return raw ? String(raw).trim() : '';
+};
+
+export const collapseLargeTextAttributeValues = (attributeId, values = []) => {
+  if (!attributeId) return values;
+  const attrKey = String(attributeId);
+  if (!LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey)) {
+    return values;
+  }
+  const joined = values
+    .map((entry) => extractPlainValue(entry))
+    .filter(Boolean)
+    .join(' ')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+
+  return joined
+    ? [
+        {
+          value: joined
+        }
+      ]
+    : [];
 };
 
 export const getDictionaryOptionKey = (option) => {
@@ -291,4 +333,3 @@ export const areAttributeValuesEqual = (nextValues = [], originalValues = []) =>
     return sameValue && String(nextDict ?? '') === String(originalDict ?? '');
   });
 };
-
