@@ -33,6 +33,21 @@ export default async function handler(req, res) {
     const products = await ozon.getProductInfoAttributes(options);
     return res.status(200).json(products);
   } catch (error) {
+    const handledStatuses = new Set([400, 403, 404, 409]);
+    if (handledStatuses.has(error.status)) {
+      console.warn('⚠️ /api/products handled error:', {
+        status: error.status,
+        message: error.message || 'Unknown error',
+        details: error.data
+      });
+      return res.status(200).json({
+        result: [],
+        total: 0,
+        last_id: '',
+        warning: error.message || 'Запрос не вернул данных'
+      });
+    }
+
     console.error('❌ /api/products error:', error);
     return res.status(500).json({
       error: 'Failed to fetch products from OZON API',

@@ -8,7 +8,8 @@ import { useProductAttributes } from '../src/hooks/useProductAttributes';
 import {
   REQUIRED_BASE_FIELDS,
   NUMERIC_BASE_FIELDS,
-  BASE_FIELD_LABELS
+  BASE_FIELD_LABELS,
+  PRICE_FIELDS
 } from '../src/constants/productFields';
 import { AttributesModal } from '../src/components/attributes';
 import {
@@ -32,6 +33,19 @@ import {
 
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
 const hasValue = (value) => value !== undefined && value !== null && value !== '';
+const resolveInfoPriceField = (info, field) => {
+  if (!info) return null;
+  const raw = info[field];
+  if (raw === undefined || raw === null || raw === '') {
+    return null;
+  }
+  if (typeof raw === 'object') {
+    if (hasValue(raw.price)) return raw.price;
+    if (hasValue(raw.value)) return raw.value;
+    if (hasValue(raw.amount)) return raw.amount;
+  }
+  return raw;
+};
 
 export default function ProductsPage() {
   const router = useRouter();
@@ -647,6 +661,45 @@ export default function ProductsPage() {
           console.warn('[copy] field missing', field);
         }
       });
+
+      const missingPriceFields = PRICE_FIELDS.filter(
+        (field) => !hasValue(sourceRaw[field])
+      );
+      if (missingPriceFields.length && copySourceProduct?.offer_id && currentProfile?.id) {
+        try {
+          const infoQuery = new URLSearchParams({
+            offer_id: copySourceProduct.offer_id,
+            profileId: currentProfile.id
+          });
+          const infoResponse = await fetch(
+            `/api/products/info-list?${infoQuery.toString()}`
+          );
+          if (infoResponse.ok) {
+            const infoData = await infoResponse.json();
+            const infoItem =
+              (Array.isArray(infoData?.items) && infoData.items[0]) ||
+              (Array.isArray(infoData?.raw?.items) && infoData.raw.items[0]) ||
+              null;
+            if (infoItem) {
+              PRICE_FIELDS.forEach((field) => {
+                if (hasValue(sourceRaw[field])) return;
+                const resolved = resolveInfoPriceField(infoItem, field);
+                if (hasValue(resolved)) {
+                  sourceRaw[field] = String(resolved);
+                  console.log('[copy] info-list resolved', field, resolved);
+                }
+              });
+            } else {
+              console.warn('[copy] info-list: item not found for', copySourceProduct.offer_id);
+            }
+          } else {
+            const infoText = await infoResponse.text();
+            console.error('[copy] info-list request failed', infoResponse.status, infoText);
+          }
+        } catch (infoError) {
+          console.error('[copy] failed to fetch info-list', infoError);
+        }
+      }
 
       const descriptionCategoryId =
         sourceRaw.description_category_id ?? sourceRaw.descriptionCategoryId;
