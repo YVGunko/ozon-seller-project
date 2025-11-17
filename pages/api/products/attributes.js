@@ -3,38 +3,15 @@ import { OzonApiService } from '../../../src/services/ozon-api';
 import { addRequestLog } from '../../../src/server/requestLogStore';
 import { buildStatusCheckMessage } from '../../../src/utils/importStatus';
 import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { enrichProductsWithDescriptionAttributes } from '../../../src/server/descriptionAttributesHelper';
 
 const STATUS_CHECK_DELAY_MS = 5000;
-
-const buildDescriptionAttributeKey = (descriptionCategoryId, typeId) => {
-  return `${descriptionCategoryId ?? 'none'}:${typeId ?? 'none'}`;
-};
-
-const getAttributeValueLabel = (valueEntry) => {
-  if (!valueEntry) return '';
-  return (
-    valueEntry?.value ??
-    valueEntry?.text ??
-    valueEntry?.value_text ??
-    ''
-  );
-};
-
-const getAttributeValueDictionaryId = (valueEntry) => {
-  if (!valueEntry) return null;
-  const raw =
-    valueEntry?.dictionary_value_id ??
-    valueEntry?.dictionaryValueId ??
-    valueEntry?.value_id ??
-    valueEntry?.id;
-  if (raw === undefined || raw === null) return null;
-  return String(raw);
-};
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async function handler(req, res) {
   try {
+              console.log('attributes.js handler');
     if (req.method === 'GET') {
       const { offer_id } = req.query;
 
@@ -48,181 +25,9 @@ export default async function handler(req, res) {
       const result = await ozon.getProductAttributes(offer_id);
       const products = Array.isArray(result?.result) ? result.result : [];
 
-      const combos = new Map();
-      const productsByCombo = new Map();
-
-      products.forEach((product) => {
-        const descriptionCategoryId = product?.description_category_id;
-        const typeId = product?.type_id;
-
-        if (!descriptionCategoryId || !typeId) {
-          return;
-        }
-
-        const key = buildDescriptionAttributeKey(descriptionCategoryId, typeId);
-        if (!combos.has(key)) {
-          combos.set(key, { descriptionCategoryId, typeId });
-        }
-        if (!productsByCombo.has(key)) {
-          productsByCombo.set(key, []);
-        }
-        productsByCombo.get(key).push(product);
-      });
-
-      const metaByCombo = {};
-
-      for (const [key, combo] of combos.entries()) {
-        try {
-          const attributesResponse = await ozon.getDescriptionCategoryAttributes(
-            combo.descriptionCategoryId,
-            combo.typeId
-          );
-
-          const attributesList = Array.isArray(attributesResponse?.result)
-            ? attributesResponse.result
-            : [];
-
-          const productsInCombo = productsByCombo.get(key) || [];
-
-          const enrichedAttributes = await Promise.all(
-            attributesList.map(async (attributeMeta) => {
-              const attributeId = attributeMeta?.id ?? attributeMeta?.attribute_id;
-              const hasDictionary = attributeMeta?.dictionary_id;
-
-              if (!attributeId || !hasDictionary) {
-                return attributeMeta;
-              }
-
-              const attributeValues = [];
-              productsInCombo.forEach((product) => {
-                (product.attributes || []).forEach((attr) => {
-                  const attrId = attr?.id ?? attr?.attribute_id;
-                  if (String(attrId) === String(attributeId)) {
-                    (attr.values || []).forEach((valueEntry) => {
-                      attributeValues.push(valueEntry);
-                    });
-                  }
-                });
-              });
-
-              try {
-                const dictionaryResponse = await ozon.getAttributeDictionaryValues({
-                  attribute_id: attributeId,
-                  description_category_id: combo.descriptionCategoryId,
-                  language: 'DEFAULT',
-                  last_value_id: 0,
-                  limit: 100,
-                  type_id: combo.typeId
-                });
-
-                let dictionaryValues = Array.isArray(dictionaryResponse?.result)
-                  ? dictionaryResponse.result
-                  : [];
-                const dictionaryValueIds = new Set(
-                  dictionaryValues
-                    .map(
-                      (option) =>
-                        option?.dictionary_value_id ??
-                        option?.value_id ??
-                        option?.id
-                    )
-                    .filter((val) => val !== undefined && val !== null)
-                    .map(String)
-                );
-
-                const searchPromises = [];
-                const seenSearchLabels = new Set();
-
-                attributeValues.forEach((valueEntry) => {
-                  const label = getAttributeValueLabel(valueEntry);
-                  const dictionaryId = getAttributeValueDictionaryId(valueEntry);
-                  if (dictionaryId && !dictionaryValueIds.has(dictionaryId)) {
-                    if (label && !seenSearchLabels.has(label)) {
-                      seenSearchLabels.add(label);
-                      searchPromises.push(
-                        ozon
-                          .searchAttributeDictionaryValues({
-                            attribute_id: attributeId,
-                            description_category_id: combo.descriptionCategoryId,
-                            type_id: combo.typeId,
-                            language: 'DEFAULT',
-                            limit: 50,
-                            value: label
-                          })
-                          .then((searchResponse) => {
-                            const searchResults = Array.isArray(searchResponse?.result)
-                              ? searchResponse.result
-                              : [];
-                            return searchResults;
-                          })
-                          .catch((searchError) => {
-                            console.error('Failed to search dictionary values', {
-                              attributeId,
-                              descriptionCategoryId: combo.descriptionCategoryId,
-                              typeId: combo.typeId,
-                              value: label,
-                              message: searchError?.message || searchError
-                            });
-                            return [];
-                          })
-                      );
-                    }
-                  }
-                });
-
-                if (searchPromises.length) {
-                  const searchResultsList = await Promise.all(searchPromises);
-                  searchResultsList.forEach((searchResults) => {
-                    searchResults.forEach((option) => {
-                      const optionId =
-                        option?.dictionary_value_id ??
-                        option?.value_id ??
-                        option?.id;
-                      if (optionId !== undefined && optionId !== null) {
-                        const idStr = String(optionId);
-                        if (!dictionaryValueIds.has(idStr)) {
-                          dictionaryValueIds.add(idStr);
-                          dictionaryValues.push(option);
-                        }
-                      }
-                    });
-                  });
-                }
-
-                return {
-                  ...attributeMeta,
-                  dictionary_values: dictionaryValues
-                };
-              } catch (dictionaryError) {
-                console.error('Failed to fetch dictionary values', {
-                  attributeId,
-                  descriptionCategoryId: combo.descriptionCategoryId,
-                  typeId: combo.typeId,
-                  message: dictionaryError?.message || dictionaryError
-                });
-                return attributeMeta;
-              }
-            })
-          );
-
-          metaByCombo[key] = enrichedAttributes;
-        } catch (metaError) {
-          console.error('Failed to fetch description-category attributes', {
-            descriptionCategoryId: combo.descriptionCategoryId,
-            typeId: combo.typeId,
-            message: metaError?.message || metaError
-          });
-          metaByCombo[key] = [];
-        }
-      }
-
-      const enrichedProducts = products.map((product) => {
-        const key = buildDescriptionAttributeKey(product?.description_category_id, product?.type_id);
-
-        return {
-          ...product,
-          available_attributes: metaByCombo[key] || []
-        };
+      const { products: enrichedProducts } = await enrichProductsWithDescriptionAttributes({
+        ozon,
+        products
       });
 
       return res.status(200).json({

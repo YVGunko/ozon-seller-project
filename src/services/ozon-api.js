@@ -156,6 +156,11 @@ export class OzonApiService {
       descriptionCategoryAttributeCache.delete(cacheKey);
     }
 
+    console.log('[OzonApiService] fetch description-category attributes', {
+      descriptionCategoryId,
+      typeId,
+      language
+    });
     const data = await this.request('/v1/description-category/attribute', {
       description_category_id: descriptionCategoryId,
       language,
@@ -524,6 +529,28 @@ export class OzonApiService {
     return this.request('/v3/product/info/list', {
       offer_id: ids
     });
+  }
+
+  async getProductInfoAttributes({ limit = 50, last_id = '', offer_ids = [], sku = [] } = {}) {
+    const payload = {
+      limit: Number(limit) || 50,
+      last_id: String(last_id || ''),
+      filter: {}
+    };
+
+    if (Array.isArray(offer_ids) && offer_ids.length) {
+      payload.filter.offer_id = offer_ids.filter(Boolean).map(String);
+    }
+
+    if (Array.isArray(sku) && sku.length) {
+      payload.filter.sku = sku.filter(Boolean).map(String);
+    }
+
+    if (!payload.filter.offer_id && !payload.filter.sku) {
+      payload.filter.visibility = 'ALL';
+    }
+
+    return this.request('/v4/product/info/attributes', payload);
   }
 
   async generateBarcodes(productIds = []) {

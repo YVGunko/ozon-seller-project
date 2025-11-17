@@ -1,5 +1,6 @@
 // pages/products.js
 import { useState, useEffect, useCallback, useRef } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
@@ -25,7 +26,8 @@ import {
   getDictionaryValueEntryKey,
   isDictionaryValueEntry,
   normalizeAttributeValues,
-  areAttributeValuesEqual
+  areAttributeValuesEqual,
+  normalizeProductAttributes
 } from '../src/utils/attributesHelpers';
 
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
@@ -57,13 +59,10 @@ export default function ProductsPage() {
 
   const [copyModalOpen, setCopyModalOpen] = useState(false);
   const [copyLoading, setCopyLoading] = useState(false);
+  const [copySourceProduct, setCopySourceProduct] = useState(null);
   const [copyForm, setCopyForm] = useState({
     new_offer_id: '',
-    name: '',
-    color: '',
-    description: '',
-    price: '',
-    old_price: ''
+    name: ''
   });
 
   const [error, setError] = useState(null);
@@ -101,19 +100,37 @@ export default function ProductsPage() {
 
       const result = await apiClient.getProducts(pagination.limit, currentProfile, params);
 
-      if (result?.result?.items) {
-        const items = result.result.items;
+      console.log('[products] raw response', result);
+      const responseItems =
+        (Array.isArray(result?.result?.items) && result.result.items) ||
+        (Array.isArray(result?.items) && result.items) ||
+        (Array.isArray(result?.result) && result.result) ||
+        [];
+
+      if (responseItems.length) {
+        const items = responseItems.map((item) => {
+          const derivedSku =
+            item?.sku ??
+            (Array.isArray(item?.sources) && item.sources.length ? item.sources[0]?.sku : '') ??
+            '';
+          return {
+            ...item,
+            name: item?.name ?? item?.product_name ?? item?.title ?? '',
+            sku: derivedSku
+          };
+        });
         setProducts(prev => reset ? items : [...prev, ...items]);
         setPagination(prev => ({
           ...prev,
-          last_id: result.result.last_id || '',
-          hasMore: !!result.result.last_id && items.length === prev.limit
+          last_id: result?.result?.last_id || result?.last_id || '',
+          hasMore: Boolean(result?.result?.last_id || result?.last_id)
         }));
       } else if (Array.isArray(result)) {
+        console.warn('[products] unexpected array response structure', result);
         setProducts(prev => reset ? result : [...prev, ...result]);
         setPagination(prev => ({ ...prev, hasMore: result.length === prev.limit }));
       } else {
-        console.warn('Unexpected products response', result);
+        console.warn('[products] unexpected response', result);
       }
     } catch (err) {
       console.error('fetchProducts error', err);
@@ -393,14 +410,15 @@ export default function ProductsPage() {
   const sanitizeItemsForUpdate = () => {
     if (!editableAttributes || editableAttributes.length === 0) return [];
 
-    const originalProducts = attributes?.result || [];
+    const isNewProduct = Boolean(attributes?.isNewProduct);
+    const originalProducts = Array.isArray(attributes?.result) ? attributes.result : [];
 
     return editableAttributes
       .map((item, idx) => {
         const offerId = item.offer_id || selectedProduct;
         if (!offerId) return null;
 
-        const originalProduct = originalProducts[idx] || {};
+        const originalProduct = isNewProduct ? {} : originalProducts[idx] || {};
         const userTypeId = parsePositiveTypeId(item.type_id ?? item.typeId);
         const originalTypeId = parsePositiveTypeId(originalProduct?.type_id ?? originalProduct?.typeId);
         const resolvedTypeId = userTypeId ?? originalTypeId ?? null;
@@ -480,6 +498,13 @@ export default function ProductsPage() {
         const hasBaseFields = Object.keys(baseFieldUpdates).length > 0;
         if (hasBaseFields) {
           Object.assign(payload, baseFieldUpdates);
+        }
+
+        if (isNewProduct) {
+          if (!payload.attributes && !hasBaseFields && !payload.name) {
+            payload.attributes = [];
+          }
+          return payload;
         }
 
         if (
@@ -568,20 +593,18 @@ export default function ProductsPage() {
   };
 
   const openCopyModal = (product) => {
-    setSelectedProduct(product);
+    setCopySourceProduct(product);
     setCopyForm({
       new_offer_id: `${product.offer_id}-copy`,
-      name: product.name || '',
-      color: '',
-      description: '',
-      price: '',
-      old_price: ''
+      name: product.name || ''
     });
     setCopyModalOpen(true);
   };
 
   const copyProduct = async () => {
-    if (!copyForm.new_offer_id) {
+    const trimmedNewOffer = copyForm.new_offer_id.trim();
+    const trimmedName = copyForm.name.trim();
+    if (!trimmedNewOffer) {
       alert('Пожалуйста, введите новый артикул');
       return;
     }
@@ -589,34 +612,120 @@ export default function ProductsPage() {
       alert('Пожалуйста, выберите профиль');
       return;
     }
+    if (!copySourceProduct) {
+      alert('Не выбран исходный товар для копирования');
+      return;
+    }
 
     setCopyLoading(true);
     try {
-      const modifications = {};
-      if (copyForm.name && copyForm.name !== selectedProduct.name) modifications.name = copyForm.name;
-      if (copyForm.color) modifications.color = copyForm.color;
-      if (copyForm.description) modifications.description = copyForm.description;
-      if (copyForm.price) modifications.price = copyForm.price;
-      if (copyForm.old_price) modifications.old_price = copyForm.old_price;
+      console.log('[copy] source product', copySourceProduct);
+      const sourceRaw = JSON.parse(JSON.stringify(copySourceProduct));
+      console.log('[copy] raw clone', sourceRaw);
 
-      const result = await apiClient.copyProduct(
-        selectedProduct.offer_id,
-        copyForm.new_offer_id,
-        modifications,
-        currentProfile
-      );
+      sourceRaw.offer_id = trimmedNewOffer;
+      sourceRaw.offerId = trimmedNewOffer;
+      delete sourceRaw.product_id;
+      delete sourceRaw.productId;
+      delete sourceRaw.id;
+      delete sourceRaw.sku;
+      delete sourceRaw.barcode;
+      delete sourceRaw.barcodes;
 
-      console.log('copy result', result);
-      alert('Товар успешно скопирован!');
+      if (trimmedName) {
+        sourceRaw.name = trimmedName;
+      }
+
+      REQUIRED_BASE_FIELDS.forEach((field) => {
+        const primaryValue = sourceRaw[field];
+        const fallbackValue = copySourceProduct?.[field];
+        const resolved = hasValue(primaryValue) ? primaryValue : fallbackValue;
+        if (hasValue(resolved)) {
+          sourceRaw[field] = resolved;
+          console.log('[copy] field resolved', field, resolved);
+        } else {
+          console.warn('[copy] field missing', field);
+        }
+      });
+
+      const descriptionCategoryId =
+        sourceRaw.description_category_id ?? sourceRaw.descriptionCategoryId;
+      const typeId = sourceRaw.type_id ?? sourceRaw.typeId;
+      let availableAttributes = Array.isArray(sourceRaw.available_attributes)
+        ? sourceRaw.available_attributes
+        : [];
+
+      if (descriptionCategoryId && typeId && !availableAttributes.length) {
+        try {
+          const metaResponse = await apiClient.getDescriptionAttributes(
+            {
+              description_category_id: descriptionCategoryId,
+              type_id: typeId,
+              attributes: Array.isArray(sourceRaw.attributes)
+                ? sourceRaw.attributes
+                : []
+            },
+            currentProfile
+          );
+          availableAttributes = Array.isArray(metaResponse?.attributes)
+            ? metaResponse.attributes
+            : [];
+          console.log('[copy] loaded description attributes', {
+            count: availableAttributes.length,
+            descriptionCategoryId,
+            typeId
+          });
+        } catch (metaError) {
+          console.error(
+            '[copy] failed to load description attributes',
+            metaError
+          );
+        }
+      } else if (!descriptionCategoryId || !typeId) {
+        console.warn('[copy] missing description category or type_id', {
+          descriptionCategoryId,
+          typeId
+        });
+      }
+
+      sourceRaw.available_attributes = availableAttributes;
+
+      const normalized = normalizeProductAttributes([sourceRaw]);
+      const sourceEditable = JSON.parse(JSON.stringify(normalized[0] || {}));
+
+      sourceEditable.offer_id = trimmedNewOffer;
+      if (trimmedName) {
+        sourceEditable.name = trimmedName;
+      }
+
+      REQUIRED_BASE_FIELDS.forEach((field) => {
+        if (hasValue(sourceRaw[field])) {
+          sourceEditable[field] = sourceRaw[field];
+        }
+      });
+
+      setAttributes({
+        result: [sourceRaw],
+        isNewProduct: true
+      });
+      setEditableAttributes([sourceEditable]);
+      setSelectedProduct(trimmedNewOffer);
+      setAttributesUpdateStatus({ message: '', error: '' });
       setCopyModalOpen(false);
-      // обновляем список
-      fetchProducts(true);
+      setCopySourceProduct(null);
     } catch (err) {
       console.error('copyProduct error', err);
-      alert('Ошибка при копировании: ' + (err.message || err));
+      alert('Ошибка при подготовке копии: ' + (err.message || err));
     } finally {
       setCopyLoading(false);
     }
+  };
+
+  const handleCopyFormChange = (field, value) => {
+    setCopyForm((prev) => ({
+      ...prev,
+      [field]: value
+    }));
   };
 
   const applyFilters = () => {
@@ -742,6 +851,8 @@ export default function ProductsPage() {
             <tr style={{ backgroundColor: '#f8f9fa' }}>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Product ID</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Артикул</th>
+              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Название</th>
+              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>SKU</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>В архиве</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>FBO остатки</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>FBS остатки</th>
@@ -752,8 +863,10 @@ export default function ProductsPage() {
           <tbody>
             {filteredProducts.map((product) => (
               <tr key={product.product_id || product.offer_id} style={{ borderBottom: '1px solid #dee2e6' }}>
-                <td style={{ padding: 12 }}>{product.product_id}</td>
-                <td style={{ padding: 12, fontWeight: 'bold' }}>{product.offer_id}</td>
+                <td style={{ padding: 12 }}>{product.product_id || product.id || '—'}</td>
+              <td style={{ padding: 12, fontWeight: 'bold' }}>{product.offer_id}</td>
+              <td style={{ padding: 12 }}>{product.name || '—'}</td>
+              <td style={{ padding: 12 }}>{product.sku || '—'}</td>
                 <td style={{ padding: 12 }}>
                   <span style={{ color: product.archived ? '#dc3545' : '#28a745', fontWeight: 'bold' }}>
                     {product.archived ? 'Да' : 'Нет'}
@@ -869,5 +982,109 @@ export default function ProductsPage() {
         offerId={selectedProduct}
         priceContextLabel={selectedProduct ? `Товар ${selectedProduct}` : undefined}
       />
+      {copyModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: 20
+          }}
+        >
+          <div
+            style={{
+              backgroundColor: '#fff',
+              borderRadius: 8,
+              padding: 24,
+              maxWidth: 500,
+              width: '100%',
+              position: 'relative',
+              boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+            }}
+          >
+            <h2 style={{ marginTop: 0, marginBottom: 16 }}>Копирование товара</h2>
+            <p style={{ marginTop: 0, color: '#6c757d', fontSize: 14 }}>
+              Источник: <strong>{copySourceProduct?.offer_id}</strong>
+            </p>
+
+            <p style={{ fontSize: 13, color: '#6c757d', marginBottom: 15 }}>
+              Укажите новый артикул и название. Остальные атрибуты можно будет скорректировать в следующем шаге.
+            </p>
+
+            <label style={{ display: 'block', marginBottom: 10 }}>
+              Новый артикул (offer_id)
+              <input
+                type="text"
+                value={copyForm.new_offer_id}
+                onChange={(e) => handleCopyFormChange('new_offer_id', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: 8,
+                  borderRadius: 4,
+                  border: '1px solid #ced4da',
+                  marginTop: 4
+                }}
+              />
+            </label>
+
+            <label style={{ display: 'block', marginBottom: 10 }}>
+              Название
+              <input
+                type="text"
+                value={copyForm.name}
+                onChange={(e) => handleCopyFormChange('name', e.target.value)}
+                style={{
+                  width: '100%',
+                  padding: 8,
+                  borderRadius: 4,
+                  border: '1px solid #ced4da',
+                  marginTop: 4
+                }}
+              />
+            </label>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
+              <button
+                type="button"
+                onClick={() => {
+                  setCopyModalOpen(false);
+                  setCopySourceProduct(null);
+                }}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 4,
+                  border: '1px solid #ced4da',
+                  background: 'transparent',
+                  cursor: 'pointer'
+                }}
+              >
+                Отмена
+              </button>
+              <button
+                type="button"
+                onClick={copyProduct}
+                disabled={copyLoading}
+                style={{
+                  padding: '8px 16px',
+                  borderRadius: 4,
+                  border: 'none',
+                  backgroundColor: '#28a745',
+                  color: '#fff',
+                  cursor: copyLoading ? 'not-allowed' : 'pointer'
+                }}
+              >
+                {copyLoading ? 'Подготавливаем…' : 'Продолжить'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>)
 }

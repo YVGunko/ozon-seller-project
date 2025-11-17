@@ -23,14 +23,14 @@ export default async function handler(req, res) {
     const options = {
       limit: Number(limit),
       last_id,
-      filter: { visibility: 'ALL' }
+      offer_ids: []
     };
 
     if (offer_id) {
-      options.filter.offer_id = Array.isArray(offer_id) ? offer_id : [offer_id];
+      options.offer_ids = Array.isArray(offer_id) ? offer_id : [offer_id];
     }
 
-    const products = await ozon.getProducts(options);
+    const products = await ozon.getProductInfoAttributes(options);
     return res.status(200).json(products);
   } catch (error) {
     console.error('❌ /api/products error:', error);

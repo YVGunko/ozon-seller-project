@@ -34,6 +34,32 @@ export const apiClient = {
     return res.json();
   },
 
+  async getDescriptionAttributes(params = {}, profile = null) {
+    if (!profile) {
+      throw new Error('Не выбран профиль OZON');
+    }
+    const payload = {
+      description_category_id: params.description_category_id,
+      type_id: params.type_id,
+      attributes: params.attributes || [],
+      language: params.language || 'DEFAULT',
+      profileId: getProfileId(profile)
+    };
+
+    const res = await fetch('/api/products/description-attributes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || 'Failed to fetch description attributes');
+    }
+
+    return res.json();
+  },
+
   async copyProduct(sourceOfferId, newOfferId, modifications, profile) {
     const res = await fetch('/api/products/copy', {
       method: 'POST',
