@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { ProfileManager } from '../src/utils/profileManager';
 import { useWarehouses } from '../src/hooks/useWarehouses';
+import { OzonProxyService } from '../src/services/ozon-proxy-client';
+import { generateBarcodesForEntries } from '../src/utils/importStatusClient';
 
 const FILTER_OPTIONS = [
   { value: 'all', label: 'Все' },
@@ -70,6 +72,9 @@ export default function AttentionPage() {
   const [stockSubmitting, setStockSubmitting] = useState(false);
   const [stockResult, setStockResult] = useState(null);
   const [stockError, setStockError] = useState(null);
+  const [barcodeSubmitting, setBarcodeSubmitting] = useState(false);
+  const [barcodeStatus, setBarcodeStatus] = useState('');
+  const [barcodeError, setBarcodeError] = useState('');
 
   useEffect(() => {
     const profile = ProfileManager.getCurrentProfile();
@@ -203,6 +208,10 @@ export default function AttentionPage() {
     (entry) => Array.isArray(entry?.errors) && entry.errors.length > 0
   );
   const canUpdateStocks = Boolean(currentProfile && selectedWarehouse && filteredCount > 0);
+  const itemsWithoutBarcodes = filteredItems.filter(
+    (item) => !Array.isArray(item?.barcodes) || item.barcodes.length === 0
+  );
+  const canGenerateBarcodes = Boolean(currentProfile && itemsWithoutBarcodes.length > 0);
 
   const handleStockSubmit = async () => {
     if (!currentProfile) {
@@ -291,6 +300,49 @@ export default function AttentionPage() {
       setStockError(submitError.message || 'Не удалось обновить остатки');
     } finally {
       setStockSubmitting(false);
+    }
+  };
+
+  const handleGenerateBarcodes = async () => {
+    if (!currentProfile) {
+      setBarcodeError('Профиль не выбран');
+      return;
+    }
+    if (!itemsWithoutBarcodes.length) {
+      setBarcodeError('Нет товаров без штрихкодов в текущем списке');
+      return;
+    }
+    try {
+      setBarcodeSubmitting(true);
+      setBarcodeError('');
+      setBarcodeStatus('Отправляем запросы на генерацию штрихкодов…');
+      const proxyService = new OzonProxyService(currentProfile);
+      const entries = itemsWithoutBarcodes.map((item) => ({
+        productId: item?.product_id ?? item?.id,
+        offerId: item?.offer_id
+      }));
+      const barcodeMap = await generateBarcodesForEntries({
+        service: proxyService,
+        entries,
+        logger: console
+      });
+      const successCount = Array.from(barcodeMap.values()).filter(
+        (entry) => entry?.barcode && !entry?.barcodeError
+      ).length;
+      const errorCount = Array.from(barcodeMap.values()).filter(
+        (entry) => entry?.barcodeError
+      ).length;
+      setBarcodeStatus(
+        `Штрихкоды сгенерированы для ${successCount} товаров${
+          errorCount ? `, ошибок: ${errorCount}` : ''
+        }. Обновите список, чтобы увидеть изменения.`
+      );
+    } catch (barcodeErr) {
+      console.error('[AttentionPage] barcode error', barcodeErr);
+      setBarcodeError(barcodeErr.message || 'Не удалось сгенерировать штрихкоды');
+      setBarcodeStatus('');
+    } finally {
+      setBarcodeSubmitting(false);
     }
   };
 
@@ -648,6 +700,23 @@ export default function AttentionPage() {
             >
               Установить остаток
             </button>
+            <button
+              type="button"
+              onClick={handleGenerateBarcodes}
+              disabled={!canGenerateBarcodes || barcodeSubmitting}
+              style={{
+                padding: '10px 18px',
+                backgroundColor: canGenerateBarcodes ? '#0ea5e9' : '#adb5bd',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: canGenerateBarcodes ? 'pointer' : 'not-allowed',
+                marginBottom: 12,
+                marginLeft: 12
+              }}
+            >
+              Сгенерировать штрихкод
+            </button>
             {stockFormVisible && (
               <div
                 style={{
@@ -710,6 +779,12 @@ export default function AttentionPage() {
             )}
             {stockError && (
               <div style={{ color: '#dc3545', marginBottom: 12 }}>{stockError}</div>
+            )}
+            {barcodeError && (
+              <div style={{ color: '#dc3545', marginBottom: 12 }}>{barcodeError}</div>
+            )}
+            {barcodeStatus && (
+              <div style={{ color: '#0f5132', marginBottom: 12 }}>{barcodeStatus}</div>
             )}
             {stockResultEntries.length > 0 && (
               <div
