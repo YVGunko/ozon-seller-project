@@ -261,10 +261,27 @@ export default function Home() {
                   color: '#212529',
                   textDecoration: 'none',
                   borderRadius: '4px',
-                  fontWeight: 'bold'
+                  fontWeight: 'bold',
+                  marginRight: '10px'
                 }}
               >
                 ⚠️ Товары без внимания
+              </div>
+            </Link>
+            <Link href="/product-cloner" passHref>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 24px',
+                  backgroundColor: '#0ea5e9',
+                  color: 'white',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  marginRight: '10px'
+                }}
+              >
+                ✳️ Клонирование товаров
               </div>
             </Link>
             <Link href="/logs" passHref>
