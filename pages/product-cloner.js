@@ -247,6 +247,11 @@ export default function ProductClonerPage() {
   const [currentProfile, setCurrentProfile] = useState(null);
   const [sampleOffer, setSampleOffer] = useState('');
   const [sampleAttributes, setSampleAttributes] = useState(null);
+  const [basePriceOverrides, setBasePriceOverrides] = useState({
+    price: '',
+    old_price: '',
+    min_price: ''
+  });
   const [sampleError, setSampleError] = useState('');
   const [loadingSample, setLoadingSample] = useState(false);
   const [offersInput, setOffersInput] = useState('');
@@ -323,6 +328,11 @@ export default function ProductClonerPage() {
           console.error('Failed to fetch info-list for sample', infoError);
         }
         setSampleAttributes(product);
+        setBasePriceOverrides({
+          price: product.price ? String(product.price) : '',
+          old_price: product.old_price ? String(product.old_price) : '',
+          min_price: product.min_price ? String(product.min_price) : ''
+        });
       }
     } catch (err) {
       console.error('Failed to load sample product', err);
@@ -424,6 +434,14 @@ export default function ProductClonerPage() {
     const baseName = sampleAttributes.name || '';
     const baseDescription = sampleAttributes.description || '';
     const baseOfferId = sampleAttributes.offer_id || '';
+    const resolvedBaseFields = REQUIRED_BASE_FIELDS.reduce((acc, field) => {
+      const overrideValue = basePriceOverrides[field]?.trim();
+      const fallbackValue = sampleAttributes[field];
+      acc[field] = overrideValue !== undefined && overrideValue !== ''
+        ? overrideValue
+        : fallbackValue ?? '';
+      return acc;
+    }, {});
     const attributeMetaMap = new Map(
       (sampleAttributes.available_attributes || []).map((meta) => [
         getAttributeKey(meta?.id ?? meta?.attribute_id) || '',
@@ -452,6 +470,11 @@ export default function ProductClonerPage() {
       nextProductPayload.name = appliedName || rule.target;
       nextProductPayload.description = appliedDescription;
       nextProductPayload.attributes = nextAttributes;
+      Object.entries(resolvedBaseFields).forEach(([field, value]) => {
+        if (value !== undefined && value !== null) {
+          nextProductPayload[field] = value;
+        }
+      });
 
       return {
         target: rule.target,
@@ -604,6 +627,45 @@ export default function ProductClonerPage() {
             {loadingSample ? 'Загружаем…' : 'Загрузить образец'}
           </button>
         </div>
+        {sampleAttributes && (
+          <div
+            style={{
+              marginTop: 12,
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+              gap: 12
+            }}
+          >
+            {[
+              { field: 'price', label: 'Цена' },
+              { field: 'old_price', label: 'Старая цена' },
+              { field: 'min_price', label: 'Минимальная цена' }
+            ].map(({ field, label }) => (
+              <div key={field}>
+                <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
+                  {label}
+                </label>
+                <input
+                  type="text"
+                  value={basePriceOverrides[field]}
+                  onChange={(e) =>
+                    setBasePriceOverrides((prev) => ({
+                      ...prev,
+                      [field]: e.target.value
+                    }))
+                  }
+                  placeholder="Введите значение"
+                  style={{
+                    width: '100%',
+                    padding: 8,
+                    borderRadius: 6,
+                    border: '1px solid #d1d5db'
+                  }}
+                />
+              </div>
+            ))}
+          </div>
+        )}
         {sampleError && (
           <div style={{ color: '#b91c1c', fontSize: 14, marginBottom: 10 }}>{sampleError}</div>
         )}
