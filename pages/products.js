@@ -36,7 +36,8 @@ import {
   normalizeImageList,
   clampImageListToLimit,
   normalizePrimaryImage,
-  areImageListsEqual
+  areImageListsEqual,
+  ensureImagesPresent
 } from '../src/utils/imageHelpers';
 
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
@@ -528,6 +529,10 @@ export default function ProductsPage() {
           normalizedPrimary
         );
         const originalImages = normalizeImageList(originalProduct.images || []);
+
+        if (!normalizedImages.length) {
+          throw new Error(`Товар ${offerId}: добавьте хотя бы одно изображение`);
+        }
 
         if (!areImageListsEqual(normalizedImages, originalImages)) {
           payload.images = normalizedImages;

@@ -8,6 +8,11 @@ import {
   REQUIRED_BASE_FIELDS,
   BASE_FIELD_LABELS
 } from '../src/constants/productFields';
+import {
+  ensureImagesPresent,
+  clampImageListToLimit,
+  normalizePrimaryImage
+} from '../src/utils/imageHelpers';
 
 const pageStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -470,6 +475,13 @@ export default function ProductClonerPage() {
       nextProductPayload.name = appliedName || rule.target;
       nextProductPayload.description = appliedDescription;
       nextProductPayload.attributes = nextAttributes;
+      nextProductPayload.images = ensureImagesPresent(
+        clampImageListToLimit(sampleAttributes.images || [], sampleAttributes.primary_image),
+        rule.target
+      );
+      nextProductPayload.primary_image = normalizePrimaryImage(
+        sampleAttributes.primary_image || nextProductPayload.images[0]
+      );
       Object.entries(resolvedBaseFields).forEach(([field, value]) => {
         if (value !== undefined && value !== null) {
           nextProductPayload[field] = value;
@@ -509,6 +521,8 @@ export default function ProductClonerPage() {
         delete clone.sku;
         delete clone.barcode;
         delete clone.barcodes;
+        clone.images = ensureImagesPresent(clone.images, clone.offer_id || clone.name || 'товар');
+        clone.primary_image = normalizePrimaryImage(clone.primary_image || clone.images[0]);
         REQUIRED_BASE_FIELDS.forEach((field) => {
           const value = clone[field];
           clone[field] = value !== undefined && value !== null ? String(value) : '';

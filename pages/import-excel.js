@@ -29,7 +29,8 @@ import {
   normalizeImageList,
   normalizePrimaryImage,
   clampImageListToLimit,
-  areImageListsEqual
+  areImageListsEqual,
+  ensureImagesPresent
 } from '../src/utils/imageHelpers';
 
 const STATUS_CHECK_DELAY_MS = 5000;
@@ -1236,21 +1237,17 @@ const buildImportItemFromRow = ({
     ? rowValues.images || []
     : item.images || [];
   const resolvedImages = clampImageListToLimit(resolvedImagesSource, resolvedPrimaryImage);
+  const ensuredImages = ensureImagesPresent(
+    resolvedImages,
+    `строка ${rowIndex + 1}`
+  );
+  item.images = ensuredImages;
 
-  if (hasRowImages || resolvedImages.length) {
-    if (resolvedImages.length) {
-      item.images = resolvedImages;
-    } else {
-      delete item.images;
-    }
-  }
-
-  if (hasRowPrimaryImage || resolvedPrimaryImage) {
-    if (resolvedPrimaryImage) {
-      item.primary_image = resolvedPrimaryImage;
-    } else {
-      delete item.primary_image;
-    }
+  const ensuredPrimary = normalizePrimaryImage(
+    resolvedPrimaryImage || ensuredImages[0]
+  );
+  if (ensuredPrimary) {
+    item.primary_image = ensuredPrimary;
   }
 
   if ('barcode' in item) {

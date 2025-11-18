@@ -68,3 +68,11 @@ export const areImageListsEqual = (first = [], second = []) => {
 export const hasImages = (value) => {
   return normalizeImageList(value).length > 0;
 };
+
+export const ensureImagesPresent = (images = [], contextLabel = 'товар') => {
+  const normalized = normalizeImageList(images);
+  if (!normalized.length) {
+    throw new Error(`Для ${contextLabel} добавьте хотя бы одно изображение`);
+  }
+  return normalized;
+};
