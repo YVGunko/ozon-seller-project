@@ -994,10 +994,7 @@ export default function ProductsPage() {
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Артикул</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Название</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>SKU</th>
-              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>В архиве</th>
-              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>FBO остатки</th>
-              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>FBS остатки</th>
-              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Уцененный</th>
+              
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Действия</th>
             </tr>
           </thead>
@@ -1008,26 +1005,6 @@ export default function ProductsPage() {
               <td style={{ padding: 12, fontWeight: 'bold' }}>{product.offer_id}</td>
               <td style={{ padding: 12 }}>{product.name || '—'}</td>
               <td style={{ padding: 12 }}>{product.sku || '—'}</td>
-                <td style={{ padding: 12 }}>
-                  <span style={{ color: product.archived ? '#dc3545' : '#28a745', fontWeight: 'bold' }}>
-                    {product.archived ? 'Да' : 'Нет'}
-                  </span>
-                </td>
-                <td style={{ padding: 12 }}>
-                  <span style={{ color: product.has_fbo_stocks ? '#28a745' : '#6c757d' }}>
-                    {product.has_fbo_stocks ? 'Есть' : 'Нет'}
-                  </span>
-                </td>
-                <td style={{ padding: 12 }}>
-                  <span style={{ color: product.has_fbs_stocks ? '#28a745' : '#6c757d' }}>
-                    {product.has_fbs_stocks ? 'Есть' : 'Нет'}
-                  </span>
-                </td>
-                <td style={{ padding: 12 }}>
-                  <span style={{ color: product.is_discounted ? '#ffc107' : '#6c757d' }}>
-                    {product.is_discounted ? 'Да' : 'Нет'}
-                  </span>
-                </td>
                 <td style={{ padding: 12 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
