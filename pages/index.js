@@ -284,6 +284,22 @@ export default function Home() {
                 ✳️ Клонирование товаров
               </div>
             </Link>
+            <Link href="/product-copier" passHref>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 24px',
+                  backgroundColor: '#f97316',
+                  color: 'white',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  marginRight: '10px'
+                }}
+              >
+                ♻️ Копирование товаров
+              </div>
+            </Link>
             <Link href="/logs" passHref>
               <div
                 style={{

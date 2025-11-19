@@ -11,7 +11,8 @@ import {
 import {
   ensureImagesPresent,
   clampImageListToLimit,
-  normalizePrimaryImage
+  normalizePrimaryImage,
+  normalizeImageList
 } from '../src/utils/imageHelpers';
 
 const pageStyle = {
@@ -257,6 +258,7 @@ export default function ProductClonerPage() {
     old_price: '',
     min_price: ''
   });
+  const [selectedImages, setSelectedImages] = useState([]);
   const [sampleError, setSampleError] = useState('');
   const [loadingSample, setLoadingSample] = useState(false);
   const [offersInput, setOffersInput] = useState('');
@@ -287,6 +289,7 @@ export default function ProductClonerPage() {
     setSampleError('');
     setLoadingSample(true);
     setSampleAttributes(null);
+    setSelectedImages([]);
     try {
       const trimmedOffer = sampleOffer.trim();
       const result = await loadAttributes(trimmedOffer);
@@ -310,9 +313,26 @@ export default function ProductClonerPage() {
               (Array.isArray(infoData?.raw?.items) && infoData.raw.items[0]) ||
               null;
             if (infoItem) {
-              product.price = infoItem.price ?? infoItem.price_value ?? product.price;
-              product.old_price = infoItem.old_price ?? infoItem.old_price_value ?? product.old_price;
-              product.min_price = infoItem.min_price ?? infoItem.min_price_value ?? product.min_price;
+              const pickValue = (...values) =>
+                values.find((value) => value !== undefined && value !== null && value !== '') ?? '';
+              const resolvedPrice = pickValue(infoItem.price, infoItem.price_value, product.price);
+              const resolvedOldPrice = pickValue(infoItem.old_price, infoItem.old_price_value, product.old_price);
+              let resolvedMinPrice = pickValue(
+                infoItem.min_price,
+                infoItem.min_price_value,
+                product.min_price
+              );
+              if (!resolvedMinPrice && resolvedPrice) {
+                const numericPrice = Number(resolvedPrice);
+                if (!Number.isNaN(numericPrice) && Number.isFinite(numericPrice)) {
+                  const calculated = Math.max(Math.floor(numericPrice * 0.95), 0);
+                  resolvedMinPrice = String(calculated);
+                }
+              }
+              resolvedMinPrice = resolvedMinPrice || resolvedPrice;
+              product.price = resolvedPrice;
+              product.old_price = resolvedOldPrice;
+              product.min_price = resolvedMinPrice;
               product.depth =
                 infoItem.depth ?? infoItem.length ?? infoItem.package_dimensions?.length ?? product.depth;
               product.width = infoItem.width ?? infoItem.package_dimensions?.width ?? product.width;
@@ -333,11 +353,17 @@ export default function ProductClonerPage() {
           console.error('Failed to fetch info-list for sample', infoError);
         }
         setSampleAttributes(product);
+        const ensureString = (value) => (value === undefined || value === null ? '' : String(value));
         setBasePriceOverrides({
-          price: product.price ? String(product.price) : '',
-          old_price: product.old_price ? String(product.old_price) : '',
-          min_price: product.min_price ? String(product.min_price) : ''
+          price: ensureString(product.price),
+          old_price: ensureString(product.old_price),
+          min_price: ensureString(product.min_price)
         });
+        const normalizedImages = clampImageListToLimit(
+          normalizeImageList(product.images || []),
+          product.primary_image
+        );
+        setSelectedImages(normalizedImages);
       }
     } catch (err) {
       console.error('Failed to load sample product', err);
@@ -436,6 +462,11 @@ export default function ProductClonerPage() {
       setPreviewItems([]);
       return;
     }
+    if (!selectedImages.length) {
+      setPreviewError('Выберите хотя бы одно изображение образца.');
+      setPreviewItems([]);
+      return;
+    }
     const baseName = sampleAttributes.name || '';
     const baseDescription = sampleAttributes.description || '';
     const baseOfferId = sampleAttributes.offer_id || '';
@@ -475,13 +506,13 @@ export default function ProductClonerPage() {
       nextProductPayload.name = appliedName || rule.target;
       nextProductPayload.description = appliedDescription;
       nextProductPayload.attributes = nextAttributes;
-      nextProductPayload.images = ensureImagesPresent(
-        clampImageListToLimit(sampleAttributes.images || [], sampleAttributes.primary_image),
-        rule.target
-      );
-      nextProductPayload.primary_image = normalizePrimaryImage(
-        sampleAttributes.primary_image || nextProductPayload.images[0]
-      );
+      const trimmedImages = clampImageListToLimit(selectedImages, sampleAttributes.primary_image);
+      const ensuredImages = ensureImagesPresent(trimmedImages, rule.target);
+      nextProductPayload.images = ensuredImages;
+      const preferredPrimary = ensuredImages.includes(sampleAttributes.primary_image)
+        ? sampleAttributes.primary_image
+        : ensuredImages[0];
+      nextProductPayload.primary_image = normalizePrimaryImage(preferredPrimary);
       Object.entries(resolvedBaseFields).forEach(([field, value]) => {
         if (value !== undefined && value !== null) {
           nextProductPayload[field] = value;
@@ -597,6 +628,16 @@ export default function ProductClonerPage() {
     );
   };
 
+  const toggleImageSelection = (url) => {
+    if (!url) return;
+    setSelectedImages((prev) => {
+      if (prev.includes(url)) {
+        return prev.filter((image) => image !== url);
+      }
+      return [...prev, url];
+    });
+  };
+
   return (
     <div style={pageStyle}>
       <div style={{ marginBottom: 20 }}>
@@ -678,6 +719,43 @@ export default function ProductClonerPage() {
                 />
               </div>
             ))}
+          </div>
+        )}
+        {sampleAttributes && (
+          <div style={{ marginTop: 16 }}>
+            <div style={{ fontWeight: 'bold', marginBottom: 6 }}>Изображения образца</div>
+            {normalizeImageList(sampleAttributes.images || []).length ? (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12 }}>
+                {normalizeImageList(sampleAttributes.images || []).map((url) => (
+                  <label
+                    key={url}
+                    style={{
+                      border: '1px solid #d1d5db',
+                      borderRadius: 6,
+                      padding: 8,
+                      display: 'flex',
+                      flexDirection: 'column',
+                      alignItems: 'center',
+                      width: 120
+                    }}
+                  >
+                    <img
+                      src={url}
+                      alt="product"
+                      style={{ width: '100%', height: 60, objectFit: 'cover', marginBottom: 6 }}
+                    />
+                    <input
+                      type="checkbox"
+                      checked={selectedImages.includes(url)}
+                      onChange={() => toggleImageSelection(url)}
+                    />
+                    <span style={{ fontSize: 12 }}>использовать</span>
+                  </label>
+                ))}
+              </div>
+            ) : (
+              <div style={{ color: '#6b7280' }}>У образца нет изображений</div>
+            )}
           </div>
         )}
         {sampleError && (
