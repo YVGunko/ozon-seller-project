@@ -11,6 +11,10 @@ export default function Home() {
   const [activeTab, setActiveTab] = useState('products');
   const [currentProfile, setCurrentProfile] = useState(null);
   const [showProfilesModal, setShowProfilesModal] = useState(false);
+  const [actionsLoading, setActionsLoading] = useState(false);
+  const [actionsError, setActionsError] = useState('');
+  const [actions, setActions] = useState([]);
+  const [actionsTotal, setActionsTotal] = useState(0);
   const {
     warehouses,
     loading: warehousesLoading,
@@ -50,6 +54,48 @@ export default function Home() {
       setLoading(false);
     }
   };
+
+  const fetchActions = async () => {
+    if (!currentProfile) {
+      setActionsError('Сначала выберите профиль');
+      return;
+    }
+    setActionsLoading(true);
+    setActionsError('');
+    try {
+      const response = await fetch(`/api/actions?profileId=${encodeURIComponent(currentProfile.id)}`);
+      let data;
+      try {
+        data = await response.json();
+      } catch (parseError) {
+        if (!response.ok) {
+          throw new Error('Не удалось получить акции');
+        }
+        data = {};
+      }
+      if (!response.ok) {
+        throw new Error(data?.error || 'Не удалось получить акции');
+      }
+      const items = data?.result || data?.actions || [];
+      setActions(items);
+      const total = items.reduce((sum, item) => sum + Number(item?.potential_products_count || 0), 0);
+      setActionsTotal(total);
+    } catch (err) {
+      console.error('Failed to fetch actions:', err);
+      setActions([]);
+      setActionsTotal(0);
+      setActionsError(err.message || 'Не удалось получить акции');
+    } finally {
+      setActionsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'prices') {
+      fetchActions();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, currentProfile]);
 
   return (
     <div style={{ padding: '20px', fontFamily: 'Arial, sans-serif' }}>
@@ -215,6 +261,20 @@ export default function Home() {
         >
           Заказы
         </button>
+        <button
+          onClick={() => setActiveTab('prices')}
+          style={{
+            marginLeft: '10px',
+            padding: '10px 15px',
+            backgroundColor: activeTab === 'prices' ? '#0070f3' : '#ccc',
+            color: 'white',
+            border: 'none',
+            borderRadius: '5px',
+            cursor: 'pointer'
+          }}
+        >
+          Цены
+        </button>
       </div>
 
       {activeTab === 'products' && (
@@ -358,6 +418,88 @@ export default function Home() {
         </div>
       )}
 
+      {activeTab === 'prices' && (
+        <div style={{
+          padding: '20px',
+          border: '1px solid #e5e7eb',
+          borderRadius: '12px',
+          backgroundColor: '#fff',
+          boxShadow: '0 1px 3px rgba(15, 23, 42, 0.08)'
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <h2 style={{ margin: '0 0 6px' }}>Акции и доступные товары</h2>
+              <p style={{ color: '#6c757d', margin: 0 }}>Количество товаров, подходящих под каждую акцию в работе OZON.</p>
+            </div>
+            <button
+              type="button"
+              onClick={fetchActions}
+              disabled={actionsLoading}
+              style={{
+                padding: '8px 16px',
+                borderRadius: 6,
+                border: 'none',
+                backgroundColor: actionsLoading ? '#d1d5db' : '#0d6efd',
+                color: '#fff',
+                cursor: actionsLoading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {actionsLoading ? 'Обновляем…' : 'Обновить список'}
+            </button>
+          </div>
+
+          {actionsError && (
+            <div style={{ color: '#b91c1c', marginBottom: 12 }}>Ошибка: {actionsError}</div>
+          )}
+
+          {!actionsLoading && !actionsError && actions.length === 0 && (
+            <div style={{ color: '#6c757d' }}>Нет данных по акциям.</div>
+          )}
+
+          {actions.length > 0 && (
+            <div style={{ overflowX: 'auto', marginTop: 12 }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                <thead>
+                  <tr style={{ backgroundColor: '#f8f9fa' }}>
+                    <th style={{ padding: 10, border: '1px solid #dee2e6', textAlign: 'left' }}>Акция</th>
+                    <th style={{ padding: 10, border: '1px solid #dee2e6', textAlign: 'left' }}>Тип</th>
+                    <th style={{ padding: 10, border: '1px solid #dee2e6', textAlign: 'left' }}>Период</th>
+                    <th style={{ padding: 10, border: '1px solid #dee2e6', textAlign: 'left' }}>Доступно товаров</th>
+                    <th style={{ padding: 10, border: '1px solid #dee2e6', textAlign: 'left' }}>Участвует товаров</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {actions.map((action) => (
+                    <tr key={action.id}>
+                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                        <strong>{action.title}</strong>
+                        {action.description && (
+                          <div style={{ fontSize: 12, color: '#6c757d', marginTop: 4 }}>{action.description}</div>
+                        )}
+                      </td>
+                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>{action.action_type || '—'}</td>
+                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                        {formatActionDate(action.date_start)} — {formatActionDate(action.date_end)}
+                      </td>
+                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                        {action.potential_products_count ?? 0}
+                      </td>
+                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                        {action.participating_products_count ?? 0}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div style={{ marginTop: 16, fontWeight: 'bold', fontSize: 18 }}>
+            Всего товаров, доступных для акций: {actionsTotal}
+          </div>
+        </div>
+      )}
+
 
       {/* Модальное окно управления профилями */}
       {showProfilesModal && (
@@ -427,3 +569,13 @@ export default function Home() {
     </div>
   );
 }
+const formatActionDate = (value) => {
+  if (!value) return '—';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString('ru-RU', {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric'
+  });
+};

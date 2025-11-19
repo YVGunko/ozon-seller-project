@@ -114,13 +114,51 @@ export class OzonApiService {
       body: JSON.stringify(body)
     });
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      data = null;
+    }
     if (!response.ok) {
       const error = new Error(data?.message || `OZON API error: ${response.status}`);
       error.status = response.status;
       error.data = data;
       throw error;
     }
+    return data;
+  }
+
+  async requestGet(endpoint, params = {}) {
+    const url = new URL(`${this.baseUrl}${endpoint}`);
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => url.searchParams.append(key, item));
+      } else {
+        url.searchParams.append(key, value);
+      }
+    });
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: this.headers
+    });
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      data = null;
+    }
+
+    if (!response.ok) {
+      const error = new Error(data?.message || `OZON API error: ${response.status}`);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
     return data;
   }
 
@@ -499,6 +537,24 @@ export class OzonApiService {
   async importProductAttributes(items) {
     const normalizedItems = this.normalizeAttributeUpdateItems(items);
     return this.createProductsBatch(normalizedItems);
+  }
+
+  async getActions(params = {}) {
+    return this.requestGet('/v1/actions', params);
+  }
+
+  async getActionCandidates({ action_id, limit = 100, last_id = null } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для запроса кандидатов');
+    }
+    const payload = {
+      action_id,
+      limit: Number(limit) || 100
+    };
+    if (last_id !== undefined && last_id !== null && last_id !== '') {
+      payload.last_id = last_id;
+    }
+    return this.request('/v1/actions/candidates', payload);
   }
 
   async getProductImportStatus(taskId) {
