@@ -1083,7 +1083,7 @@ export default function ProductClonerPage() {
                     <ul style={{ paddingLeft: 18, margin: '4px 0' }}>
                       {item.attributeDiffs.map((diff, index) => (
                         <li key={`${diff.attributeId || index}-${diff.label}`}>
-                          <strong>{diff.label}</strong>: «{diff.from || '—'}» → «{diff.to || '—'}»
+                          <strong>{diff.label}</strong>: «{diff.to || '—'}»
                         </li>
                       ))}
                     </ul>

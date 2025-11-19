@@ -887,7 +887,7 @@ export default function ProductCopierPage() {
                     <ul style={{ margin: '4px 0 0 18px' }}>
                       {item.attributeDiffs.map((diff, idx) => (
                         <li key={`${diff.attributeId}-${idx}`}>
-                          <strong>{diff.label}</strong>: «{diff.from || '—'}» → «{diff.to || '—'}»
+                          <strong>{diff.label}</strong>: «{diff.to || '—'}»
                         </li>
                       ))}
                     </ul>
