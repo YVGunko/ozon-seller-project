@@ -145,7 +145,7 @@ export default async function handler(req, res) {
       } finally {
         const duration = Date.now() - startTime;
         try {
-          addRequestLog({
+          await addRequestLog({
             offer_id: offerIdForLog,
             endpoint: useImportMode
               ? '/v3/product/import'
