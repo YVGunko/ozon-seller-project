@@ -39,7 +39,7 @@ export class BlobKV {
   async writeJSON(value) {
     const payload = JSON.stringify(value ?? null);
     await put(this.key, payload, {
-      access: 'private',
+      access: 'public',
       token: this.token,
       contentType: 'application/json',
       addRandomSuffix: false
