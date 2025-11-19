@@ -1,6 +1,8 @@
 import { BlobKV } from '../services/vercelBlobClient';
 
 const MAX_LOGS = 500;
+const MAX_PAGE_LIMIT = 200;
+const DEFAULT_PAGE_LIMIT = 50;
 const BLOB_KEY = 'request-logs.json';
 
 const buildLogEntry = (entry = {}) => ({
@@ -27,6 +29,18 @@ const getStorage = () => {
   return new BlobKV(process.env.BLOB_READ_WRITE_TOKEN, BLOB_KEY);
 };
 
+const readAllLogs = async () => {
+  const storage = getStorage();
+  if (!storage) {
+    return memoryStore;
+  }
+  const logs = await storage.readJSON([]);
+  if (Array.isArray(logs)) {
+    return logs;
+  }
+  return [];
+};
+
 export const addRequestLog = async (entry = {}) => {
   const logEntry = buildLogEntry(entry);
   const storage = getStorage();
@@ -51,21 +65,64 @@ export const addRequestLog = async (entry = {}) => {
   }
 };
 
-export const getRequestLogs = async () => {
-  const storage = getStorage();
-  if (!storage) {
-    return memoryStore;
+const parseDateBoundary = (value, endOfDay = false) => {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  if (endOfDay) {
+    date.setHours(23, 59, 59, 999);
+  } else {
+    date.setHours(0, 0, 0, 0);
   }
-  try {
-    const logs = await storage.readJSON([]);
-    if (logs && Array.isArray(logs)) {
-      return logs;
+  return date.getTime();
+};
+
+export const getRequestLogs = async (options = {}) => {
+  const {
+    cursor = 0,
+    limit = DEFAULT_PAGE_LIMIT,
+    offerId = '',
+    dateFrom = '',
+    dateTo = ''
+  } = options || {};
+
+  const allLogs = await readAllLogs();
+  const offerQuery = (offerId || '').trim().toLowerCase();
+  const fromTs = parseDateBoundary(dateFrom, false);
+  const toTs = parseDateBoundary(dateTo, true);
+
+  const filtered = allLogs.filter((log) => {
+    if (offerQuery) {
+      const currentOffer = (log.offer_id || '').toLowerCase();
+      if (!currentOffer.includes(offerQuery)) {
+        return false;
+      }
     }
-    return [];
-  } catch (error) {
-    console.error('Blob log read failed, returning memory store:', error);
-    return memoryStore;
-  }
+
+    if (fromTs || toTs) {
+      const ts = Date.parse(log.timestamp || '');
+      const isValid = !Number.isNaN(ts);
+      if (fromTs && (!isValid || ts < fromTs)) {
+        return false;
+      }
+      if (toTs && (!isValid || ts > toTs)) {
+        return false;
+      }
+    }
+
+    return true;
+  });
+
+  const safeLimit = Math.min(Math.max(parseInt(limit, 10) || DEFAULT_PAGE_LIMIT, 1), MAX_PAGE_LIMIT);
+  const startIndex = Math.max(parseInt(cursor, 10) || 0, 0);
+  const pageItems = filtered.slice(startIndex, startIndex + safeLimit);
+  const nextCursor = startIndex + pageItems.length < filtered.length ? startIndex + pageItems.length : null;
+
+  return {
+    logs: pageItems,
+    total: filtered.length,
+    nextCursor
+  };
 };
 if (!process.env.BLOB_READ_WRITE_TOKEN) {
   console.log('[logs] BLOB token missing, using memory store');

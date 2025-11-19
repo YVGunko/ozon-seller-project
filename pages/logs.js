@@ -1,36 +1,91 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
 import { useSession } from 'next-auth/react';
+
+const PAGE_LIMIT = 50;
 
 export default function LogsPage() {
   const { data: session, status } = useSession();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState(null);
+  const [filters, setFilters] = useState({ offerId: '', dateFrom: '', dateTo: '' });
+  const [formFilters, setFormFilters] = useState({ offerId: '', dateFrom: '', dateTo: '' });
+  const [nextCursor, setNextCursor] = useState(null);
+  const [total, setTotal] = useState(0);
 
-  useEffect(() => {
-    if (status !== 'authenticated') return;
-    const fetchLogs = async () => {
-      setLoading(true);
-      setError(null);
+  const fetchLogs = useCallback(
+    async ({ cursor = 0, append = false, silent = false } = {}) => {
+      if (status !== 'authenticated') return;
+      if (append) {
+        setLoadingMore(true);
+      } else if (!silent) {
+        setLoading(true);
+      }
+      if (!append && !silent) {
+        setError(null);
+      }
       try {
-        const response = await fetch('/api/logs');
+        const params = new URLSearchParams();
+        params.set('limit', PAGE_LIMIT);
+        if (cursor) params.set('cursor', cursor);
+        if (filters.offerId) params.set('offer_id', filters.offerId);
+        if (filters.dateFrom) params.set('date_from', filters.dateFrom);
+        if (filters.dateTo) params.set('date_to', filters.dateTo);
+
+        const response = await fetch(`/api/logs?${params.toString()}`);
         if (!response.ok) {
           throw new Error('Не удалось загрузить логи');
         }
         const data = await response.json();
-        setLogs(data.logs || []);
+        const entries = data.logs || [];
+        setLogs((prev) => (append ? [...prev, ...entries] : entries));
+        setNextCursor(data.nextCursor ?? null);
+        setTotal(data.total ?? entries.length);
       } catch (err) {
+        if (!append) {
+          setLogs([]);
+        }
         setError(err.message || 'Ошибка загрузки логов');
       } finally {
-        setLoading(false);
+        if (append) {
+          setLoadingMore(false);
+        } else if (!silent) {
+          setLoading(false);
+        }
       }
-    };
+    },
+    [status, filters.offerId, filters.dateFrom, filters.dateTo]
+  );
 
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 10000);
-    return () => clearInterval(interval);
-  }, [status]);
+  useEffect(() => {
+    if (status !== 'authenticated') return;
+    fetchLogs({ cursor: 0 });
+  }, [status, fetchLogs]);
+
+  const handleFilterInputChange = (field, value) => {
+    setFormFilters((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const applyFilterChanges = () => {
+    setFilters({ ...formFilters });
+  };
+
+  const resetFilters = () => {
+    const reset = { offerId: '', dateFrom: '', dateTo: '' };
+    setFormFilters(reset);
+    setFilters(reset);
+  };
+
+  const handleRefresh = () => {
+    fetchLogs({ cursor: 0 });
+  };
+
+  const handleLoadMore = () => {
+    if (nextCursor === null || loadingMore) return;
+    fetchLogs({ cursor: nextCursor, append: true });
+  };
 
   const handleLogOfferClick = (offerId) => {
     if (!offerId) return;
@@ -55,6 +110,98 @@ export default function LogsPage() {
         Здесь отображаются последние записи о запросах, связанных с импортом товаров и обновлением атрибутов.
       </p>
 
+      <div
+        style={{
+          backgroundColor: '#f8f9fa',
+          padding: 16,
+          borderRadius: 8,
+          marginBottom: 16,
+          display: 'grid',
+          gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+          gap: 12
+        }}
+      >
+        <div>
+          <label style={{ display: 'block', fontSize: 12, color: '#6c757d', marginBottom: 4 }}>
+            Артикул (offer_id)
+          </label>
+          <input
+            type="text"
+            value={formFilters.offerId}
+            onChange={(e) => handleFilterInputChange('offerId', e.target.value)}
+            placeholder="Например, Viper"
+            style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #d1d5db' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, color: '#6c757d', marginBottom: 4 }}>
+            Дата от
+          </label>
+          <input
+            type="date"
+            value={formFilters.dateFrom}
+            onChange={(e) => handleFilterInputChange('dateFrom', e.target.value)}
+            style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #d1d5db' }}
+          />
+        </div>
+        <div>
+          <label style={{ display: 'block', fontSize: 12, color: '#6c757d', marginBottom: 4 }}>
+            Дата до
+          </label>
+          <input
+            type="date"
+            value={formFilters.dateTo}
+            onChange={(e) => handleFilterInputChange('dateTo', e.target.value)}
+            style={{ width: '100%', padding: 8, borderRadius: 6, border: '1px solid #d1d5db' }}
+          />
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+          <button
+            type="button"
+            onClick={applyFilterChanges}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#198754',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer'
+            }}
+          >
+            Применить
+          </button>
+          <button
+            type="button"
+            onClick={resetFilters}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#e5e7eb',
+              color: '#111827',
+              border: 'none',
+              borderRadius: 6,
+              cursor: 'pointer'
+            }}
+          >
+            Сбросить
+          </button>
+          <button
+            type="button"
+            onClick={handleRefresh}
+            disabled={loading}
+            style={{
+              padding: '8px 16px',
+              backgroundColor: '#0d6efd',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              cursor: loading ? 'not-allowed' : 'pointer'
+            }}
+          >
+            Обновить
+          </button>
+        </div>
+      </div>
+
       {loading && <div style={{ padding: '10px 0', color: '#0070f3' }}>Загрузка логов…</div>}
       {error && (
         <div style={{ padding: '10px 0', color: '#dc3545' }}>
@@ -66,11 +213,18 @@ export default function LogsPage() {
         <div style={{ padding: '10px 0', color: '#6c757d' }}>Логи отсутствуют.</div>
       )}
 
+      {!loading && logs.length > 0 && (
+        <div style={{ marginBottom: 10, color: '#6c757d', fontSize: 13 }}>
+          Показано: {logs.length} из {total} записей
+        </div>
+      )}
+
       {logs.length > 0 && (
         <div style={{ overflowX: 'auto', marginTop: 10 }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 700 }}>
             <thead>
               <tr style={{ backgroundColor: '#f1f3f5' }}>
+                <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>Дата / время</th>
                 <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>Offer ID</th>
                 <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>Product ID</th>
                 <th style={{ padding: 8, border: '1px solid #dee2e6', textAlign: 'left' }}>Endpoint</th>
@@ -86,11 +240,17 @@ export default function LogsPage() {
               </tr>
             </thead>
             <tbody>
-              {logs.map((log, index) => (
-                <tr key={`${log.timestamp}-${index}`} style={{ backgroundColor: index % 2 === 0 ? 'white' : '#f8f9fa' }}>
-                  <td style={{ padding: 8, border: '1px solid #dee2e6' }}>
-                    {log.offer_id ? (
-                      <button
+              {logs.map((log, index) => {
+                const timestamp = log.timestamp ? new Date(log.timestamp) : null;
+                const timestampLabel = timestamp && !Number.isNaN(timestamp.getTime())
+                  ? timestamp.toLocaleString('ru-RU')
+                  : '—';
+                return (
+                  <tr key={`${log.timestamp}-${index}`} style={{ backgroundColor: index % 2 === 0 ? 'white' : '#f8f9fa' }}>
+                    <td style={{ padding: 8, border: '1px solid #dee2e6' }}>{timestampLabel}</td>
+                    <td style={{ padding: 8, border: '1px solid #dee2e6' }}>
+                      {log.offer_id ? (
+                        <button
                         type="button"
                         onClick={() => handleLogOfferClick(log.offer_id)}
                         style={{
@@ -126,11 +286,32 @@ export default function LogsPage() {
                     {log.import_message || '—'}
                   </td>
                   <td style={{ padding: 8, border: '1px solid #dee2e6' }}>{log.barcode || '—'}</td>
-                  <td style={{ padding: 8, border: '1px solid #dee2e6', color: '#dc3545' }}>{log.barcode_error || '—'}</td>
-                </tr>
-              ))}
+                    <td style={{ padding: 8, border: '1px solid #dee2e6', color: '#dc3545' }}>{log.barcode_error || '—'}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {nextCursor !== null && logs.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <button
+            type="button"
+            onClick={handleLoadMore}
+            disabled={loadingMore}
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#20c997',
+              color: '#fff',
+              border: 'none',
+              borderRadius: 6,
+              cursor: loadingMore ? 'not-allowed' : 'pointer'
+            }}
+          >
+            {loadingMore ? 'Загрузка…' : 'Загрузить ещё'}
+          </button>
         </div>
       )}
     </div>
