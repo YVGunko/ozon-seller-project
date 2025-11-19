@@ -339,6 +339,21 @@ export default function Home() {
           >
             {loading ? 'Загрузка…' : 'Загрузить заказы'}
           </button>
+          <Link href="/postings" legacyBehavior>
+            <a
+              style={{
+                display: 'inline-block',
+                marginLeft: '12px',
+                padding: '10px 20px',
+                backgroundColor: '#20c997',
+                color: 'white',
+                borderRadius: '5px',
+                textDecoration: 'none'
+              }}
+            >
+              Отправления
+            </a>
+          </Link>
           <p style={{ marginTop: '10px' }}>Orders functionality coming soon...</p>
         </div>
       )}

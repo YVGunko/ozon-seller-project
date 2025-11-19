@@ -553,6 +553,30 @@ export class OzonApiService {
     return this.request('/v4/product/info/attributes', payload);
   }
 
+  async getFbsUnfulfilledPostings({
+    dir = 'asc',
+    limit = 50,
+    last_id = '',
+    filter = {},
+    withOptions = {}
+  } = {}) {
+    const payload = {
+      dir: dir === 'desc' ? 'desc' : 'asc',
+      limit: Math.min(Math.max(Number(limit) || 50, 1), 1000),
+      last_id: last_id ? String(last_id) : '',
+      filter,
+      with: {
+        analytics_data: Boolean(withOptions.analytics_data),
+        barcodes: Boolean(withOptions.barcodes),
+        financial_data: Boolean(withOptions.financial_data),
+        legal_info: Boolean(withOptions.legal_info),
+        translit: Boolean(withOptions.translit)
+      }
+    };
+
+    return this.request('/v3/posting/fbs/unfulfilled/list', payload);
+  }
+
   async generateBarcodes(productIds = []) {
     const ids = Array.isArray(productIds)
       ? productIds
