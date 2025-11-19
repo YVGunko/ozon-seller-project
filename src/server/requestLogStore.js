@@ -38,9 +38,17 @@ export const addRequestLog = async (entry = {}) => {
     return;
   }
 
-  const logs = await storage.readJSON([]);
-  const updated = [logEntry, ...logs].slice(0, MAX_LOGS);
-  await storage.writeJSON(updated);
+  try {
+    const logs = (await storage.readJSON([])) || [];
+    const updated = [logEntry, ...logs].slice(0, MAX_LOGS);
+    await storage.writeJSON(updated);
+  } catch (error) {
+    console.error('Blob log write failed, falling back to memory store:', error);
+    memoryStore.unshift(logEntry);
+    if (memoryStore.length > MAX_LOGS) {
+      memoryStore.length = MAX_LOGS;
+    }
+  }
 };
 
 export const getRequestLogs = async () => {
@@ -48,5 +56,17 @@ export const getRequestLogs = async () => {
   if (!storage) {
     return memoryStore;
   }
-  return storage.readJSON([]);
+  try {
+    const logs = await storage.readJSON([]);
+    if (logs && Array.isArray(logs)) {
+      return logs;
+    }
+    return [];
+  } catch (error) {
+    console.error('Blob log read failed, returning memory store:', error);
+    return memoryStore;
+  }
 };
+if (!process.env.BLOB_READ_WRITE_TOKEN) {
+  console.log('[logs] BLOB token missing, using memory store');
+}

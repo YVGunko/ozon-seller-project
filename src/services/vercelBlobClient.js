@@ -1,6 +1,4 @@
-import { put } from '@vercel/blob';
-
-const BLOB_BASE_URL = 'https://blob.vercel-storage.com';
+import { put, getDownloadUrl } from '@vercel/blob';
 
 export class BlobKV {
   constructor(token, key) {
@@ -11,13 +9,13 @@ export class BlobKV {
     this.key = key?.replace(/^\/+/, '') || 'kv.json';
   }
 
-  get url() {
-    return `${BLOB_BASE_URL}/${this.key}`;
-  }
-
   async readJSON(defaultValue = null) {
     try {
-      const response = await fetch(`${this.url}?token=${this.token}`);
+      const { url } = await getDownloadUrl(this.key, { token: this.token });
+      if (!url) {
+        return defaultValue;
+      }
+      const response = await fetch(url);
       if (response.status === 404) {
         return defaultValue;
       }
