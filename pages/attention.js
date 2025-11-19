@@ -75,6 +75,9 @@ export default function AttentionPage() {
   const [barcodeSubmitting, setBarcodeSubmitting] = useState(false);
   const [barcodeStatus, setBarcodeStatus] = useState('');
   const [barcodeError, setBarcodeError] = useState('');
+  const [offerUpdateSubmitting, setOfferUpdateSubmitting] = useState(false);
+  const [offerUpdateStatus, setOfferUpdateStatus] = useState('');
+  const [offerUpdateError, setOfferUpdateError] = useState('');
 
   useEffect(() => {
     const profile = ProfileManager.getCurrentProfile();
@@ -212,6 +215,8 @@ export default function AttentionPage() {
     (item) => !Array.isArray(item?.barcodes) || item.barcodes.length === 0
   );
   const canGenerateBarcodes = Boolean(currentProfile && itemsWithoutBarcodes.length > 0);
+  const itemsWithOfferPattern = filteredItems.filter((item) => /^PL-ko\s+\d+/i.test(item?.offer_id || ''));
+  const canUpdateOffers = Boolean(currentProfile && itemsWithOfferPattern.length > 0);
 
   const handleStockSubmit = async () => {
     if (!currentProfile) {
@@ -343,6 +348,60 @@ export default function AttentionPage() {
       setBarcodeStatus('');
     } finally {
       setBarcodeSubmitting(false);
+    }
+  };
+
+  const handleOfferUpdates = async () => {
+    if (!currentProfile) {
+      setOfferUpdateError('Профиль не выбран');
+      return;
+    }
+    if (!itemsWithOfferPattern.length) {
+      setOfferUpdateError('Нет товаров, подходящих под шаблон PL-ko ####');
+      return;
+    }
+    try {
+      setOfferUpdateSubmitting(true);
+      setOfferUpdateError('');
+      setOfferUpdateStatus('Обновляем артикулы…');
+      const proxyService = new OzonProxyService(currentProfile);
+      let success = 0;
+      let failed = 0;
+      for (const chunk of chunkArray(itemsWithOfferPattern, 100)) {
+        const updateOfferId = chunk
+          .map((item) => {
+            const offerId = item?.offer_id || '';
+            const match = offerId.match(/^(PL-ko\s+)(\d+)(.*)$/i);
+            if (!match) return null;
+            const [, prefix, digits, suffix] = match;
+            const trimmedSuffix = suffix?.trimStart() || '';
+            const newOfferId = `${prefix}${digits}MP${trimmedSuffix ? ` ${trimmedSuffix}` : ''}`;
+            return {
+              offer_id: offerId,
+              new_offer_id: newOfferId
+            };
+          })
+          .filter(Boolean);
+        if (!updateOfferId.length) continue;
+        try {
+          const response = await proxyService.post('/api/products/update-offer-id', {
+            update_offer_id: updateOfferId
+          });
+          const errors = Array.isArray(response?.errors) ? response.errors : [];
+          success += updateOfferId.length - errors.length;
+          failed += errors.length;
+        } catch (apiError) {
+          console.error('[AttentionPage] offer update chunk failed', apiError);
+          failed += updateOfferId.length;
+        }
+      }
+      setOfferUpdateStatus(`Артикулы обновлены: ${success}. Ошибок: ${failed}.`);
+    } catch (updateError) {
+      console.error('[AttentionPage] offer update error', updateError);
+      setOfferUpdateError(updateError.message || 'Не удалось обновить артикулы');
+      setOfferUpdateStatus('');
+    } finally {
+      setOfferUpdateSubmitting(false);
     }
   };
 
@@ -717,6 +776,23 @@ export default function AttentionPage() {
             >
               Сгенерировать штрихкод
             </button>
+            <button
+              type="button"
+              onClick={handleOfferUpdates}
+              disabled={!canUpdateOffers || offerUpdateSubmitting}
+              style={{
+                padding: '10px 18px',
+                backgroundColor: canUpdateOffers ? '#f97316' : '#adb5bd',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: canUpdateOffers ? 'pointer' : 'not-allowed',
+                marginBottom: 12,
+                marginLeft: 12
+              }}
+            >
+              Обновить артикул (PL-ko → PL-ko NMP)
+            </button>
             {stockFormVisible && (
               <div
                 style={{
@@ -785,6 +861,12 @@ export default function AttentionPage() {
             )}
             {barcodeStatus && (
               <div style={{ color: '#0f5132', marginBottom: 12 }}>{barcodeStatus}</div>
+            )}
+            {offerUpdateError && (
+              <div style={{ color: '#dc3545', marginBottom: 12 }}>{offerUpdateError}</div>
+            )}
+            {offerUpdateStatus && (
+              <div style={{ color: '#0f5132', marginBottom: 12 }}>{offerUpdateStatus}</div>
             )}
             {stockResultEntries.length > 0 && (
               <div

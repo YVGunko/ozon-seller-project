@@ -616,4 +616,13 @@ export class OzonApiService {
       stocks: normalizedStocks
     });
   }
+
+  async updateOfferIds(update_offer_id = []) {
+    if (!Array.isArray(update_offer_id) || !update_offer_id.length) {
+      throw new Error('Не переданы данные для обновления offer_id');
+    }
+    return this.request('/v1/product/update/offer-id', {
+      update_offer_id
+    });
+  }
 }
