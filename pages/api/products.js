@@ -34,17 +34,22 @@ export default async function handler(req, res) {
     return res.status(200).json(products);
   } catch (error) {
     const handledStatuses = new Set([400, 403, 404, 409]);
-    if (handledStatuses.has(error.status)) {
+    const isTimeoutError =
+      error?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+      error?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
+
+    if (handledStatuses.has(error.status) || isTimeoutError) {
       console.warn('⚠️ /api/products handled error:', {
-        status: error.status,
+        status: error.status || (isTimeoutError ? 'timeout' : undefined),
         message: error.message || 'Unknown error',
-        details: error.data
+        details: error.data || error.cause || null
       });
       return res.status(200).json({
         result: [],
         total: 0,
         last_id: '',
-        warning: error.message || 'Запрос не вернул данных'
+        warning:
+          error.message || (isTimeoutError ? 'Не удалось подключиться к OZON API' : 'Запрос не вернул данных')
       });
     }
 
