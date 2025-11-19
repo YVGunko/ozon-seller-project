@@ -1,4 +1,4 @@
-import { put, getDownloadUrl } from '@vercel/blob';
+import { put, list } from '@vercel/blob';
 
 export class BlobKV {
   constructor(token, key) {
@@ -11,11 +11,12 @@ export class BlobKV {
 
   async readJSON(defaultValue = null) {
     try {
-      const { url } = await getDownloadUrl(this.key, { token: this.token });
-      if (!url) {
+      const result = await list({ token: this.token, prefix: this.key, limit: 1 });
+      const blob = result?.blobs?.find((item) => item.pathname === this.key);
+      if (!blob) {
         return defaultValue;
       }
-      const response = await fetch(url);
+      const response = await fetch(blob.downloadUrl || blob.url);
       if (response.status === 404) {
         return defaultValue;
       }
