@@ -1054,8 +1054,20 @@ const ProductsAttributesContent = ({
                     <div>
                       <strong>SKU:</strong> {productInfo.sku}
                     </div>
-                    <div>
-                      <strong>Название:</strong> {productInfo.name}
+                    <div style={{ gridColumn: '1 / span 2' }}>
+                      <div style={{ fontWeight: 'bold', marginBottom: 4 }}>Название товара</div>
+                      <input
+                        type="text"
+                        value={editableProduct?.name ?? productInfo.name ?? ''}
+                        onChange={(e) => onMetaChange?.(idx, 'name', e.target.value)}
+                        placeholder="Введите название"
+                        style={{
+                          width: '100%',
+                          padding: 8,
+                          border: '1px solid #ced4da',
+                          borderRadius: 4
+                        }}
+                      />
                     </div>
                     {productInfo.barcode && (
                       <div>
