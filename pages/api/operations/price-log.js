@@ -38,7 +38,8 @@ export default async function handler(req, res) {
     const normalizedProducts = Array.isArray(productIds)
       ? productIds
           .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id));
+          .filter((id) => Number.isFinite(id))
+       : [];
 
     if (!normalizedOffers.length && !normalizedProducts.length) {
       return res.status(400).json({ error: 'Передайте offerIds или productIds' });
