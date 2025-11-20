@@ -77,7 +77,7 @@ const writeToBlob = async (key, entries) => {
   const payload = JSON.stringify(entries ?? []);
   await put(key, payload, {
     token: BLOB_TOKEN,
-    access: 'private',
+    access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false
   });

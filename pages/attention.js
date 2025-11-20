@@ -84,6 +84,7 @@ export default function AttentionPage() {
   const [netLogSubmitting, setNetLogSubmitting] = useState(false);
   const [netLogStatus, setNetLogStatus] = useState('');
   const [netLogError, setNetLogError] = useState('');
+  const [manualNetPrice, setManualNetPrice] = useState('');
 
   useEffect(() => {
     const profile = ProfileManager.getCurrentProfile();
@@ -169,18 +170,69 @@ export default function AttentionPage() {
       });
 
       const data = await response.json();
-      if (!response.ok) {
+      if (!response.ok || data?.error) {
         throw new Error(data?.error || 'Не удалось записать цены');
       }
+      if (!data.logged) {
+        throw new Error('Ни одной записи не добавлено');
+      }
 
-      setStatus(
-        `${isNet ? 'net_price' : 'Цены'} записаны: ${data.logged || 0} из ${data.total || 0}`
-      );
+      const partial =
+        data.total && data.logged < data.total
+          ? ` (частично: ${data.logged} из ${data.total})`
+          : '';
+      setStatus(`${isNet ? 'net_price' : 'Цены'} записаны${partial}`);
     } catch (logError) {
       console.error('[AttentionPage] price log error', logError);
       setErr(logError.message || 'Не удалось записать цены');
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleLogManualNetPrice = async () => {
+    const value = Number(manualNetPrice);
+    if (!Number.isFinite(value) || value <= 0) {
+      setNetLogError('Введите положительное значение net_price');
+      return;
+    }
+    const { offers, productIds } = collectIds(filteredItems);
+    if (!offers.length && !productIds.length) {
+      setNetLogError('Нет offer_id или product_id для записи');
+      return;
+    }
+    setNetLogError('');
+    setNetLogStatus('');
+    setNetLogSubmitting(true);
+    try {
+      const response = await fetch('/api/operations/price-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offerIds: offers,
+          productIds,
+          mode: 'net_price',
+          overrideNetPrice: value,
+          profileId: currentProfile?.id
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || 'Не удалось записать net_price');
+      }
+      if (!data.logged) {
+        throw new Error('Ни одной записи не добавлено');
+      }
+      const partial =
+        data.total && data.logged < data.total
+          ? ` (частично: ${data.logged} из ${data.total})`
+          : '';
+      setNetLogStatus(`net_price записан${partial}`);
+    } catch (error) {
+      console.error('[AttentionPage] manual net price log error', error);
+      setNetLogError(error.message || 'Не удалось записать net_price');
+    } finally {
+      setNetLogSubmitting(false);
     }
   };
 
@@ -905,6 +957,38 @@ export default function AttentionPage() {
               >
                 {netLogSubmitting ? 'Записываем…' : 'Записать net_price'}
               </button>
+              <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  value={manualNetPrice}
+                  onChange={(e) => setManualNetPrice(e.target.value)}
+                  placeholder="net_price вручную"
+                  style={{
+                    padding: 8,
+                    borderRadius: 6,
+                    border: '1px solid #d1d5db',
+                    width: 150
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleLogManualNetPrice}
+                  disabled={!filteredCount || netLogSubmitting}
+                  style={{
+                    padding: '10px 14px',
+                    backgroundColor: filteredCount && !netLogSubmitting ? '#0f766e' : '#adb5bd',
+                    color: '#fff',
+                    border: 'none',
+                    borderRadius: 6,
+                    cursor:
+                      filteredCount && !netLogSubmitting ? 'pointer' : 'not-allowed'
+                  }}
+                >
+                  {netLogSubmitting ? 'Записываем…' : 'net_price вручную'}
+                </button>
+              </div>
             </div>
             {stockFormVisible && (
               <div

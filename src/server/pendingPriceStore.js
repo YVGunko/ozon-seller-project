@@ -61,7 +61,7 @@ const writePendingToBlob = async (records) => {
   const payload = JSON.stringify(records ?? []);
   await put(PENDING_KEY, payload, {
     token: BLOB_TOKEN,
-    access: 'private',
+    access: 'public',
     contentType: 'application/json',
     addRandomSuffix: false
   });

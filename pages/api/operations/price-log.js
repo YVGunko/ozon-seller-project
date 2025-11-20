@@ -2,6 +2,7 @@ import { OzonApiService } from '../../../src/services/ozon-api';
 import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
 import { appendPriceHistory } from '../../../src/server/priceHistoryStore';
 import { appendNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
+import { addPendingNetPriceRecords } from '../../../src/server/pendingNetPriceStore';
 
 const startOfTodayLocal = () => {
   const date = new Date();
@@ -31,7 +32,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { offerIds = [], productIds = [], mode = 'price' } = req.body || {};
+    const { offerIds = [], productIds = [], mode = 'price', overrideNetPrice } = req.body || {};
     const normalizedOffers = Array.isArray(offerIds)
       ? offerIds.filter(Boolean).map(String)
       : [];
@@ -49,6 +50,9 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'mode должен быть price или net_price' });
     }
 
+    const overrideNetValue = Number(overrideNetPrice);
+    const hasOverrideNet = mode === 'net_price' && Number.isFinite(overrideNetValue) && overrideNetValue > 0;
+
     const { profile } = await resolveProfileFromRequest(req, res);
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const ts = startOfTodayLocal().toISOString();
@@ -60,50 +64,124 @@ export default async function handler(req, res) {
     let totalItems = 0;
     let logged = 0;
 
-    for (let index = 0; index < maxChunks; index++) {
-      const offerChunk = offerChunks[index] || [];
-      const productChunk = productChunks[index] || [];
-      if (!offerChunk.length && !productChunk.length) continue;
-
-      const response = await ozon.getProductInfoPrices({
-        offer_ids: offerChunk,
-        product_ids: productChunk,
-        limit: Math.max(offerChunk.length + productChunk.length, 1)
+    if (hasOverrideNet) {
+      // Прямое логирование net_price без запроса к OZON, используем productIds; offerIds без productId — в pending
+      const pendingEntries = [];
+      normalizedProducts.forEach((productId) => {
+        try {
+          appendNetPriceHistory({
+            sku: String(productId),
+            netPrice: overrideNetValue,
+            ts
+          });
+          logged += 1;
+          totalItems += 1;
+        } catch (writeError) {
+          console.error('[price-log] Failed to append net price (override)', writeError);
+        }
       });
 
-      const items = extractItems(response);
-      totalItems += items.length;
+      // Попробуем получить product_id для offerIds без productId, чтобы записать прямо в историю
+      const unresolvedOffers = normalizedOffers.filter(
+        (offer) =>
+          !normalizedProducts.length ||
+          !normalizedProducts.some((id) => String(id) === String(offer))
+      );
 
-      for (const item of items) {
-        const sku = item?.product_id ?? item?.id ?? item?.productId;
-        const priceObj = item?.price;
-        if (!sku || !priceObj) continue;
+      for (let index = 0; index < offerChunks.length; index++) {
+        const offerChunk = offerChunks[index] || [];
+        if (!offerChunk.length) continue;
+        try {
+          const response = await ozon.getProductInfoPrices({
+            offer_ids: offerChunk,
+            product_ids: [],
+            limit: Math.max(offerChunk.length, 1)
+          });
+          const items = extractItems(response);
+          totalItems += items.length;
+          for (const item of items) {
+            const sku = item?.product_id ?? item?.id ?? item?.productId;
+            if (!sku) continue;
+            try {
+              await appendNetPriceHistory({
+                sku: String(sku),
+                netPrice: overrideNetValue,
+                ts
+              });
+              logged += 1;
+            } catch (writeError) {
+              console.error('[price-log] Failed to append net price (override fetched)', writeError);
+            }
+          }
+        } catch (fetchError) {
+          console.error('[price-log] Failed to fetch prices for override net', fetchError);
+        }
+      }
 
-        if (mode === 'price') {
-          try {
-            await appendPriceHistory({
-              sku: String(sku),
-              priceData: priceObj,
-              ts
-            });
-            logged += 1;
-          } catch (writeError) {
-            console.error('[price-log] Failed to append price', writeError);
-          }
-        } else if (mode === 'net_price') {
-          const netValue = priceObj?.net_price;
-          if (netValue === undefined || netValue === null) {
-            continue;
-          }
-          try {
-            await appendNetPriceHistory({
-              sku: String(sku),
-              netPrice: Number(netValue),
-              ts
-            });
-            logged += 1;
-          } catch (writeError) {
-            console.error('[price-log] Failed to append net price', writeError);
+      // Остаток в pending
+      const pendingOffers = unresolvedOffers.filter(Boolean);
+      if (pendingOffers.length) {
+        try {
+          await addPendingNetPriceRecords(
+            pendingOffers.map((offerId) => ({
+              offer_id: offerId,
+              net_price: overrideNetValue,
+              ts,
+              task_id: null,
+              profileId: profile?.id ?? null
+            }))
+          );
+          totalItems += pendingOffers.length;
+        } catch (pendingError) {
+          console.error('[price-log] Failed to add pending net price', pendingError);
+        }
+      }
+    } else {
+      for (let index = 0; index < maxChunks; index++) {
+        const offerChunk = offerChunks[index] || [];
+        const productChunk = productChunks[index] || [];
+        if (!offerChunk.length && !productChunk.length) continue;
+
+        const response = await ozon.getProductInfoPrices({
+          offer_ids: offerChunk,
+          product_ids: productChunk,
+          limit: Math.max(offerChunk.length + productChunk.length, 1)
+        });
+
+        const items = extractItems(response);
+        totalItems += items.length;
+
+        for (const item of items) {
+          const sku = item?.product_id ?? item?.id ?? item?.productId;
+          const priceObj = item?.price;
+          if (!sku || !priceObj) continue;
+
+          if (mode === 'price') {
+            try {
+              await appendPriceHistory({
+                sku: String(sku),
+                priceData: priceObj,
+                ts
+              });
+              logged += 1;
+            } catch (writeError) {
+              console.error('[price-log] Failed to append price', writeError);
+            }
+          } else if (mode === 'net_price') {
+            const netValue = priceObj?.net_price;
+            if (netValue === undefined || netValue === null) {
+              continue;
+            }
+            try {
+              await appendNetPriceHistory({
+                sku: String(sku),
+                netPrice: Number(netValue),
+                ts
+              });
+              logged += 1;
+            } catch (writeError) {
+              console.error('[price-log] Failed to append net price', writeError);
+            }
           }
         }
       }
