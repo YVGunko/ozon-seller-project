@@ -78,6 +78,12 @@ export default function AttentionPage() {
   const [offerUpdateSubmitting, setOfferUpdateSubmitting] = useState(false);
   const [offerUpdateStatus, setOfferUpdateStatus] = useState('');
   const [offerUpdateError, setOfferUpdateError] = useState('');
+  const [priceLogSubmitting, setPriceLogSubmitting] = useState(false);
+  const [priceLogStatus, setPriceLogStatus] = useState('');
+  const [priceLogError, setPriceLogError] = useState('');
+  const [netLogSubmitting, setNetLogSubmitting] = useState(false);
+  const [netLogStatus, setNetLogStatus] = useState('');
+  const [netLogError, setNetLogError] = useState('');
 
   useEffect(() => {
     const profile = ProfileManager.getCurrentProfile();
@@ -103,6 +109,79 @@ export default function AttentionPage() {
 
   const handlePresenceFilterChange = (field, value) => {
     setPresenceFilters((prev) => ({ ...prev, [field]: value }));
+  };
+
+  const collectIds = (items) => {
+    const offers = Array.from(
+      new Set(
+        items
+          .map((item) => item?.offer_id || item?.offerId)
+          .filter((id) => id !== undefined && id !== null && String(id).trim() !== '')
+          .map((id) => String(id))
+      )
+    );
+    const productIds = Array.from(
+      new Set(
+        items
+          .map((item) => item?.product_id || item?.productId || item?.id)
+          .filter((id) => id !== undefined && id !== null)
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id))
+      )
+    );
+    return { offers, productIds };
+  };
+
+  const handleLogPrices = async (mode = 'price') => {
+    const isNet = mode === 'net_price';
+    const setSubmitting = isNet ? setNetLogSubmitting : setPriceLogSubmitting;
+    const setStatus = isNet ? setNetLogStatus : setPriceLogStatus;
+    const setErr = isNet ? setNetLogError : setPriceLogError;
+
+    if (!currentProfile) {
+      setErr('Профиль не выбран');
+      return;
+    }
+    if (!filteredCount) {
+      setErr('Нет товаров для записи');
+      return;
+    }
+
+    const { offers, productIds } = collectIds(filteredItems);
+    if (!offers.length && !productIds.length) {
+      setErr('Нет offer_id или product_id для записи');
+      return;
+    }
+
+    setSubmitting(true);
+    setStatus('');
+    setErr('');
+    try {
+      const response = await fetch('/api/operations/price-log', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          offerIds: offers,
+          productIds,
+          mode,
+          profileId: currentProfile.id
+        })
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Не удалось записать цены');
+      }
+
+      setStatus(
+        `${isNet ? 'net_price' : 'Цены'} записаны: ${data.logged || 0} из ${data.total || 0}`
+      );
+    } catch (logError) {
+      console.error('[AttentionPage] price log error', logError);
+      setErr(logError.message || 'Не удалось записать цены');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   const toggleOperations = () => {
@@ -793,6 +872,40 @@ export default function AttentionPage() {
             >
               Обновить артикул (PL-ko → PL-ko NMP)
             </button>
+            <div style={{ marginTop: 12, display: 'flex', gap: 12, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={() => handleLogPrices('price')}
+                disabled={!filteredCount || priceLogSubmitting}
+                style={{
+                  padding: '10px 18px',
+                  backgroundColor: filteredCount && !priceLogSubmitting ? '#16a34a' : '#adb5bd',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor:
+                    filteredCount && !priceLogSubmitting ? 'pointer' : 'not-allowed'
+                }}
+              >
+                {priceLogSubmitting ? 'Записываем…' : 'Записать цены (v5)'}
+              </button>
+              <button
+                type="button"
+                onClick={() => handleLogPrices('net_price')}
+                disabled={!filteredCount || netLogSubmitting}
+                style={{
+                  padding: '10px 18px',
+                  backgroundColor: filteredCount && !netLogSubmitting ? '#2563eb' : '#adb5bd',
+                  color: '#fff',
+                  border: 'none',
+                  borderRadius: 6,
+                  cursor:
+                    filteredCount && !netLogSubmitting ? 'pointer' : 'not-allowed'
+                }}
+              >
+                {netLogSubmitting ? 'Записываем…' : 'Записать net_price'}
+              </button>
+            </div>
             {stockFormVisible && (
               <div
                 style={{
@@ -867,6 +980,18 @@ export default function AttentionPage() {
             )}
             {offerUpdateStatus && (
               <div style={{ color: '#0f5132', marginBottom: 12 }}>{offerUpdateStatus}</div>
+            )}
+            {priceLogError && (
+              <div style={{ color: '#dc3545', marginBottom: 12 }}>{priceLogError}</div>
+            )}
+            {priceLogStatus && (
+              <div style={{ color: '#0f5132', marginBottom: 12 }}>{priceLogStatus}</div>
+            )}
+            {netLogError && (
+              <div style={{ color: '#dc3545', marginBottom: 12 }}>{netLogError}</div>
+            )}
+            {netLogStatus && (
+              <div style={{ color: '#0f5132', marginBottom: 12 }}>{netLogStatus}</div>
             )}
             {stockResultEntries.length > 0 && (
               <div

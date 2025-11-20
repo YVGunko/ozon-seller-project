@@ -587,6 +587,32 @@ export class OzonApiService {
     });
   }
 
+  async getProductInfoPrices({
+    offer_ids = [],
+    product_ids = [],
+    limit = 100,
+    cursor = ''
+  } = {}) {
+    const payload = {
+      filter: {},
+      limit: Math.min(Math.max(Number(limit) || 100, 1), 1000)
+    };
+
+    if (Array.isArray(offer_ids) && offer_ids.length) {
+      payload.filter.offer_id = offer_ids.filter(Boolean).map(String);
+    }
+    if (Array.isArray(product_ids) && product_ids.length) {
+      payload.filter.product_id = product_ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id));
+    }
+    if (cursor) {
+      payload.cursor = String(cursor);
+    }
+
+    return this.request('/v5/product/info/prices', payload);
+  }
+
   async getProductInfoAttributes({ limit = 50, last_id = '', offer_ids = [], sku = [] } = {}) {
     const payload = {
       limit: Number(limit) || 50,

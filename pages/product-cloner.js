@@ -256,7 +256,8 @@ export default function ProductClonerPage() {
   const [basePriceOverrides, setBasePriceOverrides] = useState({
     price: '',
     old_price: '',
-    min_price: ''
+    min_price: '',
+    net_price: ''
   });
   const [selectedImages, setSelectedImages] = useState([]);
   const [sampleError, setSampleError] = useState('');
@@ -316,7 +317,16 @@ export default function ProductClonerPage() {
               const pickValue = (...values) =>
                 values.find((value) => value !== undefined && value !== null && value !== '') ?? '';
               const resolvedPrice = pickValue(infoItem.price, infoItem.price_value, product.price);
-              const resolvedOldPrice = pickValue(infoItem.old_price, infoItem.old_price_value, product.old_price);
+              const resolvedOldPrice = pickValue(
+                infoItem.old_price,
+                infoItem.old_price_value,
+                product.old_price
+              );
+              const resolvedNetPrice = pickValue(
+                infoItem.net_price,
+                infoItem.netPrice,
+                product.net_price
+              );
               let resolvedMinPrice = pickValue(
                 infoItem.min_price,
                 infoItem.min_price_value,
@@ -332,6 +342,7 @@ export default function ProductClonerPage() {
               resolvedMinPrice = resolvedMinPrice || resolvedPrice;
               product.price = resolvedPrice;
               product.old_price = resolvedOldPrice;
+              product.net_price = resolvedNetPrice;
               product.min_price = resolvedMinPrice;
               product.depth =
                 infoItem.depth ?? infoItem.length ?? infoItem.package_dimensions?.length ?? product.depth;
@@ -357,7 +368,8 @@ export default function ProductClonerPage() {
         setBasePriceOverrides({
           price: ensureString(product.price),
           old_price: ensureString(product.old_price),
-          min_price: ensureString(product.min_price)
+          min_price: ensureString(product.min_price),
+          net_price: ensureString(product.net_price)
         });
         const normalizedImages = clampImageListToLimit(
           normalizeImageList(product.images || []),
@@ -478,6 +490,11 @@ export default function ProductClonerPage() {
         : fallbackValue ?? '';
       return acc;
     }, {});
+    const netPriceValue =
+      basePriceOverrides.net_price?.trim() !== ''
+        ? basePriceOverrides.net_price
+        : sampleAttributes.net_price ?? '';
+    resolvedBaseFields.net_price = netPriceValue;
     const attributeMetaMap = new Map(
       (sampleAttributes.available_attributes || []).map((meta) => [
         getAttributeKey(meta?.id ?? meta?.attribute_id) || '',
@@ -694,7 +711,8 @@ export default function ProductClonerPage() {
             {[
               { field: 'price', label: 'Цена' },
               { field: 'old_price', label: 'Старая цена' },
-              { field: 'min_price', label: 'Минимальная цена' }
+              { field: 'min_price', label: 'Минимальная цена' },
+              { field: 'net_price', label: 'Net price (себестоимость)' }
             ].map(({ field, label }) => (
               <div key={field}>
                 <label style={{ display: 'block', fontSize: 13, color: '#6b7280', marginBottom: 4 }}>

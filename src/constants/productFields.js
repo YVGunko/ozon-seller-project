@@ -19,6 +19,7 @@ export const BASE_FIELD_LABELS = {
   price: 'Цена',
   old_price: 'Старая цена',
   min_price: 'Минимальная цена',
+  net_price: 'Net price (себестоимость)',
   depth: 'Глубина (depth)',
   width: 'Ширина (width)',
   height: 'Высота (height)',
@@ -26,4 +27,3 @@ export const BASE_FIELD_LABELS = {
   weight: 'Вес',
   weight_unit: 'Единица измерения веса'
 };
-

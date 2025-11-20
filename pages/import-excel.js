@@ -1158,6 +1158,15 @@ const buildImportItemFromRow = ({
     }
   });
 
+  const netPriceValue =
+    rowValues?.net_price ??
+    rowValues?.netPrice ??
+    baseProductData?.net_price ??
+    baseProductData?.netPrice;
+  if (hasValue(netPriceValue)) {
+    item.net_price = String(netPriceValue);
+  }
+
   const resolvedDescriptionCategoryId =
     rowValues?.description_category_id ??
     rowValues?.descriptionCategoryId ??
