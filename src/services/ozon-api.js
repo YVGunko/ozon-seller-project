@@ -627,6 +627,15 @@ export class OzonApiService {
     return this.request('/v5/product/info/prices', payload);
   }
 
+  async importPrices(prices = []) {
+    if (!Array.isArray(prices) || !prices.length) {
+      throw new Error('Не переданы цены для импорта');
+    }
+    return this.request('/v1/product/import/prices', {
+      prices
+    });
+  }
+
   async getProductInfoAttributes({ limit = 50, last_id = '', offer_ids = [], sku = [] } = {}) {
     const payload = {
       limit: Number(limit) || 50,

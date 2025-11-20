@@ -474,7 +474,10 @@ export default function Home() {
                       <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
                         <strong>{action.title}</strong>
                         {action.description && (
-                          <div style={{ fontSize: 12, color: '#6c757d', marginTop: 4 }}>{action.description}</div>
+                          <div
+                            style={{ fontSize: 12, color: '#6c757d', marginTop: 4 }}
+                            dangerouslySetInnerHTML={{ __html: action.description }}
+                          />
                         )}
                       </td>
                       <td style={{ padding: 10, border: '1px solid #dee2e6' }}>{action.action_type || '—'}</td>

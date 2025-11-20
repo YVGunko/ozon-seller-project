@@ -41,6 +41,10 @@ export default function ActionItemsPage() {
   const [commissionPercent, setCommissionPercent] = useState(0);
   const [discountPercent, setDiscountPercent] = useState(0);
   const [actionTitle, setActionTitle] = useState('');
+  const [importStatus, setImportStatus] = useState('');
+  const [importError, setImportError] = useState('');
+  const [importLoading, setImportLoading] = useState(false);
+  const [savedSettings, setSavedSettings] = useState(null);
 
   const extractTitle = (data) => {
     if (!data) return '';
@@ -76,6 +80,35 @@ export default function ActionItemsPage() {
       console.log('[ActionItems] title from query', titleFromQuery.trim());
     }
   }, [router.isReady, router.query.title]);
+
+  useEffect(() => {
+    const loadSavedPricing = async () => {
+      if (!currentProfile) return;
+      try {
+        const res = await fetch(`/api/actions/pricing-settings?profileId=${encodeURIComponent(currentProfile.id)}`, {
+          method: 'GET',
+          headers: { 'Content-Type': 'application/json' },
+        });
+        const data = await res.json();
+        if (res.ok && data) {
+          const next = {
+            minMarkup: Number.isFinite(data.minMarkup) ? data.minMarkup : 0,
+            taxPercent: Number.isFinite(data.taxPercent) ? data.taxPercent : 0,
+            commissionPercent: Number.isFinite(data.commissionPercent) ? data.commissionPercent : 0,
+            discountPercent: Number.isFinite(data.discountPercent) ? data.discountPercent : 0
+          };
+          setMinMarkup(next.minMarkup);
+          setTaxPercent(next.taxPercent);
+          setCommissionPercent(next.commissionPercent);
+          setDiscountPercent(next.discountPercent);
+          setSavedSettings(next);
+        }
+      } catch (err) {
+        console.error('[ActionItems] failed to load pricing settings', err);
+      }
+    };
+    loadSavedPricing();
+  }, [currentProfile]);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -254,6 +287,38 @@ export default function ActionItemsPage() {
     return num;
   };
 
+  const persistPricingSettings = async () => {
+    if (!currentProfile) return;
+    const current = {
+      minMarkup: sanitizedPercent(minMarkup),
+      taxPercent: sanitizedPercent(taxPercent),
+      commissionPercent: sanitizedPercent(commissionPercent),
+      discountPercent: sanitizedPercent(discountPercent)
+    };
+    if (
+      savedSettings &&
+      savedSettings.minMarkup === current.minMarkup &&
+      savedSettings.taxPercent === current.taxPercent &&
+      savedSettings.commissionPercent === current.commissionPercent &&
+      savedSettings.discountPercent === current.discountPercent
+    ) {
+      return;
+    }
+    try {
+      await fetch('/api/actions/pricing-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          ...current,
+          profileId: currentProfile.id
+        })
+      });
+      setSavedSettings(current);
+    } catch (err) {
+      console.error('[ActionItems] failed to save pricing settings', err);
+    }
+  };
+
   const calculations = useMemo(() => {
     const tax = sanitizedPercent(taxPercent);
     const commission = sanitizedPercent(commissionPercent);
@@ -281,7 +346,8 @@ export default function ActionItemsPage() {
     });
 
     const myActionPrice =
-      (validActionPrice !== null & validActionPrice !== 0) ? validActionPrice : basePrice * (1 - calculations.discount / 100) ;
+      (validActionPrice !== null & validActionPrice !== 0) ? validActionPrice : Math.round(basePrice * (1 - calculations.discount / 100)) ;
+
     console.log('[myActionPrice] values', {
       offer_id: item?.offer_id ?? item?.offerId,
       myActionPrice
@@ -304,6 +370,82 @@ export default function ActionItemsPage() {
       profit,
       margin_cost: marginCost
     };
+  };
+
+  const handleImportPrices = async () => {
+    setImportError('');
+    setImportStatus('');
+    if (!candidates.length) {
+      setImportError('Нет кандидатов для установки цены');
+      return;
+    }
+    console.log('[ActionItems] import click', {
+      candidatesCount: candidates.length,
+      minMarkup: calculations.minMarkup,
+      discount: calculations.discount,
+      tax: calculations.tax,
+      commission: calculations.commission
+    });
+    const eligible = candidates
+      .map((raw) => calcRow(raw))
+      .filter((item) => {
+        const marginVal = Number(item?.margin_cost);
+        return Number.isFinite(marginVal) && marginVal >= calculations.minMarkup;
+      });
+
+    console.log('[ActionItems] eligible after filter', eligible.length);
+
+    const pricesPayload = eligible
+      .map((item) => {
+        const priceValue = Number(item?.my_action_price);
+        if (!Number.isFinite(priceValue) || priceValue <= 0) {
+          return null;
+        }
+        return {
+          auto_action_enabled: 'UNKNOWN',
+          auto_add_to_ozon_actions_list_enabled: 'UNKNOWN',
+          currency_code: 'RUB',
+          manage_elastic_boosting_through_price: true,
+          min_price: String(priceValue),
+          min_price_for_auto_actions_enabled: true,
+          offer_id: item?.offer_id || null,
+          old_price: Number.isFinite(item?.price) ? String(item.price) : String(priceValue),
+          price: String(priceValue),
+          price_strategy_enabled: 'UNKNOWN',
+          product_id: item?.product_id || item?.id || null,
+          vat: '0'
+        };
+      })
+      .filter(Boolean);
+
+    if (!pricesPayload.length) {
+      setImportError('Нет подходящих товаров по условию наценки');
+      console.log('[ActionItems] payload empty after map');
+      return;
+    }
+
+    setImportLoading(true);
+    try {
+      const response = await fetch('/api/products/import-prices', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          prices: pricesPayload,
+          profileId: currentProfile?.id
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || 'Не удалось отправить цены');
+      }
+      await persistPricingSettings();
+      setImportStatus(`Отправлено в OZON: ${pricesPayload.length}`);
+    } catch (err) {
+      console.error('[ActionItems] import prices error', err);
+      setImportError(err.message || 'Не удалось отправить цены');
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   const renderTable = (title, items, hideKeys = []) => (
@@ -429,6 +571,26 @@ export default function ActionItemsPage() {
       {loading && <div style={{ color: '#6c757d' }}>Загрузка…</div>}
       {!loading && !error && (
         <>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              onClick={handleImportPrices}
+              disabled={importLoading}
+              style={{
+                padding: '10px 16px',
+                backgroundColor: importLoading ? '#9ca3af' : '#16a34a',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: importLoading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {importLoading ? 'Отправляем…' : 'В акцию (установить цены)'}
+            </button>
+            {importStatus && <span style={{ color: '#047857' }}>{importStatus}</span>}
+            {importError && <span style={{ color: '#b91c1c' }}>{importError}</span>}
+          </div>
+
           {renderTable('Кандидаты', candidates, ['action_price', 'add_mode'])}
           {renderTable('Участвуют', participants)}
         </>
