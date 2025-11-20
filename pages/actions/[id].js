@@ -1,0 +1,438 @@
+import { useRouter } from 'next/router';
+import Link from 'next/link';
+import { useEffect, useMemo, useState } from 'react';
+import { ProfileManager } from '../../src/utils/profileManager';
+
+const formatNumber = (value) => {
+  if (value === null || value === undefined) return '—';
+  const num = Number(value);
+  if (!Number.isFinite(num)) return value;
+  return num.toLocaleString('ru-RU', { maximumFractionDigits: 2 });
+};
+
+const columns = [
+  { key: 'product_id', label: 'Product ID', hidden: true },
+  { key: 'offer_id', label: 'Артикул' },
+  { key: 'sku', label: 'SKU' },
+  { key: 'price', label: 'Цена' },
+  { key: 'action_price', label: 'Цена по акции' },
+  { key: 'alert_max_action_price_failed', label: 'Выше рекомендуемой', format: (v) => (v ? 'Да' : 'Нет') },
+  { key: 'alert_max_action_price', label: 'Реком. цена' },
+  { key: 'max_action_price', label: 'Макс. цена' },
+  { key: 'add_mode', label: 'Добавление' },
+  { key: 'min_stock', label: 'Мин. сток' },
+  { key: 'stock', label: 'Сток в акции' },
+  { key: 'net_price', label: 'net_price' },
+  { key: 'my_action_price', label: 'my_action_price' },
+  { key: 'profit', label: 'profit' },
+  { key: 'margin_cost', label: 'margin_cost %' }
+];
+
+export default function ActionItemsPage() {
+  const router = useRouter();
+  const actionId = router.query.id;
+  const [currentProfile, setCurrentProfile] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const [candidates, setCandidates] = useState([]);
+  const [participants, setParticipants] = useState([]);
+  const [minMarkup, setMinMarkup] = useState(0);
+  const [taxPercent, setTaxPercent] = useState(0);
+  const [commissionPercent, setCommissionPercent] = useState(0);
+  const [discountPercent, setDiscountPercent] = useState(0);
+  const [actionTitle, setActionTitle] = useState('');
+
+  const extractTitle = (data) => {
+    if (!data) return '';
+    const direct =
+      data?.result?.title ||
+      data?.title ||
+      data?.result?.name ||
+      data?.result?.action_title ||
+      '';
+    if (direct) return direct;
+    const candidates =
+      (Array.isArray(data?.result?.items) && data.result.items) ||
+      (Array.isArray(data?.result?.products) && data.result.products) ||
+      (Array.isArray(data?.result) && data.result) ||
+      (Array.isArray(data?.items) && data.items) ||
+      [];
+    if (Array.isArray(candidates) && candidates.length) {
+      const found = candidates.find((entry) => entry?.title) || candidates[0];
+      return found?.title || '';
+    }
+    return '';
+  };
+
+  useEffect(() => {
+    setCurrentProfile(ProfileManager.getCurrentProfile());
+  }, []);
+
+  useEffect(() => {
+    if (!router.isReady) return;
+    const titleFromQuery = router.query.title;
+    if (typeof titleFromQuery === 'string' && titleFromQuery.trim()) {
+      setActionTitle(titleFromQuery.trim());
+      console.log('[ActionItems] title from query', titleFromQuery.trim());
+    }
+  }, [router.isReady, router.query.title]);
+
+  useEffect(() => {
+    const fetchData = async () => {
+      if (!actionId) return;
+      if (!currentProfile) {
+        setError('Выберите профиль на главной странице');
+        return;
+      }
+      setLoading(true);
+      setError('');
+      try {
+        // fetch candidates
+        const [candRes, prodRes] = await Promise.all([
+          fetch('/api/actions/candidates', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action_id: Number(actionId), limit: 500, profileId: currentProfile.id })
+          }),
+          fetch('/api/actions/products', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ action_id: Number(actionId), limit: 500, profileId: currentProfile.id })
+          })
+        ]);
+
+        const candData = await candRes.json();
+        const prodData = await prodRes.json();
+
+        if (!candRes.ok) {
+          throw new Error(candData?.error || 'Не удалось получить кандидатов');
+        }
+        if (!prodRes.ok) {
+          throw new Error(prodData?.error || 'Не удалось получить товары акции');
+        }
+
+        const candidateItems = Array.isArray(candData?.result?.items)
+          ? candData.result.items
+          : Array.isArray(candData?.result?.products)
+          ? candData.result.products
+          : Array.isArray(candData?.items)
+          ? candData.items
+          : Array.isArray(candData?.result)
+          ? candData.result
+          : [];
+        const participantItems = Array.isArray(prodData?.result?.products)
+          ? prodData.result.products
+          : [];
+
+        if (!actionTitle) {
+          const titleA = extractTitle(candData);
+          const titleB = extractTitle(prodData);
+          console.log('[ActionItems] title extraction fallback', {
+            candTitle: titleA,
+            prodTitle: titleB,
+            candKeys: Object.keys(candData || {}),
+            prodKeys: Object.keys(prodData || {})
+          });
+          const title = titleA || titleB || '';
+          if (title) {
+            setActionTitle(title);
+          }
+        }
+
+        // collect product ids
+        const productIds = Array.from(
+          new Set([
+            ...candidateItems.map((item) => item?.product_id ?? item?.id).filter(Boolean),
+            ...participantItems.map((item) => item?.product_id ?? item?.id).filter(Boolean)
+          ])
+        )
+          .map((id) => Number(id))
+          .filter((id) => Number.isFinite(id));
+
+        let priceMap = new Map();
+        let netPriceMap = new Map();
+        if (productIds.length) {
+          try {
+            const priceRes = await fetch('/api/products/info-prices', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                productIds,
+                limit: Math.min(productIds.length, 1000),
+                profileId: currentProfile.id
+              })
+            });
+            const priceData = await priceRes.json();
+            if (priceRes.ok) {
+              const items = Array.isArray(priceData?.items)
+                ? priceData.items
+                : Array.isArray(priceData?.result?.items)
+                ? priceData.result.items
+                : [];
+              priceMap = new Map(
+                items.map((it) => [
+                  String(it.product_id ?? it.id),
+                  {
+                    ...it,
+                    net_price:
+                      it?.price?.net_price ??
+                      it?.net_price ??
+                      it?.price?.netPrice ??
+                      null
+                  }
+                ])
+              );
+            } else {
+              console.error('[ActionItems] Failed to fetch price data', priceData);
+            }
+
+            // net price fallback from history
+            const netRes = await fetch('/api/products/net-price-latest', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ productIds, profileId: currentProfile.id })
+            });
+            const netData = await netRes.json();
+            if (netRes.ok) {
+              const netItems = Array.isArray(netData?.items) ? netData.items : [];
+              netPriceMap = new Map(
+                netItems
+                  .filter((it) => it?.productId !== undefined)
+                  .map((it) => [String(it.productId), it.net_price ?? null])
+              );
+            } else {
+              console.error('[ActionItems] Failed to fetch net price history', netData);
+            }
+          } catch (priceErr) {
+            console.error('[ActionItems] Failed to fetch prices', priceErr);
+          }
+        }
+
+        const withNetFallback = (items) =>
+          items.map((item) => {
+            const productId = item?.product_id ?? item?.id ?? item?.productId;
+            const priceInfo = productId ? priceMap.get(String(productId)) : null;
+            const netFromHistory = productId ? netPriceMap.get(String(productId)) : null;
+            const pickNet = () => {
+              const val = priceInfo?.net_price;
+              if (Number.isFinite(val) && val > 0) return val;
+              if (Number.isFinite(netFromHistory) && netFromHistory > 0) return netFromHistory;
+              return null;
+            };
+            const net = pickNet();
+            return {
+              ...item,
+              product_id: productId,
+              sku: productId,
+              offer_id:
+                item?.offer_id ??
+                item?.offerId ??
+                priceInfo?.offer_id ??
+                priceInfo?.offerId ??
+                null,
+              net_price: net
+            };
+          });
+
+        setCandidates(withNetFallback(candidateItems));
+        setParticipants(withNetFallback(participantItems));
+      } catch (err) {
+        console.error(err);
+        setError(err.message || 'Ошибка загрузки товаров акции');
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchData();
+  }, [actionId, currentProfile]);
+
+  const sanitizedPercent = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) return 0;
+    if (num > 99) return 99;
+    return num;
+  };
+
+  const calculations = useMemo(() => {
+    const tax = sanitizedPercent(taxPercent);
+    const commission = sanitizedPercent(commissionPercent);
+    const discount = sanitizedPercent(discountPercent);
+    const minMarkupVal = sanitizedPercent(minMarkup);
+    return { tax, commission, discount, minMarkup: minMarkupVal };
+  }, [taxPercent, commissionPercent, discountPercent, minMarkup]);
+
+  const calcRow = (item) => {
+    const price = Number(item?.price);
+    const actionPrice = Number(item?.action_price);
+    const net = Number(item?.net_price);
+
+    // базой для расчёта my_action_price берём price; если его нет, используем action_price как запасной вариант
+    const basePrice = Number.isFinite(price) ? price : Number.isFinite(actionPrice) ? actionPrice : null;
+    const validActionPrice = Number.isFinite(actionPrice) ? actionPrice : null;
+    const validNet = Number.isFinite(net) && net > 0 ? net : null;
+
+    console.log('[ActionRow] values', {
+      offer_id: item?.offer_id ?? item?.offerId,
+      price,
+      actionPrice,
+      basePrice,
+      validActionPrice,
+    });
+
+    const myActionPrice =
+      (validActionPrice !== null & validActionPrice !== 0) ? validActionPrice : basePrice * (1 - calculations.discount / 100) ;
+    console.log('[myActionPrice] values', {
+      offer_id: item?.offer_id ?? item?.offerId,
+      myActionPrice
+    });
+
+    const profit =
+      myActionPrice !== null && validNet !== null
+        ? myActionPrice * (1 - calculations.tax / 100 - calculations.commission / 100) -
+          validNet
+        : null;
+
+    const marginCost =
+      profit !== null && validNet
+        ? (profit / validNet) * 100
+        : null;
+
+    return {
+      ...item,
+      my_action_price: myActionPrice,
+      profit,
+      margin_cost: marginCost
+    };
+  };
+
+  const renderTable = (title, items, hideKeys = []) => (
+    <div style={{ marginTop: 16 }}>
+      <h3 style={{ marginBottom: 8 }}>{title} ({items.length})</h3>
+      <div style={{ overflowX: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+          <thead>
+            <tr style={{ backgroundColor: '#f8f9fa' }}>
+              {columns
+                .filter((col) => !col.hidden && !hideKeys.includes(col.key))
+                .map((col) => (
+                  <th key={col.key} style={{ padding: 10, border: '1px solid #dee2e6', textAlign: 'left' }}>
+                    {col.label}
+                  </th>
+                ))}
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((raw) => {
+              const item = calcRow(raw);
+              const marginVal = Number(item?.margin_cost);
+              const isBelowMinMarkup =
+                Number.isFinite(marginVal) &&
+                marginVal < calculations.minMarkup;
+              return (
+                <tr
+                  key={`${item.product_id || item.id || Math.random()}`}
+                  style={{
+                    borderBottom: '1px solid #f1f3f5',
+                    backgroundColor: isBelowMinMarkup ? '#fee2e2' : 'transparent',
+                    color: isBelowMinMarkup ? '#b91c1c' : 'inherit'
+                  }}
+                >
+                  {columns
+                    .filter((col) => !col.hidden && !hideKeys.includes(col.key))
+                    .map((col) => {
+                      const value = item[col.key];
+                      const content = col.format ? col.format(value) : formatNumber(value);
+                      return (
+                        <td key={col.key} style={{ padding: 10, border: '1px solid #eef1f4' }}>
+                          {content}
+                        </td>
+                      );
+                    })}
+                </tr>
+              );
+            })}
+            {!items.length && (
+              <tr>
+                <td colSpan={columns.length} style={{ padding: 12, color: '#6c757d' }}>
+                  Нет данных
+                </td>
+              </tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+
+  return (
+    <div style={{ padding: 20, fontFamily: 'Arial, sans-serif' }}>
+      <div style={{ marginBottom: 12 }}>
+        <Link href="/" legacyBehavior>
+          <a style={{ color: '#0d6efd', textDecoration: 'none' }}>← Назад</a>
+        </Link>
+      </div>
+      <h1 style={{ marginBottom: 8 }}>
+        Товары акции {actionTitle ? `«${actionTitle}»` : `#${actionId}`}
+      </h1>
+      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
+        <div>
+          <div style={{ fontSize: 13, marginBottom: 4 }}>Минимальная наценка %</div>
+          <input
+            type="number"
+            min="0"
+            max="99"
+            step="0.1"
+            value={minMarkup}
+            onChange={(e) => setMinMarkup(e.target.value)}
+            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 13, marginBottom: 4 }}>Налоги %</div>
+          <input
+            type="number"
+            min="0"
+            max="99"
+            step="0.1"
+            value={taxPercent}
+            onChange={(e) => setTaxPercent(e.target.value)}
+            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 13, marginBottom: 4 }}>Комиссия Озон %</div>
+          <input
+            type="number"
+            min="0"
+            max="99"
+            step="0.1"
+            value={commissionPercent}
+            onChange={(e) => setCommissionPercent(e.target.value)}
+            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
+          />
+        </div>
+        <div>
+          <div style={{ fontSize: 13, marginBottom: 4 }}>Скидка %</div>
+          <input
+            type="number"
+            min="0"
+            max="99"
+            step="0.1"
+            value={discountPercent}
+            onChange={(e) => setDiscountPercent(e.target.value)}
+            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
+          />
+        </div>
+      </div>
+      {error && <div style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</div>}
+      {loading && <div style={{ color: '#6c757d' }}>Загрузка…</div>}
+      {!loading && !error && (
+        <>
+          {renderTable('Кандидаты', candidates, ['action_price', 'add_mode'])}
+          {renderTable('Участвуют', participants)}
+        </>
+      )}
+    </div>
+  );
+}

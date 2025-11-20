@@ -557,6 +557,20 @@ export class OzonApiService {
     return this.request('/v1/actions/candidates', payload);
   }
 
+  async getActionProducts({ action_id, limit = 100, last_id = null } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для запроса товаров акции');
+    }
+    const payload = {
+      action_id,
+      limit: Number(limit) || 100
+    };
+    if (last_id !== undefined && last_id !== null && last_id !== '') {
+      payload.last_id = last_id;
+    }
+    return this.request('/v1/actions/products', payload);
+  }
+
   async getProductImportStatus(taskId) {
     if (!taskId) {
       throw new Error('Не передан task_id');

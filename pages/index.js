@@ -481,16 +481,36 @@ export default function Home() {
                       <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
                         {formatActionDate(action.date_start)} — {formatActionDate(action.date_end)}
                       </td>
-                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
-                        {action.potential_products_count ?? 0}
-                      </td>
-                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
-                        {action.participating_products_count ?? 0}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+                    <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                      {action.potential_products_count ?? 0}
+                    </td>
+                    <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                      {action.participating_products_count ?? 0}
+                      <div style={{ marginTop: 8 }}>
+                        <Link
+                          href={`/actions/${action.id}?title=${encodeURIComponent(action.title || '')}`}
+                          legacyBehavior
+                        >
+                          <a
+                            style={{
+                              display: 'inline-block',
+                              padding: '6px 10px',
+                              backgroundColor: '#0d6efd',
+                              color: '#fff',
+                              borderRadius: 6,
+                              textDecoration: 'none',
+                              fontSize: 13
+                            }}
+                          >
+                            Открыть товары
+                          </a>
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
             </div>
           )}
 
