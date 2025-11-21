@@ -1122,7 +1122,7 @@ export default function ProductsPage() {
                 </td>
                 <td style={{ padding: 12 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <Link href={`/products/${product.offer_id}`} legacyBehavior>
+                    <Link href={`/products/${product.offer_id}/attributes`} legacyBehavior>
                       <a
                         style={{
                           padding: '6px 12px',
