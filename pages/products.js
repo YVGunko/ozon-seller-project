@@ -1122,21 +1122,20 @@ export default function ProductsPage() {
                 </td>
                 <td style={{ padding: 12 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      onClick={() => fetchAttributes(product.offer_id)}
-                      disabled={loadingAttributes && selectedProduct === product.offer_id}
-                      style={{
-                        padding: '6px 12px',
-                        backgroundColor: '#17a2b8',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 4,
-                        cursor: loadingAttributes && selectedProduct === product.offer_id ? 'not-allowed' : 'pointer',
-                        fontSize: 12
-                      }}
-                    >
-                      {loadingAttributes && selectedProduct === product.offer_id ? 'Загрузка...' : 'Атрибуты'}
-                    </button>
+                    <Link href={`/products/${product.offer_id}`} legacyBehavior>
+                      <a
+                        style={{
+                          padding: '6px 12px',
+                          backgroundColor: '#17a2b8',
+                          color: 'white',
+                          borderRadius: 4,
+                          textDecoration: 'none',
+                          fontSize: 12
+                        }}
+                      >
+                        Атрибуты
+                      </a>
+                    </Link>
                     <button
                       onClick={() => openCopyModal(product)}
                       style={{

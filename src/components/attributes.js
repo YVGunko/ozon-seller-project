@@ -40,7 +40,7 @@ const isValidImageUrl = (value) => {
   return /^https?:\/\//i.test(trimmed);
 };
 
-const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
+export const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
   if (!priceLoading && !priceInfo && !priceError) {
     return null;
   }
@@ -102,7 +102,7 @@ const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) =
 
 const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 
-const ImagesManager = ({
+export const ImagesManager = ({
   title = 'Изображения',
   images = [],
   primaryImage = '',
