@@ -636,6 +636,15 @@ export class OzonApiService {
     });
   }
 
+  async getProductRatingBySku({ skus = [] } = {}) {
+    if (!Array.isArray(skus) || skus.length === 0) {
+      throw new Error('skus array is required');
+    }
+    return this.request('/v1/product/rating-by-sku', {
+      skus: skus.map((sku) => String(sku))
+    });
+  }
+
   async getProductInfoAttributes({ limit = 50, last_id = '', offer_ids = [], sku = [] } = {}) {
     const payload = {
       limit: Number(limit) || 50,

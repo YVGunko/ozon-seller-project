@@ -1,5 +1,5 @@
 // pages/products.js
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { ProfileManager } from '../src/utils/profileManager';
@@ -99,6 +99,12 @@ export default function ProductsPage() {
     error: attributesError,
     loadAttributes
   } = useProductAttributes(apiClient, currentProfile);
+  const [ratingMap, setRatingMap] = useState(new Map());
+  const ratingMapRef = useRef(new Map());
+  const [ratingLoading, setRatingLoading] = useState(false);
+  const [ratingError, setRatingError] = useState('');
+  const [ratingModal, setRatingModal] = useState(null);
+  const [ratingSortOrder, setRatingSortOrder] = useState('desc');
 
   // load profile once
   useEffect(() => {
@@ -107,6 +113,45 @@ export default function ProductsPage() {
   }, []);
 
   // fetchProducts function
+  const loadRatingsForSkus = useCallback(
+    async (skus = []) => {
+      if (!currentProfile) return;
+      const uniqueSkus = Array.from(new Set(skus.filter(Boolean)));
+      const toFetch = uniqueSkus.filter((sku) => !ratingMapRef.current.has(sku));
+      if (!toFetch.length) return;
+    setRatingLoading(true);
+      try {
+        let map = new Map(ratingMapRef.current);
+        const chunkSize = 50;
+        for (let i = 0; i < toFetch.length; i += chunkSize) {
+          const chunk = toFetch.slice(i, i + chunkSize);
+          const response = await fetch('/api/products/rating-by-sku', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skus: chunk, profileId: currentProfile.id })
+          });
+          const data = await response.json();
+          if (response.ok && Array.isArray(data?.products)) {
+            data.products.forEach((entry) => {
+              map.set(String(entry.sku), entry);
+            });
+          } else {
+            console.warn('Failed to fetch rating chunk', data);
+          }
+        }
+        ratingMapRef.current = map;
+        setRatingMap(map);
+        setRatingError('');
+      } catch (error) {
+        console.error('Failed to load product ratings', error);
+        setRatingError('Не удалось загрузить рейтинги');
+      } finally {
+        setRatingLoading(false);
+      }
+    },
+    [currentProfile]
+  );
+
   const fetchProducts = useCallback(async (reset = false) => {
     if (!currentProfile) return;
     if (loading) return;
@@ -142,7 +187,8 @@ export default function ProductsPage() {
             sku: derivedSku
           };
         });
-        setProducts(prev => reset ? items : [...prev, ...items]);
+        setProducts((prev) => (reset ? items : [...prev, ...items]));
+        loadRatingsForSkus(items.map((entry) => entry.sku));
         setPagination(prev => ({
           ...prev,
           last_id: result?.result?.last_id || result?.last_id || '',
@@ -897,6 +943,28 @@ export default function ProductsPage() {
     return true;
   });
 
+  const sortedProducts = useMemo(() => {
+    const array = [...filteredProducts];
+    const getRatingValue = (product) => {
+      const sku = product?.sku;
+      if (!sku) return -1;
+      const entry = ratingMap.get(String(sku));
+      if (!entry) return -1;
+      return Number.isFinite(entry.rating) ? entry.rating : -1;
+    };
+    array.sort((a, b) => {
+      const ra = getRatingValue(a);
+      const rb = getRatingValue(b);
+      if (ra === rb) return 0;
+      return ratingSortOrder === 'asc' ? ra - rb : rb - ra;
+    });
+    return array;
+  }, [filteredProducts, ratingMap, ratingSortOrder]);
+
+  const toggleRatingSort = () => {
+    setRatingSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+  };
+
   return (
     <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
       <div style={{ marginBottom: 15 }}>
@@ -994,17 +1062,64 @@ export default function ProductsPage() {
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Артикул</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Название</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>SKU</th>
-              
+              <th style={{ padding: 12, textAlign: 'center', borderBottom: '1px solid #dee2e6' }}>
+                <button
+                  type="button"
+                  onClick={toggleRatingSort}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Контент-рейтинг
+                  <span>{ratingSortOrder === 'asc' ? '▲' : '▼'}</span>
+                  {ratingLoading && <span style={{ fontSize: 12 }}>⌛</span>}
+                </button>
+                {ratingError && (
+                  <div style={{ fontSize: 11, color: '#b91c1c' }}>{ratingError}</div>
+                )}
+              </th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Действия</th>
             </tr>
           </thead>
           <tbody>
-            {filteredProducts.map((product) => (
+            {sortedProducts.map((product) => (
               <tr key={product.product_id || product.offer_id} style={{ borderBottom: '1px solid #dee2e6' }}>
                 <td style={{ padding: 12 }}>{product.product_id || product.id || '—'}</td>
               <td style={{ padding: 12, fontWeight: 'bold' }}>{product.offer_id}</td>
               <td style={{ padding: 12 }}>{product.name || '—'}</td>
               <td style={{ padding: 12 }}>{product.sku || '—'}</td>
+                <td style={{ padding: 12, textAlign: 'center', fontSize: 14 }}>
+                  {(() => {
+                    const sku = product.sku;
+                    const entry = sku ? ratingMap.get(String(sku)) : null;
+                    const showLoading = ratingLoading && !entry;
+                    if (entry) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setRatingModal({ sku, ...entry })}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#0d6efd',
+                            cursor: 'pointer',
+
+                            padding: 12
+                          }}
+                        >
+                          {entry.rating !== undefined ? Number(entry.rating).toFixed(1) : '—'}
+                        </button>
+                      );
+                    }
+                    return showLoading ? '…' : '—';
+                  })()}
+                </td>
                 <td style={{ padding: 12 }}>
                   <div style={{ display: 'flex', gap: 8 }}>
                     <button
@@ -1201,6 +1316,91 @@ export default function ProductsPage() {
                 {copyLoading ? 'Подготавливаем…' : 'Продолжить'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+      {ratingModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.4)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1100
+          }}
+          onClick={() => setRatingModal(null)}
+        >
+          <div
+            style={{
+              width: 'min(640px, 90vw)',
+              maxHeight: '80vh',
+              overflowY: 'auto',
+              backgroundColor: '#fff',
+              padding: 20,
+              borderRadius: 10
+            }}
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div style={{ marginBottom: 12, fontWeight: 'bold' }}>
+              Контент-рейтинг SKU {ratingModal.sku}: {ratingModal.rating ?? '—'}
+            </div>
+            {Array.isArray(ratingModal.groups) && ratingModal.groups.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontWeight: 'bold' }}>Группы</div>
+                {ratingModal.groups.map((group) => (
+                  <div key={group.key || group.name} style={{ marginTop: 6 }}>
+                    <div>
+                      {group.name}: рейтинг {Number(group.rating ?? 0).toFixed(1)}, вес{' '}
+                      {group.weight ?? 0}%
+                    </div>
+                    {group.improve_at_least && (
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>
+                        Заполните {group.improve_at_least} атрибутов:
+                        {Array.isArray(group.improve_attributes)
+                          ? group.improve_attributes.map((attr) => ` ${attr.name}`)
+                          : ''}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {Array.isArray(ratingModal.conditions) && ratingModal.conditions.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontWeight: 'bold' }}>Условия</div>
+                {ratingModal.conditions.map((condition) => (
+                  <div
+                    key={condition.key}
+                    style={{
+                      marginTop: 6,
+                      padding: 8,
+                      borderRadius: 8,
+                      backgroundColor: condition.fulfilled ? '#ecfdf5' : '#fef3c7'
+                    }}
+                  >
+                    <div>{condition.description}</div>
+                    <div style={{ fontSize: 12, color: '#6c757d' }}>
+                      {condition.fulfilled ? 'Выполнено' : 'Не выполнено'} — {condition.cost} баллов
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setRatingModal(null)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid #d1d5db',
+                backgroundColor: '#fff',
+                cursor: 'pointer'
+              }}
+            >
+              Закрыть
+            </button>
           </div>
         </div>
       )}
