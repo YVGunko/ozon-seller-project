@@ -44,6 +44,7 @@ export default function ActionItemsPage() {
   const [importStatus, setImportStatus] = useState('');
   const [importError, setImportError] = useState('');
   const [importLoading, setImportLoading] = useState(false);
+  const [elasticLoading, setElasticLoading] = useState(false);
   const [savedSettings, setSavedSettings] = useState(null);
 
   const extractTitle = (data) => {
@@ -85,10 +86,13 @@ export default function ActionItemsPage() {
     const loadSavedPricing = async () => {
       if (!currentProfile) return;
       try {
-        const res = await fetch(`/api/actions/pricing-settings?profileId=${encodeURIComponent(currentProfile.id)}`, {
-          method: 'GET',
-          headers: { 'Content-Type': 'application/json' },
-        });
+        const res = await fetch(
+          `/api/actions/pricing-settings?profileId=${encodeURIComponent(currentProfile.id)}`,
+          {
+            method: 'GET',
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
         const data = await res.json();
         if (res.ok && data) {
           const next = {
@@ -110,174 +114,167 @@ export default function ActionItemsPage() {
     loadSavedPricing();
   }, [currentProfile]);
 
+  const refreshData = async () => {
+    if (!actionId || !currentProfile) return;
+    setLoading(true);
+    setError('');
+    try {
+      const [candRes, prodRes] = await Promise.all([
+        fetch('/api/actions/candidates', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action_id: Number(actionId), limit: 500, profileId: currentProfile.id })
+        }),
+        fetch('/api/actions/products', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ action_id: Number(actionId), limit: 500, profileId: currentProfile.id })
+        })
+      ]);
+
+      const candData = await candRes.json();
+      const prodData = await prodRes.json();
+
+      if (!candRes.ok) {
+        throw new Error(candData?.error || 'Не удалось получить кандидатов');
+      }
+      if (!prodRes.ok) {
+        throw new Error(prodData?.error || 'Не удалось получить товары акции');
+      }
+
+      const candidateItems = Array.isArray(candData?.result?.items)
+        ? candData.result.items
+        : Array.isArray(candData?.result?.products)
+        ? candData.result.products
+        : Array.isArray(candData?.items)
+        ? candData.items
+        : Array.isArray(candData?.result)
+        ? candData.result
+        : [];
+      const participantItems = Array.isArray(prodData?.result?.products)
+        ? prodData.result.products
+        : [];
+
+      if (!actionTitle) {
+        const titleA = extractTitle(candData);
+        const titleB = extractTitle(prodData);
+        console.log('[ActionItems] title extraction fallback', {
+          candTitle: titleA,
+          prodTitle: titleB,
+          candKeys: Object.keys(candData || {}),
+          prodKeys: Object.keys(prodData || {})
+        });
+        const title = titleA || titleB || '';
+        if (title) {
+          setActionTitle(title);
+        }
+      }
+
+      const productIds = Array.from(
+        new Set([
+          ...candidateItems.map((item) => item?.product_id ?? item?.id).filter(Boolean),
+          ...participantItems.map((item) => item?.product_id ?? item?.id).filter(Boolean)
+        ])
+      )
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id));
+
+      let priceMap = new Map();
+      let netPriceMap = new Map();
+      if (productIds.length) {
+        try {
+          const priceRes = await fetch('/api/products/info-prices', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              productIds,
+              limit: Math.min(productIds.length, 1000),
+              profileId: currentProfile.id
+            })
+          });
+          const priceData = await priceRes.json();
+          if (priceRes.ok) {
+            const items = Array.isArray(priceData?.items)
+              ? priceData.items
+              : Array.isArray(priceData?.result?.items)
+              ? priceData.result.items
+              : [];
+            priceMap = new Map(
+              items.map((it) => [
+                String(it.product_id ?? it.id),
+                {
+                  ...it,
+                  net_price:
+                    it?.price?.net_price ??
+                    it?.net_price ??
+                    it?.price?.netPrice ??
+                    null
+                }
+              ])
+            );
+          } else {
+            console.error('[ActionItems] Failed to fetch price data', priceData);
+          }
+
+          const netRes = await fetch('/api/products/net-price-latest', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ productIds, profileId: currentProfile.id })
+          });
+          const netData = await netRes.json();
+          if (netRes.ok) {
+            const netItems = Array.isArray(netData?.items) ? netData.items : [];
+            netPriceMap = new Map(
+              netItems
+                .filter((it) => it?.productId !== undefined)
+                .map((it) => [String(it.productId), it.net_price ?? null])
+            );
+          } else {
+            console.error('[ActionItems] Failed to fetch net price history', netData);
+          }
+        } catch (priceErr) {
+          console.error('[ActionItems] Failed to fetch prices', priceErr);
+        }
+      }
+
+      const withNetFallback = (items) =>
+        items.map((item) => {
+          const productId = item?.product_id ?? item?.id ?? item?.productId;
+          const priceInfo = productId ? priceMap.get(String(productId)) : null;
+          const netFromHistory = productId ? netPriceMap.get(String(productId)) : null;
+          const pickNet = () => {
+            const val = priceInfo?.net_price;
+            if (Number.isFinite(val) && val > 0) return val;
+            if (Number.isFinite(netFromHistory) && netFromHistory > 0) return netFromHistory;
+            return null;
+          };
+          const net = pickNet();
+          return {
+            ...item,
+            product_id: productId,
+            sku: productId,
+            offer_id:
+              item?.offer_id ??
+              item?.offerId ??
+              priceInfo?.offer_id ??
+              priceInfo?.offerId ??
+              null,
+            net_price: net
+          };
+        });
+
+      setCandidates(withNetFallback(candidateItems));
+      setParticipants(withNetFallback(participantItems));
+    } catch (err) {
+      console.error(err);
+      setError(err.message || 'Ошибка загрузки товаров акции');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   useEffect(() => {
-    const fetchData = async () => {
-      if (!actionId) return;
-      if (!currentProfile) {
-        setError('Выберите профиль на главной странице');
-        return;
-      }
-      setLoading(true);
-      setError('');
-      try {
-        // fetch candidates
-        const [candRes, prodRes] = await Promise.all([
-          fetch('/api/actions/candidates', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action_id: Number(actionId), limit: 500, profileId: currentProfile.id })
-          }),
-          fetch('/api/actions/products', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ action_id: Number(actionId), limit: 500, profileId: currentProfile.id })
-          })
-        ]);
-
-        const candData = await candRes.json();
-        const prodData = await prodRes.json();
-
-        if (!candRes.ok) {
-          throw new Error(candData?.error || 'Не удалось получить кандидатов');
-        }
-        if (!prodRes.ok) {
-          throw new Error(prodData?.error || 'Не удалось получить товары акции');
-        }
-
-        const candidateItems = Array.isArray(candData?.result?.items)
-          ? candData.result.items
-          : Array.isArray(candData?.result?.products)
-          ? candData.result.products
-          : Array.isArray(candData?.items)
-          ? candData.items
-          : Array.isArray(candData?.result)
-          ? candData.result
-          : [];
-        const participantItems = Array.isArray(prodData?.result?.products)
-          ? prodData.result.products
-          : [];
-
-        if (!actionTitle) {
-          const titleA = extractTitle(candData);
-          const titleB = extractTitle(prodData);
-          console.log('[ActionItems] title extraction fallback', {
-            candTitle: titleA,
-            prodTitle: titleB,
-            candKeys: Object.keys(candData || {}),
-            prodKeys: Object.keys(prodData || {})
-          });
-          const title = titleA || titleB || '';
-          if (title) {
-            setActionTitle(title);
-          }
-        }
-
-        // collect product ids
-        const productIds = Array.from(
-          new Set([
-            ...candidateItems.map((item) => item?.product_id ?? item?.id).filter(Boolean),
-            ...participantItems.map((item) => item?.product_id ?? item?.id).filter(Boolean)
-          ])
-        )
-          .map((id) => Number(id))
-          .filter((id) => Number.isFinite(id));
-
-        let priceMap = new Map();
-        let netPriceMap = new Map();
-        if (productIds.length) {
-          try {
-            const priceRes = await fetch('/api/products/info-prices', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                productIds,
-                limit: Math.min(productIds.length, 1000),
-                profileId: currentProfile.id
-              })
-            });
-            const priceData = await priceRes.json();
-            if (priceRes.ok) {
-              const items = Array.isArray(priceData?.items)
-                ? priceData.items
-                : Array.isArray(priceData?.result?.items)
-                ? priceData.result.items
-                : [];
-              priceMap = new Map(
-                items.map((it) => [
-                  String(it.product_id ?? it.id),
-                  {
-                    ...it,
-                    net_price:
-                      it?.price?.net_price ??
-                      it?.net_price ??
-                      it?.price?.netPrice ??
-                      null
-                  }
-                ])
-              );
-            } else {
-              console.error('[ActionItems] Failed to fetch price data', priceData);
-            }
-
-            // net price fallback from history
-            const netRes = await fetch('/api/products/net-price-latest', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ productIds, profileId: currentProfile.id })
-            });
-            const netData = await netRes.json();
-            if (netRes.ok) {
-              const netItems = Array.isArray(netData?.items) ? netData.items : [];
-              netPriceMap = new Map(
-                netItems
-                  .filter((it) => it?.productId !== undefined)
-                  .map((it) => [String(it.productId), it.net_price ?? null])
-              );
-            } else {
-              console.error('[ActionItems] Failed to fetch net price history', netData);
-            }
-          } catch (priceErr) {
-            console.error('[ActionItems] Failed to fetch prices', priceErr);
-          }
-        }
-
-        const withNetFallback = (items) =>
-          items.map((item) => {
-            const productId = item?.product_id ?? item?.id ?? item?.productId;
-            const priceInfo = productId ? priceMap.get(String(productId)) : null;
-            const netFromHistory = productId ? netPriceMap.get(String(productId)) : null;
-            const pickNet = () => {
-              const val = priceInfo?.net_price;
-              if (Number.isFinite(val) && val > 0) return val;
-              if (Number.isFinite(netFromHistory) && netFromHistory > 0) return netFromHistory;
-              return null;
-            };
-            const net = pickNet();
-            return {
-              ...item,
-              product_id: productId,
-              sku: productId,
-              offer_id:
-                item?.offer_id ??
-                item?.offerId ??
-                priceInfo?.offer_id ??
-                priceInfo?.offerId ??
-                null,
-              net_price: net
-            };
-          });
-
-        setCandidates(withNetFallback(candidateItems));
-        setParticipants(withNetFallback(participantItems));
-      } catch (err) {
-        console.error(err);
-        setError(err.message || 'Ошибка загрузки товаров акции');
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+    refreshData();
   }, [actionId, currentProfile]);
 
   const sanitizedPercent = (value) => {
@@ -440,12 +437,25 @@ export default function ActionItemsPage() {
       }
       await persistPricingSettings();
       setImportStatus(`Отправлено в OZON: ${pricesPayload.length}`);
+      setTimeout(() => {
+        refreshData();
+      }, 3000);
     } catch (err) {
       console.error('[ActionItems] import prices error', err);
       setImportError(err.message || 'Не удалось отправить цены');
     } finally {
       setImportLoading(false);
     }
+  };
+
+  const handleImportPricesElastic = async () => {
+    if (!actionTitle || !actionTitle.toLowerCase().includes('эластичный')) {
+      setImportError('Эта кнопка доступна только для акций с «Эластичный» в названии');
+      return;
+    }
+    setElasticLoading(true);
+    await handleImportPrices();
+    setElasticLoading(false);
   };
 
   const renderTable = (title, items, hideKeys = []) => (
@@ -575,20 +585,78 @@ export default function ActionItemsPage() {
             <button
               type="button"
               onClick={handleImportPrices}
-              disabled={importLoading}
+              disabled={
+                importLoading ||
+                elasticLoading ||
+                (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
+              }
               style={{
                 padding: '10px 16px',
-                backgroundColor: importLoading ? '#9ca3af' : '#16a34a',
+                backgroundColor:
+                  importLoading ||
+                  elasticLoading ||
+                  (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
+                    ? '#9ca3af'
+                    : '#16a34a',
                 color: '#fff',
                 border: 'none',
                 borderRadius: 6,
-                cursor: importLoading ? 'not-allowed' : 'pointer'
+                cursor:
+                  importLoading ||
+                  elasticLoading ||
+                  (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
+                    ? 'not-allowed'
+                    : 'pointer'
               }}
             >
               {importLoading ? 'Отправляем…' : 'В акцию (установить цены)'}
             </button>
+            <button
+              type="button"
+              onClick={handleImportPricesElastic}
+              disabled={
+                importLoading ||
+                elasticLoading ||
+                !actionTitle?.toLowerCase().includes('эластичный')
+              }
+              style={{
+                padding: '10px 16px',
+                backgroundColor:
+                  importLoading ||
+                  elasticLoading ||
+                  !actionTitle?.toLowerCase().includes('эластичный')
+                    ? '#9ca3af'
+                    : '#7c3aed',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor:
+                  importLoading ||
+                  elasticLoading ||
+                  !actionTitle?.toLowerCase().includes('эластичный')
+                    ? 'not-allowed'
+                    : 'pointer'
+              }}
+            >
+              {elasticLoading ? 'Отправляем…' : 'В акцию (Эластичный бустинг)'}
+            </button>
             {importStatus && <span style={{ color: '#047857' }}>{importStatus}</span>}
             {importError && <span style={{ color: '#b91c1c' }}>{importError}</span>}
+            <button
+              type="button"
+              onClick={refreshData}
+              disabled={loading}
+              style={{
+                padding: '10px 16px',
+                backgroundColor: loading ? '#9ca3af' : '#0ea5e9',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: loading ? 'not-allowed' : 'pointer'
+              }}
+            >
+              {loading ? 'Обновляем…' : 'Обновить данные'}
+            </button>
           </div>
 
           {renderTable('Кандидаты', candidates, ['action_price', 'add_mode'])}

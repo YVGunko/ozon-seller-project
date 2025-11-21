@@ -102,9 +102,9 @@ export default function Home() {
       <h1>OZON Seller Dashboard</h1>
 
       {/* Отображение текущего профиля */}
-      <div style={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
+      <div style={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'center',
         marginBottom: '20px',
         padding: '15px',
@@ -312,6 +312,22 @@ export default function Home() {
                 📦 Управление товарами
               </div>
             </Link>
+            <Link href="/ozon-prod-copier" passHref>
+              <div
+                style={{
+                  display: 'inline-block',
+                  padding: '12px 24px',
+                  backgroundColor: '#ffc107',
+                  color: '#212529',
+                  textDecoration: 'none',
+                  borderRadius: '4px',
+                  fontWeight: 'bold',
+                  marginRight: '10px'
+                }}
+              >
+                Создать товар по ссылке Озон
+              </div>
+            </Link>
             <Link href="/attention" passHref>
               <div
                 style={{
@@ -388,13 +404,13 @@ export default function Home() {
           <button
             onClick={fetchOrders}
             disabled={loading}
-            style={{ 
-              padding: '10px 20px', 
-              backgroundColor: '#0070f3', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '5px', 
-              cursor: loading ? 'not-allowed' : 'pointer' 
+            style={{
+              padding: '10px 20px',
+              backgroundColor: '#0070f3',
+              color: 'white',
+              border: 'none',
+              borderRadius: '5px',
+              cursor: loading ? 'not-allowed' : 'pointer'
             }}
           >
             {loading ? 'Загрузка…' : 'Загрузить заказы'}
@@ -484,36 +500,36 @@ export default function Home() {
                       <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
                         {formatActionDate(action.date_start)} — {formatActionDate(action.date_end)}
                       </td>
-                    <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
-                      {action.potential_products_count ?? 0}
-                    </td>
-                    <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
-                      {action.participating_products_count ?? 0}
-                      <div style={{ marginTop: 8 }}>
-                        <Link
-                          href={`/actions/${action.id}?title=${encodeURIComponent(action.title || '')}`}
-                          legacyBehavior
-                        >
-                          <a
-                            style={{
-                              display: 'inline-block',
-                              padding: '6px 10px',
-                              backgroundColor: '#0d6efd',
-                              color: '#fff',
-                              borderRadius: 6,
-                              textDecoration: 'none',
-                              fontSize: 13
-                            }}
+                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                        {action.potential_products_count ?? 0}
+                      </td>
+                      <td style={{ padding: 10, border: '1px solid #dee2e6' }}>
+                        {action.participating_products_count ?? 0}
+                        <div style={{ marginTop: 8 }}>
+                          <Link
+                            href={`/actions/${action.id}?title=${encodeURIComponent(action.title || '')}`}
+                            legacyBehavior
                           >
-                            Открыть товары
-                          </a>
-                        </Link>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                            <a
+                              style={{
+                                display: 'inline-block',
+                                padding: '6px 10px',
+                                backgroundColor: '#0d6efd',
+                                color: '#fff',
+                                borderRadius: 6,
+                                textDecoration: 'none',
+                                fontSize: 13
+                              }}
+                            >
+                              Открыть товары
+                            </a>
+                          </Link>
+                        </div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
 
@@ -566,11 +582,11 @@ export default function Home() {
             >
               ✕
             </button>
-            
+
             <h2 style={{ marginBottom: '20px' }}>Управление профилями OZON</h2>
-            
+
             <UserProfiles onProfileChange={handleProfileChange} />
-            
+
             <div style={{ textAlign: 'center', marginTop: '20px' }}>
               <button
                 onClick={() => setShowProfilesModal(false)}
