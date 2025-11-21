@@ -479,7 +479,7 @@ export const ImagesManager = ({
   );
 };
 
-const MetaFieldsSection = ({ values, onChange, baseValues }) => {
+export const MetaFieldsSection = ({ values, onChange, baseValues }) => {
   if (!values || !onChange) {
     return null;
   }

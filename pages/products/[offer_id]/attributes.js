@@ -33,7 +33,7 @@ import {
   normalizePrimaryImage,
   areImageListsEqual
 } from '../../../src/utils/imageHelpers';
-import { PriceInfoPanel, ImagesManager } from '../../../src/components/attributes';
+import { PriceInfoPanel, ImagesManager, MetaFieldsSection } from '../../../src/components/attributes';
 
 const PRIMARY_PRODUCT_INDEX = 0;
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
@@ -475,6 +475,28 @@ export default function ProductAttributesPage() {
   const currentImages = Array.isArray(editableProduct?.images)
     ? editableProduct.images
     : [];
+  const baseFieldIssues = useMemo(() => {
+    if (!editableProduct) return [];
+    const issues = [];
+    REQUIRED_BASE_FIELDS.forEach((field) => {
+      const value = editableProduct[field];
+      if (!hasValue(value)) {
+        issues.push(field);
+        return;
+      }
+      if (NUMERIC_BASE_FIELDS.includes(field)) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+          issues.push(field);
+        }
+      }
+    });
+    return issues;
+  }, [editableProduct]);
+  const combinedBaseValues = useMemo(() => ({ ...(priceInfo || {}), ...(productInfo || {}) }), [
+    priceInfo,
+    productInfo
+  ]);
 
   const sanitizeItemsForUpdate = useCallback(() => {
     if (!editableAttributes || editableAttributes.length === 0) return [];
@@ -801,7 +823,14 @@ export default function ProductAttributesPage() {
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
-            marginBottom: 24
+            marginBottom: 24,
+            position: 'sticky',
+            top: 0,
+            zIndex: 30,
+            backgroundColor: '#f8fafc',
+            padding: '16px 0',
+            borderBottom: '1px solid #e2e8f0',
+            boxShadow: '0 4px 12px rgba(15,23,42,0.08)'
           }}
         >
           <div>
@@ -894,31 +923,29 @@ export default function ProductAttributesPage() {
         )}
         <section ref={sectionRefs.base} style={sectionStyle}>
           <SectionHeader title="Обязательные параметры" />
-          <div
-            style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-              gap: 16
-            }}
-          >
-            {REQUIRED_BASE_FIELDS.map((field) => (
-              <div key={field}>
-                <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
-                  {BASE_FIELD_LABELS[field] || field}
-                </label>
-                <input
-                  type="text"
-                  value={baseValues[field] || ''}
-                  onChange={(event) =>
-                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, field, event.target.value)
-                  }
-                  style={inputStyle}
-                  placeholder="Введите значение"
-                  disabled={!editableProduct}
-                />
-              </div>
-            ))}
-          </div>
+          <MetaFieldsSection
+            values={editableProduct}
+            onChange={(field, value) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, field, value)}
+            baseValues={combinedBaseValues}
+          />
+          {baseFieldIssues.length > 0 && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: '10px 14px',
+                borderRadius: 8,
+                backgroundColor: '#fff7ed',
+                color: '#b45309',
+                border: '1px solid #fcd34d',
+                fontSize: 13
+              }}
+            >
+              Заполните/исправьте поля:{' '}
+              {baseFieldIssues
+                .map((field) => BASE_FIELD_LABELS[field] || field)
+                .join(', ')}
+            </div>
+          )}
           <div style={{ marginTop: 16 }}>
             <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
               Type ID (ID {TYPE_ATTRIBUTE_ID})
@@ -974,6 +1001,21 @@ export default function ProductAttributesPage() {
             onPrimaryChange={(value) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'primary_image', value)}
             disabled={!editableProduct || savingAttributes || loadingAttributes}
           />
+          {!currentImages.length && (
+            <div
+              style={{
+                marginTop: 12,
+                padding: '10px 14px',
+                borderRadius: 8,
+                backgroundColor: '#fee2e2',
+                border: '1px solid #fecaca',
+                color: '#b91c1c',
+                fontSize: 13
+              }}
+            >
+              Добавьте хотя бы одно изображение, иначе OZON не примет карточку.
+            </div>
+          )}
           {mediaFiles.length > 0 && (
             <div style={{ marginTop: 8, fontSize: 12, color: '#475569' }}>
               Файлов в буфере: {mediaFiles.length}. Их ссылки появятся после загрузки через менеджер.
