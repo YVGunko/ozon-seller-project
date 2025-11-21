@@ -52,6 +52,8 @@ const parseLinksFromTextarea = (value = '') =>
 export default function ProductAttributesPage() {
   const router = useRouter();
   const { offer_id } = router.query;
+  const mode = typeof router.query.mode === 'string' ? router.query.mode : '';
+  const isNewMode = mode === 'new';
   const [currentProfile, setCurrentProfile] = useState(null);
   const [mediaFiles, setMediaFiles] = useState([]);
   const [priceInfo, setPriceInfo] = useState(null);
@@ -60,6 +62,14 @@ export default function ProductAttributesPage() {
   const [savingAttributes, setSavingAttributes] = useState(false);
   const [savingLabel, setSavingLabel] = useState('Отправляем...');
   const [attributesUpdateStatus, setAttributesUpdateStatus] = useState({ message: '', error: '' });
+  const [comboMetaLoading, setComboMetaLoading] = useState(false);
+  const [comboMetaError, setComboMetaError] = useState('');
+  const [categoryOptions, setCategoryOptions] = useState([]);
+  const [categoryTreeLoading, setCategoryTreeLoading] = useState(false);
+  const [categoryTreeError, setCategoryTreeError] = useState('');
+  const [typeOptionsMap, setTypeOptionsMap] = useState(new Map());
+  const fetchedComboKeyRef = useRef('');
+  const categoryTreeLoadedRef = useRef(false);
   const containerRef = useRef(null);
 
   const {
@@ -72,18 +82,143 @@ export default function ProductAttributesPage() {
     loadAttributes
   } = useProductAttributes(apiClient, currentProfile);
 
+  const flattenCategoryTree = useCallback((nodes = []) => {
+    const categoryMap = new Map();
+    const typeMap = new Map();
+
+    const traverse = (node) => {
+      if (!node) return;
+      const categoryId = node.description_category_id;
+      const categoryName = node.category_name || `Категория ${categoryId}`;
+      if (categoryId && !categoryMap.has(String(categoryId))) {
+        categoryMap.set(String(categoryId), {
+          id: String(categoryId),
+          name: categoryName,
+          disabled: Boolean(node.disabled)
+        });
+      }
+      if (categoryId && node.type_id) {
+        const key = String(categoryId);
+        const existing = typeMap.get(key) || [];
+        existing.push({
+          id: String(node.type_id),
+          name: node.type_name || `Тип ${node.type_id}`,
+          disabled: Boolean(node.disabled)
+        });
+        typeMap.set(key, existing);
+      }
+      if (Array.isArray(node.children) && node.children.length) {
+        node.children.forEach(traverse);
+      }
+    };
+
+    nodes.forEach(traverse);
+
+    const categories = Array.from(categoryMap.values()).sort((a, b) =>
+      a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' })
+    );
+
+    typeMap.forEach((list, key) => {
+      list.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' }));
+    });
+
+    return { categories, typeMap };
+  }, []);
+
   useEffect(() => {
     setCurrentProfile(ProfileManager.getCurrentProfile());
   }, []);
 
   useEffect(() => {
+    if (!isNewMode) return;
+    if (categoryTreeLoadedRef.current) return;
+    if (!currentProfile?.id) return;
+    setCategoryTreeLoading(true);
+    setCategoryTreeError('');
+    fetch('/api/products/description-tree', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        language: 'RU',
+        profileId: currentProfile.id
+      })
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'Не удалось получить список категорий');
+        }
+        const treeNodes = Array.isArray(data?.result) ? data.result : [];
+        const { categories, typeMap } = flattenCategoryTree(treeNodes);
+        setCategoryOptions(categories);
+        setTypeOptionsMap(new Map(typeMap));
+        categoryTreeLoadedRef.current = true;
+        setCategoryTreeLoading(false);
+      })
+      .catch((error) => {
+        console.error('[attributes] Failed to fetch description tree', error);
+        setCategoryTreeError(error.message || 'Не удалось получить список категорий');
+        setCategoryTreeLoading(false);
+      });
+  }, [isNewMode, currentProfile, flattenCategoryTree]);
+
+  const updateBaseProduct = useCallback(
+    (updates) => {
+      setAttributes((prev) => {
+        if (!prev || !Array.isArray(prev.result) || !prev.result.length) {
+          return prev;
+        }
+        const baseProduct = { ...prev.result[0], ...updates };
+        return {
+          ...prev,
+          result: [baseProduct],
+          isNewProduct: prev.isNewProduct || isNewProduct
+        };
+      });
+    },
+    [setAttributes, isNewProduct]
+  );
+
+  useEffect(() => {
+    if (isNewMode) return;
     if (offer_id && currentProfile) {
       loadAttributes(offer_id);
     }
-  }, [offer_id, currentProfile, loadAttributes]);
+  }, [offer_id, currentProfile, loadAttributes, isNewMode]);
 
   useEffect(() => {
-    if (!offer_id || !currentProfile) {
+    return () => {
+      setAttributes(null);
+      setEditableAttributes(null);
+    };
+  }, [setAttributes, setEditableAttributes]);
+
+  useEffect(() => {
+    if (!isNewMode) return;
+    if (!offer_id) return;
+    if (attributes?.isNewProduct && editableAttributes?.length) return;
+    const offerValue = typeof offer_id === 'string' ? offer_id : '';
+    if (!offerValue) return;
+    const emptyProduct = {
+      offer_id: offerValue,
+      name: '',
+      attributes: [],
+      description_category_id: '',
+      type_id: '',
+      images: [],
+      primary_image: '',
+      available_attributes: []
+    };
+    setAttributes({ result: [emptyProduct], isNewProduct: true });
+    setEditableAttributes([JSON.parse(JSON.stringify(emptyProduct))]);
+  }, [isNewMode, offer_id, attributes?.isNewProduct, editableAttributes, setAttributes, setEditableAttributes]);
+
+  const editableProduct = editableAttributes?.[0] || null;
+  const isNewProduct = Boolean(attributes?.isNewProduct || isNewMode);
+  const selectedOfferId = editableProduct?.offer_id || (typeof offer_id === 'string' ? offer_id : '');
+
+  useEffect(() => {
+    if (!offer_id || !currentProfile || isNewProduct) {
       setPriceInfo(null);
       setPriceError('');
       setPriceLoading(false);
@@ -129,17 +264,7 @@ export default function ProductAttributesPage() {
     return () => {
       cancelled = true;
     };
-  }, [offer_id, currentProfile]);
-
-  useEffect(() => {
-    return () => {
-      setAttributes(null);
-      setEditableAttributes(null);
-    };
-  }, [setAttributes, setEditableAttributes]);
-
-  const editableProduct = editableAttributes?.[0] || null;
-  const selectedOfferId = editableProduct?.offer_id || (typeof offer_id === 'string' ? offer_id : '');
+  }, [offer_id, currentProfile, isNewProduct]);
 
   const productInfo = useMemo(() => {
     if (!attributes) return null;
@@ -148,6 +273,82 @@ export default function ProductAttributesPage() {
     }
     return null;
   }, [attributes]);
+
+  useEffect(() => {
+    if (!isNewProduct) return;
+    const categoryId = editableProduct?.description_category_id;
+    const typeId = editableProduct?.type_id;
+    if (!hasValue(categoryId) || !hasValue(typeId)) {
+      if (comboMetaLoading) {
+        setComboMetaLoading(false);
+      }
+      setComboMetaError('');
+      fetchedComboKeyRef.current = '';
+      return;
+    }
+    const comboKey = `${categoryId}:${typeId}`;
+    if (fetchedComboKeyRef.current === comboKey && !comboMetaError) {
+      return;
+    }
+    if (!currentProfile) {
+      setComboMetaError('Выберите профиль на главной странице, чтобы загрузить характеристики.');
+      return;
+    }
+    let cancelled = false;
+    setComboMetaLoading(true);
+    setComboMetaError('');
+    const body = {
+      description_category_id: categoryId,
+      type_id: typeId,
+      profileId: currentProfile.id
+    };
+    fetch('/api/products/description-attributes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    })
+      .then(async (response) => {
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(data?.error || 'Не удалось получить характеристики категории');
+        }
+        if (cancelled) return;
+        const metaAttributes = Array.isArray(data?.attributes) ? data.attributes : [];
+        setAttributes((prev) => {
+          const prevResult = Array.isArray(prev?.result) ? prev.result : [];
+          const baseProduct = { ...(prevResult[0] || {}) };
+          baseProduct.available_attributes = metaAttributes;
+          baseProduct.description_category_id = categoryId;
+          baseProduct.type_id = typeId;
+          return {
+            ...(prev || {}),
+            result: [baseProduct],
+            isNewProduct: true
+          };
+        });
+        fetchedComboKeyRef.current = comboKey;
+        setComboMetaLoading(false);
+        setComboMetaError('');
+      })
+      .catch((error) => {
+        if (cancelled) return;
+        console.error('[attributes] Failed to fetch description attributes', error);
+        setComboMetaLoading(false);
+        setComboMetaError(error.message || 'Не удалось получить характеристики категории');
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isNewProduct,
+    editableProduct?.description_category_id,
+    editableProduct?.type_id,
+    setAttributes,
+    comboMetaLoading,
+    comboMetaError,
+    currentProfile
+  ]);
 
   const availableAttributesMeta = useMemo(() => {
     return Array.isArray(productInfo?.available_attributes)
@@ -264,6 +465,51 @@ export default function ProductAttributesPage() {
       setMediaFiles((prev) => [...prev, ...files]);
     }
   };
+
+  const resetAttributesForNewSelection = useCallback(() => {
+    setEditableAttributes((prev) => {
+      if (!prev) return prev;
+      return prev.map((product, idx) => {
+        if (idx !== PRIMARY_PRODUCT_INDEX) return product;
+        return {
+          ...product,
+          attributes: []
+        };
+      });
+    });
+  }, [setEditableAttributes]);
+
+  const handleCategorySelect = useCallback(
+    (value) => {
+      const normalized = value || '';
+      handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'description_category_id', normalized);
+      handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'type_id', '');
+      updateBaseProduct({
+        description_category_id: normalized,
+        type_id: '',
+        available_attributes: []
+      });
+      resetAttributesForNewSelection();
+      fetchedComboKeyRef.current = '';
+      setComboMetaError('');
+    },
+    [handleProductMetaChange, updateBaseProduct, resetAttributesForNewSelection]
+  );
+
+  const handleTypeSelect = useCallback(
+    (value) => {
+      const normalized = value || '';
+      handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'type_id', normalized);
+      updateBaseProduct({
+        type_id: normalized,
+        available_attributes: []
+      });
+      resetAttributesForNewSelection();
+      fetchedComboKeyRef.current = '';
+      setComboMetaError('');
+    },
+    [handleProductMetaChange, updateBaseProduct, resetAttributesForNewSelection]
+  );
 
   const handleProductMetaChange = useCallback(
     (productIndex, field, value) => {
@@ -497,7 +743,16 @@ export default function ProductAttributesPage() {
     priceInfo,
     productInfo
   ]);
-
+  const hasCategorySelection = hasValue(editableProduct?.description_category_id);
+  const hasTypeSelection = hasValue(editableProduct?.type_id);
+  const canDisplayAttributesSection =
+    !isNewProduct || (hasCategorySelection && hasTypeSelection && !comboMetaLoading && !comboMetaError);
+  const typeOptionsForCategory = useMemo(() => {
+    if (!hasCategorySelection) return [];
+    const key = String(editableProduct.description_category_id);
+    const list = typeOptionsMap.get(key);
+    return Array.isArray(list) ? list : [];
+  }, [hasCategorySelection, editableProduct?.description_category_id, typeOptionsMap]);
   const sanitizeItemsForUpdate = useCallback(() => {
     if (!editableAttributes || editableAttributes.length === 0) return [];
 
@@ -691,6 +946,19 @@ export default function ProductAttributesPage() {
       alert('Не удалось определить товар для сохранения');
       return;
     }
+    if (isNewProduct) {
+      if (!hasValue(editableProduct?.offer_id)) {
+        alert('Укажите offer_id для нового товара');
+        return;
+      }
+      if (
+        !hasValue(editableProduct?.description_category_id) ||
+        !hasValue(editableProduct?.type_id)
+      ) {
+        alert('Укажите категорию описания и type_id для нового товара');
+        return;
+      }
+    }
 
     let items;
     try {
@@ -746,7 +1014,7 @@ export default function ProductAttributesPage() {
       setSavingAttributes(false);
       setSavingLabel('Отправляем...');
     }
-  }, [currentProfile, selectedOfferId, sanitizeItemsForUpdate]);
+  }, [currentProfile, selectedOfferId, sanitizeItemsForUpdate, isNewProduct, editableProduct]);
 
   const handleRefreshClick = useCallback(() => {
     if (!selectedOfferId) {
@@ -757,7 +1025,18 @@ export default function ProductAttributesPage() {
     loadAttributes(selectedOfferId);
   }, [selectedOfferId, loadAttributes]);
 
-  const isSaveDisabled = savingAttributes || !editableProduct || loadingAttributes;
+  const hasOfferValue = hasValue(editableProduct?.offer_id);
+  const canSaveNewProduct =
+    !isNewProduct ||
+    (hasOfferValue &&
+      hasCategorySelection &&
+      hasTypeSelection &&
+      !comboMetaLoading &&
+      !comboMetaError &&
+      !categoryTreeLoading &&
+      !categoryTreeError);
+  const isSaveDisabled =
+    savingAttributes || !editableProduct || loadingAttributes || !hasOfferValue || !canSaveNewProduct;
 
   const renderGroupButton = (label, onClick, disabled) => (
     <button
@@ -847,6 +1126,82 @@ export default function ProductAttributesPage() {
                 Выберите профиль на главной странице, чтобы загрузить атрибуты.
               </div>
             )}
+            <div
+              style={{
+                display: 'grid',
+                gap: 12,
+                maxWidth: 420,
+                marginTop: 12
+              }}
+            >
+              <label style={{ fontSize: 13, color: '#475569' }}>
+                Артикул (offer_id)
+                <input
+                  type="text"
+                  value={editableProduct?.offer_id || ''}
+                  onChange={(event) =>
+                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'offer_id', event.target.value)
+                  }
+                  disabled={!isNewProduct}
+                  style={{
+                    ...inputStyle,
+                    marginTop: 6,
+                    backgroundColor: isNewProduct ? '#fff' : '#f8fafc'
+                  }}
+                  placeholder="Введите offer_id"
+                />
+              </label>
+              <label style={{ fontSize: 13, color: '#475569' }}>
+                Название
+                <input
+                  type="text"
+                  value={editableProduct?.name || ''}
+                  onChange={(event) =>
+                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', event.target.value)
+                  }
+                  style={{ ...inputStyle, marginTop: 6 }}
+                  placeholder="Введите название товара"
+                />
+              </label>
+              <label style={{ fontSize: 13, color: '#475569' }}>
+                Категория описания
+                <select
+                  value={editableProduct?.description_category_id || ''}
+                  onChange={(event) => handleCategorySelect(event.target.value)}
+                  disabled={!isNewProduct || categoryTreeLoading}
+                  style={{ ...inputStyle, marginTop: 6 }}
+                >
+                  <option value="">Выберите категорию</option>
+                  {categoryOptions.map((option) => (
+                    <option key={option.id} value={option.id} disabled={option.disabled}>
+                      {option.name} {option.disabled ? '(недоступна)' : ''}
+                    </option>
+                  ))}
+                </select>
+                {categoryTreeError && (
+                  <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4 }}>{categoryTreeError}</div>
+                )}
+                {categoryTreeLoading && (
+                  <div style={{ fontSize: 12, color: '#0f172a', marginTop: 4 }}>Загружаем категории…</div>
+                )}
+              </label>
+              <label style={{ fontSize: 13, color: '#475569' }}>
+                Тип товара
+                <select
+                  value={editableProduct?.type_id || ''}
+                  onChange={(event) => handleTypeSelect(event.target.value)}
+                  disabled={!isNewProduct || !hasCategorySelection || categoryTreeLoading}
+                  style={{ ...inputStyle, marginTop: 6 }}
+                >
+                  <option value="">{hasCategorySelection ? 'Выберите тип' : 'Сначала выберите категорию'}</option>
+                  {typeOptionsForCategory.map((option) => (
+                    <option key={option.id} value={option.id} disabled={option.disabled}>
+                      {option.name} {option.disabled ? '(недоступен)' : ''}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
           <div style={{ display: 'flex', gap: 12 }}>
             <button
@@ -877,12 +1232,14 @@ export default function ProductAttributesPage() {
             </button>
           </div>
         </header>
-        <PriceInfoPanel
-          priceInfo={priceInfo}
-          priceLoading={priceLoading}
-          priceError={priceError}
-          contextLabel={selectedOfferId ? `Товар ${selectedOfferId}` : 'Цены товара'}
-        />
+        {!isNewProduct && (
+          <PriceInfoPanel
+            priceInfo={priceInfo}
+            priceLoading={priceLoading}
+            priceError={priceError}
+            contextLabel={selectedOfferId ? `Товар ${selectedOfferId}` : 'Цены товара'}
+          />
+        )}
         {attributesUpdateStatus.message && (
           <div
             style={{
@@ -923,12 +1280,111 @@ export default function ProductAttributesPage() {
         )}
         <section ref={sectionRefs.base} style={sectionStyle}>
           <SectionHeader title="Обязательные параметры" />
-          <MetaFieldsSection
-            values={editableProduct}
-            onChange={(field, value) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, field, value)}
-            baseValues={combinedBaseValues}
-          />
-          {baseFieldIssues.length > 0 && (
+          {isNewProduct && !hasCategorySelection && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: '10px 14px',
+                borderRadius: 8,
+                backgroundColor: '#fef3c7',
+                border: '1px solid #fde68a',
+                color: '#92400e',
+                fontSize: 13
+              }}
+            >
+              Сначала выберите категорию описания.
+            </div>
+          )}
+          {isNewProduct && hasCategorySelection && !hasTypeSelection && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: '10px 14px',
+                borderRadius: 8,
+                backgroundColor: '#fef3c7',
+                border: '1px solid #fde68a',
+                color: '#92400e',
+                fontSize: 13
+              }}
+            >
+              Теперь укажите type_id для выбранной категории.
+            </div>
+          )}
+          {comboMetaLoading && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: '10px 14px',
+                borderRadius: 8,
+                backgroundColor: '#e0f2fe',
+                border: '1px solid #bae6fd',
+                color: '#0c4a6e',
+                fontSize: 13
+              }}
+            >
+              Загружаем характеристики для выбранной категории...
+            </div>
+          )}
+          {comboMetaError && (
+            <div
+              style={{
+                marginBottom: 12,
+                padding: '10px 14px',
+                borderRadius: 8,
+                backgroundColor: '#fee2e2',
+                border: '1px solid #fecaca',
+                color: '#b91c1c',
+                fontSize: 13
+              }}
+            >
+              {comboMetaError}
+            </div>
+          )}
+          {canDisplayAttributesSection && (
+            <>
+              <MetaFieldsSection
+                values={editableProduct}
+                onChange={(field, value) =>
+                  handleProductMetaChange(PRIMARY_PRODUCT_INDEX, field, value)
+                }
+                baseValues={combinedBaseValues}
+              />
+              {baseFieldIssues.length > 0 && (
+                <div
+                  style={{
+                    marginTop: 12,
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    backgroundColor: '#fff7ed',
+                    color: '#b45309',
+                    border: '1px solid #fcd34d',
+                    fontSize: 13
+                  }}
+                >
+                  Заполните/исправьте поля:{' '}
+                  {baseFieldIssues
+                    .map((field) => BASE_FIELD_LABELS[field] || field)
+                    .join(', ')}
+                </div>
+              )}
+              {requiredAttributeCount > 0 && (
+                <div
+                  style={{
+                    marginTop: 16,
+                    padding: '10px 14px',
+                    borderRadius: 8,
+                    backgroundColor: missingRequiredCount > 0 ? '#fef3c7' : '#ecfccb',
+                    border: '1px solid #fde68a',
+                    color: '#78350f',
+                    fontSize: 13
+                  }}
+                >
+                  Обязательных характеристик: {requiredAttributeCount}. Не заполнено: {missingRequiredCount}.
+                </div>
+              )}
+            </>
+          )}
+          {!canDisplayAttributesSection && !comboMetaLoading && (
             <div
               style={{
                 marginTop: 12,
@@ -940,122 +1396,89 @@ export default function ProductAttributesPage() {
                 fontSize: 13
               }}
             >
-              Заполните/исправьте поля:{' '}
-              {baseFieldIssues
-                .map((field) => BASE_FIELD_LABELS[field] || field)
-                .join(', ')}
+              Укажите категорию и type_id, чтобы продолжить заполнение карточки.
             </div>
           )}
-          <div style={{ marginTop: 16 }}>
-            <label style={{ display: 'block', fontSize: 13, color: '#475569', marginBottom: 4 }}>
-              Type ID (ID {TYPE_ATTRIBUTE_ID})
-            </label>
-            <input
-              type="text"
-              value={typeInputValue}
-              onChange={(event) => handleTypeIdChange(PRIMARY_PRODUCT_INDEX, event.target.value)}
-              style={inputStyle}
-              placeholder="Введите type_id"
-              disabled={!editableProduct}
+        </section>
+        {canDisplayAttributesSection && (
+          <section
+            ref={sectionRefs.media}
+            style={{ ...sectionStyle, border: '1px dashed #cbd5f5' }}
+            onDrop={handleDrop}
+            onDragOver={(event) => event.preventDefault()}
+            onPaste={handlePaste}
+          >
+            <SectionHeader title="Фото и медиа" />
+            <p style={{ color: '#475569', fontSize: 13 }}>
+              Используйте ссылки или загрузите файл — мы автоматически добавим его в OZON. Для удобства
+              работы в странице добавлен тот же менеджер изображений, что и в модалке.
+            </p>
+            <ImagesManager
+              title="Изображения товара"
+              images={currentImages}
+              primaryImage={primaryImage}
+              onImagesChange={(next) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'images', next)}
+              onPrimaryChange={(value) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'primary_image', value)}
+              disabled={!editableProduct || savingAttributes || loadingAttributes}
             />
-            <div style={{ fontSize: 12, color: '#64748b', marginTop: 4 }}>
-              {typeMeta?.description || 'Type ID определяет категорию и набор характеристик товара.'}
-              {productInfo?.type_id && String(productInfo.type_id) !== typeInputValue && (
-                <div style={{ marginTop: 4 }}>Текущее значение в OZON: {productInfo.type_id}</div>
-              )}
-            </div>
-          </div>
-          {requiredAttributeCount > 0 && (
-            <div
-              style={{
-                marginTop: 16,
-                padding: '10px 14px',
-                borderRadius: 8,
-                backgroundColor: missingRequiredCount > 0 ? '#fef3c7' : '#ecfccb',
-                border: '1px solid #fde68a',
-                color: '#78350f',
-                fontSize: 13
-              }}
-            >
-              Обязательных характеристик: {requiredAttributeCount}. Не заполнено: {missingRequiredCount}.
-            </div>
-          )}
-        </section>
-        <section
-          ref={sectionRefs.media}
-          style={{ ...sectionStyle, border: '1px dashed #cbd5f5' }}
-          onDrop={handleDrop}
-          onDragOver={(event) => event.preventDefault()}
-          onPaste={handlePaste}
-        >
-          <SectionHeader title="Фото и медиа" />
-          <p style={{ color: '#475569', fontSize: 13 }}>
-            Используйте ссылки или загрузите файл — мы автоматически добавим его в OZON. Для удобства
-            работы в странице добавлен тот же менеджер изображений, что и в модалке.
-          </p>
-          <ImagesManager
-            title="Изображения товара"
-            images={currentImages}
-            primaryImage={primaryImage}
-            onImagesChange={(next) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'images', next)}
-            onPrimaryChange={(value) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'primary_image', value)}
-            disabled={!editableProduct || savingAttributes || loadingAttributes}
-          />
-          {!currentImages.length && (
-            <div
-              style={{
-                marginTop: 12,
-                padding: '10px 14px',
-                borderRadius: 8,
-                backgroundColor: '#fee2e2',
-                border: '1px solid #fecaca',
-                color: '#b91c1c',
-                fontSize: 13
-              }}
-            >
-              Добавьте хотя бы одно изображение, иначе OZON не примет карточку.
-            </div>
-          )}
-          {mediaFiles.length > 0 && (
-            <div style={{ marginTop: 8, fontSize: 12, color: '#475569' }}>
-              Файлов в буфере: {mediaFiles.length}. Их ссылки появятся после загрузки через менеджер.
-            </div>
-          )}
-        </section>
-        {attributeGroups.length === 0 && editableProduct && (
-          <section style={sectionStyle}>
-            <SectionHeader title="Характеристики" />
-            <div style={{ color: '#475569' }}>
-              Не удалось определить группы характеристик для этого товара.
-            </div>
+            {!currentImages.length && (
+              <div
+                style={{
+                  marginTop: 12,
+                  padding: '10px 14px',
+                  borderRadius: 8,
+                  backgroundColor: '#fee2e2',
+                  border: '1px solid #fecaca',
+                  color: '#b91c1c',
+                  fontSize: 13
+                }}
+              >
+                Добавьте хотя бы одно изображение, иначе OZON не примет карточку.
+              </div>
+            )}
+            {mediaFiles.length > 0 && (
+              <div style={{ marginTop: 8, fontSize: 12, color: '#475569' }}>
+                Файлов в буфере: {mediaFiles.length}. Их ссылки появятся после загрузки через менеджер.
+              </div>
+            )}
           </section>
         )}
-        {attributeGroups.map((group) => (
-          <section
-            key={group.key}
-            ref={(el) => {
-              if (!sectionRefs.groups.current) {
-                sectionRefs.groups.current = new Map();
-              }
-              if (el) {
-                sectionRefs.groups.current.set(group.key, el);
-              } else {
-                sectionRefs.groups.current.delete(group.key);
-              }
-            }}
-            style={sectionStyle}
-          >
-            <SectionHeader title={group.label} />
-            {!group.attributes.length && (
-              <div style={{ color: '#475569' }}>Пока нет характеристик в этой группе.</div>
+        {canDisplayAttributesSection ? (
+          <>
+            {attributeGroups.length === 0 && editableProduct && (
+              <section style={sectionStyle}>
+                <SectionHeader title="Характеристики" />
+                <div style={{ color: '#475569' }}>
+                  Не удалось определить группы характеристик для этого товара.
+                </div>
+              </section>
             )}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-              {group.attributes.map(({ attr, meta }, index) => {
-                const attrKey = attr.__attrKey || getAttributeKey(attr?.id ?? attr?.attribute_id);
-                if (!attrKey) return null;
-                let dictionaryOptions = Array.isArray(meta?.dictionary_values)
-                  ? meta.dictionary_values.filter((option) => getDictionaryOptionKey(option))
-                  : [];
+            {attributeGroups.map((group) => (
+              <section
+                key={group.key}
+                ref={(el) => {
+                  if (!sectionRefs.groups.current) {
+                    sectionRefs.groups.current = new Map();
+                  }
+                  if (el) {
+                    sectionRefs.groups.current.set(group.key, el);
+                  } else {
+                    sectionRefs.groups.current.delete(group.key);
+                  }
+                }}
+                style={sectionStyle}
+              >
+                <SectionHeader title={group.label} />
+                {!group.attributes.length && (
+                  <div style={{ color: '#475569' }}>Пока нет характеристик в этой группе.</div>
+                )}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+                  {group.attributes.map(({ attr, meta }, index) => {
+                    const attrKey = attr.__attrKey || getAttributeKey(attr?.id ?? attr?.attribute_id);
+                    if (!attrKey) return null;
+                    let dictionaryOptions = Array.isArray(meta?.dictionary_values)
+                      ? meta.dictionary_values.filter((option) => getDictionaryOptionKey(option))
+                      : [];
                 const dictionaryOptionMap = new Map();
                 dictionaryOptions.forEach((option) => {
                   const key = getDictionaryOptionKey(option);
@@ -1230,10 +1653,21 @@ export default function ProductAttributesPage() {
                     </div>
                   </div>
                 );
-              })}
-            </div>
-          </section>
-        ))}
+                  })}
+                </div>
+              </section>
+            ))}
+          </>
+        ) : (
+          isNewProduct && (
+            <section style={sectionStyle}>
+              <SectionHeader title="Характеристики" />
+              <div style={{ color: '#475569' }}>
+                Атрибуты появятся после выбора категории и type_id.
+              </div>
+            </section>
+          )
+        )}
       </main>
     </div>
   );

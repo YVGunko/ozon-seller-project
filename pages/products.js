@@ -105,6 +105,14 @@ export default function ProductsPage() {
   const [ratingError, setRatingError] = useState('');
   const [ratingModal, setRatingModal] = useState(null);
   const [ratingSortOrder, setRatingSortOrder] = useState('desc');
+  const startNewProduct = useCallback(() => {
+    if (!currentProfile) {
+      alert('Сначала выберите профиль на главной странице');
+      return;
+    }
+    const offerId = `new-${Date.now()}`;
+    router.push(`/products/${offerId}/attributes?mode=new`);
+  }, [router, currentProfile]);
 
   // load profile once
   useEffect(() => {
@@ -985,6 +993,23 @@ export default function ProductsPage() {
             <a href="/" style={{ fontSize: 12, color: '#0070f3' }}>Выбрать на главной</a>
           </div>
         )}
+        <button
+          type="button"
+          onClick={startNewProduct}
+          style={{
+            padding: '10px 18px',
+            backgroundColor: '#22c55e',
+            color: '#fff',
+            border: 'none',
+            borderRadius: 6,
+            fontWeight: 'bold',
+            cursor: 'pointer',
+            alignSelf: 'flex-start',
+            marginLeft: 'auto'
+          }}
+        >
+          Новый товар
+        </button>
       </div>
 
       {/* Filters (left unchanged visually) */}
