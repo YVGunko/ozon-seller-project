@@ -1,7 +1,10 @@
 // src/utils/aiHelpers.js
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
-const DEFAULT_MODEL = process.env.GROQ_MODEL || 'llama3-70b-8192';
+const DEFAULT_MODEL =
+  process.env.GROQ_MODEL ||
+  process.env.GROQ_DEFAULT_MODEL ||
+  'llama3-70b-8192';
 
 /**
  * Универсальный вызов Groq Chat API
@@ -12,21 +15,26 @@ async function callGroqChat({ system, user, temperature = 0.5, maxTokens = 1024 
     throw new Error('GROQ_API_KEY не задан в переменных окружения');
   }
 
+  const payload = {
+    model: DEFAULT_MODEL,
+    messages: [
+      { role: 'system', content: system },
+      { role: 'user', content: user }
+    ],
+    temperature,
+    max_tokens: maxTokens
+  };
+
+  // Логируем запрос к Groq без ключа
+  console.log('[Groq] request payload:', JSON.stringify(payload, null, 2));
+
   const response = await fetch(GROQ_API_URL, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${apiKey}`
     },
-    body: JSON.stringify({
-      model: DEFAULT_MODEL,
-      messages: [
-        { role: 'system', content: system },
-        { role: 'user', content: user }
-      ],
-      temperature,
-      max_tokens: maxTokens
-    })
+    body: JSON.stringify(payload)
   });
 
   const data = await response.json();
@@ -35,6 +43,9 @@ async function callGroqChat({ system, user, temperature = 0.5, maxTokens = 1024 
     const message = data?.error?.message || 'Ошибка при обращении к Groq API';
     throw new Error(message);
   }
+
+  // Логируем полный ответ модели
+  console.log('[Groq] raw response:', JSON.stringify(data, null, 2));
 
   const content = data?.choices?.[0]?.message?.content;
   if (!content) {
@@ -131,6 +142,93 @@ export function normalizeProductData(raw = {}) {
   }
 
   return normalized;
+}
+
+/**
+ * Построение входных данных для AI из универсального объекта product
+ *
+ * product: {
+ *   offer_id, name, category_id, type_id, brand,
+ *   images, price, vat, section,
+ *   attributes: { [key]: value },
+ *   seo_keywords, withWatermark, watermarkText, ...
+ * }
+ */
+export function buildAiInputsFromProduct(product = {}) {
+  if (!product || typeof product !== 'object') {
+    throw new Error('product is required');
+  }
+
+  const {
+    offer_id,
+    name,
+    category_id,
+    type_id,
+    brand,
+    images,
+    price,
+    vat,
+    section,
+    seo_keywords,
+    attributes,
+    withWatermark,
+    watermarkText,
+    ...rest
+  } = product;
+
+  const attributesFlat = {};
+  if (attributes && typeof attributes === 'object') {
+    Object.entries(attributes).forEach(([key, value]) => {
+      if (value === null || value === undefined || value === '') return;
+      if (Array.isArray(value)) {
+        attributesFlat[key] = value.join(', ');
+      } else if (typeof value === 'object') {
+        const described = describeObject(value);
+        if (described) {
+          attributesFlat[key] = described;
+        }
+      } else {
+        attributesFlat[key] = String(value);
+      }
+    });
+  }
+
+  const productRow = {
+    index: 0,
+    templateValues: {
+      name: name || ''
+    },
+    offer_id,
+    name,
+    category_id,
+    type_id,
+    brand,
+    price,
+    images: Array.isArray(images) ? images.join(', ') : images,
+    seo_keywords,
+    withWatermark,
+    watermarkText,
+    ...rest,
+    ...attributesFlat
+  };
+
+  const baseProductData = normalizeProductData({
+    category_id,
+    price,
+    vat,
+    section
+  });
+
+  const keywords =
+    Array.isArray(seo_keywords) ? seo_keywords.join(', ') : seo_keywords;
+
+  return {
+    products: [productRow],
+    baseProductData,
+    keywords,
+    withWatermark: Boolean(withWatermark),
+    watermarkText: watermarkText || ''
+  };
 }
 
 /**

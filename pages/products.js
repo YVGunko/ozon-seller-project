@@ -79,6 +79,7 @@ export default function ProductsPage() {
   const [savingAttributesLabel, setSavingAttributesLabel] = useState('Отправляем...');
   const [attributesUpdateStatus, setAttributesUpdateStatus] = useState({ message: '', error: '' });
   const [selectedProduct, setSelectedProduct] = useState(null);
+  const [copyLoading, setCopyLoading] = useState(false);
 
   const [error, setError] = useState(null);
 
@@ -740,17 +741,149 @@ export default function ProductsPage() {
     }
   };
 
-  const handleCopyClick = (product) => {
+  const handleCopyClick = async (product) => {
     if (!currentProfile) {
       alert('Сначала выберите профиль на главной странице');
       return;
     }
+    if (!product?.offer_id) {
+      alert('Не найден offer_id исходного товара');
+      return;
+    }
+
     const newOfferId = `${product.offer_id}-copy`;
-    router.push(
-      `/products/${encodeURIComponent(newOfferId)}/attributes?mode=new&source=${encodeURIComponent(
-        product.offer_id
-      )}`
-    );
+    const trimmedNewOffer = newOfferId.trim();
+    const trimmedName = (product.name || '').trim();
+
+    setCopyLoading(true);
+    try {
+      const sourceRaw = JSON.parse(JSON.stringify(product));
+
+      sourceRaw.offer_id = trimmedNewOffer;
+      sourceRaw.offerId = trimmedNewOffer;
+      delete sourceRaw.product_id;
+      delete sourceRaw.productId;
+      delete sourceRaw.id;
+      delete sourceRaw.sku;
+      delete sourceRaw.barcode;
+      delete sourceRaw.barcodes;
+
+      if (trimmedName) {
+        sourceRaw.name = trimmedName;
+      }
+
+      REQUIRED_BASE_FIELDS.forEach((field) => {
+        const primaryValue = sourceRaw[field];
+        const fallbackValue = product?.[field];
+        const resolved = hasValue(primaryValue) ? primaryValue : fallbackValue;
+        if (hasValue(resolved)) {
+          sourceRaw[field] = resolved;
+        }
+      });
+
+      const missingPriceFields = PRICE_FIELDS.filter(
+        (field) => !hasValue(sourceRaw[field])
+      );
+      if (missingPriceFields.length && product?.offer_id && currentProfile?.id) {
+        try {
+          const infoQuery = new URLSearchParams({
+            offer_id: product.offer_id,
+            profileId: currentProfile.id
+          });
+          const infoResponse = await fetch(
+            `/api/products/info-list?${infoQuery.toString()}`
+          );
+          if (infoResponse.ok) {
+            const infoData = await infoResponse.json();
+            const infoItem =
+              (Array.isArray(infoData?.items) && infoData.items[0]) ||
+              (Array.isArray(infoData?.raw?.items) && infoData.raw.items[0]) ||
+              null;
+            if (infoItem) {
+              PRICE_FIELDS.forEach((field) => {
+                if (hasValue(sourceRaw[field])) return;
+                const resolved = resolveInfoPriceField(infoItem, field);
+                if (hasValue(resolved)) {
+                  sourceRaw[field] = String(resolved);
+                }
+              });
+            }
+          }
+        } catch (infoError) {
+          console.error('[copy] failed to fetch info-list', infoError);
+        }
+      }
+
+      const descriptionCategoryId =
+        sourceRaw.description_category_id ?? sourceRaw.descriptionCategoryId;
+      const typeId = sourceRaw.type_id ?? sourceRaw.typeId;
+      let availableAttributes = Array.isArray(sourceRaw.available_attributes)
+        ? sourceRaw.available_attributes
+        : [];
+
+      if (descriptionCategoryId && typeId && !availableAttributes.length) {
+        try {
+          const metaResponse = await apiClient.getDescriptionAttributes(
+            {
+              description_category_id: descriptionCategoryId,
+              type_id: typeId,
+              attributes: Array.isArray(sourceRaw.attributes)
+                ? sourceRaw.attributes
+                : []
+            },
+            currentProfile
+          );
+          availableAttributes = Array.isArray(metaResponse?.attributes)
+            ? metaResponse.attributes
+            : [];
+        } catch (metaError) {
+          console.error(
+            '[copy] failed to load description attributes',
+            metaError
+          );
+        }
+      }
+
+      sourceRaw.available_attributes = availableAttributes;
+
+      const normalized = normalizeProductAttributes([sourceRaw]);
+      const sourceEditable = JSON.parse(JSON.stringify(normalized[0] || {}));
+
+      sourceEditable.offer_id = trimmedNewOffer;
+      if (trimmedName) {
+        sourceEditable.name = trimmedName;
+      }
+
+      REQUIRED_BASE_FIELDS.forEach((field) => {
+        if (hasValue(sourceRaw[field])) {
+          sourceEditable[field] = sourceRaw[field];
+        }
+      });
+
+      if (typeof window !== 'undefined') {
+        const payload = {
+          offer_id: trimmedNewOffer,
+          source_offer_id: product.offer_id,
+          attributes: {
+            result: [sourceRaw],
+            isNewProduct: true
+          },
+          editable: sourceEditable
+        };
+        window.localStorage.setItem('attributesCopyDraft', JSON.stringify(payload));
+      }
+
+      router.push(
+        `/products/${encodeURIComponent(
+          trimmedNewOffer
+        )}/attributes?mode=new&source=${encodeURIComponent(product.offer_id)}`
+      );
+    } catch (err) {
+      console.error('copyProduct error', err);
+      alert('Ошибка при подготовке копии: ' + (err.message || err));
+    } finally {
+      setCopyLoading(false);
+    }
   };
 
   const applyFilters = () => {
@@ -993,17 +1126,18 @@ export default function ProductsPage() {
                     </Link>
                     <button
                       onClick={() => handleCopyClick(product)}
+                      disabled={copyLoading}
                       style={{
                         padding: '6px 12px',
                         backgroundColor: '#28a745',
                         color: 'white',
                         border: 'none',
                         borderRadius: 4,
-                        cursor: 'pointer',
+                        cursor: copyLoading ? 'not-allowed' : 'pointer',
                         fontSize: 12
                       }}
                     >
-                      Копировать
+                      {copyLoading ? 'Копируем…' : 'Копировать'}
                     </button>
                   </div>
                 </td>

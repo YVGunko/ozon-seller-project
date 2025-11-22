@@ -73,6 +73,8 @@ export default function ProductAttributesPage() {
   const fetchedComboKeyRef = useRef('');
   const categoryTreeLoadedRef = useRef(false);
   const containerRef = useRef(null);
+  const [ratingHints, setRatingHints] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
 
   const {
     attributes,
@@ -235,9 +237,29 @@ export default function ProductAttributesPage() {
   useEffect(() => {
     if (!isNewMode) return;
     if (!offer_id) return;
-    if (attributes?.isNewProduct && editableAttributes?.length) return;
     const offerValue = typeof offer_id === 'string' ? offer_id : '';
     if (!offerValue) return;
+
+    // Попытка восстановить заготовку копии товара
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = window.localStorage.getItem('attributesCopyDraft');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed?.offer_id === offerValue && parsed.attributes && parsed.editable) {
+            setAttributes(parsed.attributes);
+            setEditableAttributes([JSON.parse(JSON.stringify(parsed.editable))]);
+            window.localStorage.removeItem('attributesCopyDraft');
+            return;
+          }
+        }
+      } catch (e) {
+        console.error('[attributes] failed to restore copy draft', e);
+      }
+    }
+
+    if (attributes?.isNewProduct && editableAttributes?.length) return;
+
     const emptyProduct = {
       offer_id: offerValue,
       name: '',
@@ -312,6 +334,45 @@ export default function ProductAttributesPage() {
     }
     return null;
   }, [attributes]);
+
+  useEffect(() => {
+    if (!currentProfile || !productInfo?.sku) {
+      setRatingHints(null);
+      return;
+    }
+    let cancelled = false;
+    const loadRating = async () => {
+      try {
+        const response = await fetch('/api/products/rating-by-sku', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ skus: [productInfo.sku], profileId: currentProfile.id })
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          console.warn('[attributes] failed to load rating-by-sku', data);
+          if (!cancelled) setRatingHints(null);
+          return;
+        }
+        const entry =
+          (Array.isArray(data?.products) && data.products[0]) ||
+          (Array.isArray(data?.result) && data.result[0]) ||
+          null;
+        if (!cancelled) {
+          setRatingHints(entry || null);
+        }
+      } catch (error) {
+        console.error('[attributes] rating-by-sku error', error);
+        if (!cancelled) {
+          setRatingHints(null);
+        }
+      }
+    };
+    loadRating();
+    return () => {
+      cancelled = true;
+    };
+  }, [currentProfile, productInfo?.sku]);
 
   useEffect(() => {
     if (!isNewProduct) return;
@@ -412,6 +473,44 @@ export default function ProductAttributesPage() {
       : [];
   }, [productInfo]);
 
+  const superRecommendedAttributeKeys = useMemo(() => {
+    if (!ratingHints || !Array.isArray(ratingHints.groups)) {
+      return new Set();
+    }
+    const keys = new Set();
+    ratingHints.groups.forEach((group) => {
+      const attrs = Array.isArray(group?.improve_attributes)
+        ? group.improve_attributes
+        : [];
+      attrs.forEach((attr) => {
+        if (!attr) return;
+        const rawId =
+          attr.attribute_id ??
+          attr.attributeId ??
+          attr.id;
+        if (rawId !== undefined && rawId !== null && rawId !== '') {
+          const key = getAttributeKey(rawId);
+          if (key) {
+            keys.add(key);
+            return;
+          }
+        }
+        const name = String(attr.name || '').trim();
+        if (!name) return;
+        const meta = availableAttributesMeta.find(
+          (entry) => String(entry?.name || '').trim() === name
+        );
+        if (meta) {
+          const key = getAttributeKey(meta?.id ?? meta?.attribute_id);
+          if (key) {
+            keys.add(key);
+          }
+        }
+      });
+    });
+    return keys;
+  }, [ratingHints, availableAttributesMeta]);
+
   const attributeMetaMap = useMemo(() => {
     const map = new Map();
     availableAttributesMeta.forEach((meta) => {
@@ -443,9 +542,14 @@ export default function ProductAttributesPage() {
         if (reqA !== reqB) {
           return reqA ? -1 : 1;
         }
+        const superA = superRecommendedAttributeKeys.has(a.__attrKey) ? 1 : 0;
+        const superB = superRecommendedAttributeKeys.has(b.__attrKey) ? 1 : 0;
+        if (superA !== superB) {
+          return superA ? -1 : 1;
+        }
         return attributeComparator(a, b);
       });
-  }, [editableProduct, attributeMetaMap]);
+  }, [editableProduct, attributeMetaMap, superRecommendedAttributeKeys]);
 
   const attributeGroups = useMemo(() => {
     const map = new Map();
@@ -461,7 +565,8 @@ export default function ProductAttributesPage() {
           key: groupName,
           label: groupName,
           attributes: [],
-          hasRequired: false
+          hasRequired: false,
+          hasSuperRecommended: false
         });
       }
       const group = map.get(groupName);
@@ -469,16 +574,22 @@ export default function ProductAttributesPage() {
       if (meta?.is_required) {
         group.hasRequired = true;
       }
+      if (superRecommendedAttributeKeys.has(attr.__attrKey)) {
+        group.hasSuperRecommended = true;
+      }
     });
     const groups = Array.from(map.values());
     groups.sort((a, b) => {
       if (a.hasRequired !== b.hasRequired) {
         return a.hasRequired ? -1 : 1;
       }
+      if (a.hasSuperRecommended !== b.hasSuperRecommended) {
+        return a.hasSuperRecommended ? -1 : 1;
+      }
       return a.label.localeCompare(b.label, 'ru');
     });
     return groups;
-  }, [attributeList, attributeMetaMap]);
+  }, [attributeList, attributeMetaMap, superRecommendedAttributeKeys]);
 
   const requiredAttributeCount = useMemo(() => {
     return availableAttributesMeta.filter((meta) => meta?.is_required).length;
@@ -792,6 +903,97 @@ export default function ProductAttributesPage() {
   const hasTypeSelection = hasValue(editableProduct?.type_id);
   const canDisplayAttributesSection =
     !isNewProduct || (hasCategorySelection && hasTypeSelection && !comboMetaLoading && !comboMetaError);
+
+  const buildAiProductPayload = useCallback(() => {
+    if (!editableProduct) return null;
+
+    const attributesMap = {};
+    attributeList.forEach((attr) => {
+      const meta = attributeMetaMap.get(attr.__attrKey);
+      const name = meta?.name || attr.name || `attribute_${attr.__attrKey}`;
+      const value = formatAttributeValues(attr.values || []);
+      if (!value) return;
+      attributesMap[name] = value;
+    });
+
+    const brandMeta = availableAttributesMeta.find(
+      (meta) => String(meta?.name || '').toLowerCase() === 'бренд'
+    );
+    let brand = '';
+    if (brandMeta) {
+      const brandKey = getAttributeKey(brandMeta.id ?? brandMeta.attribute_id);
+      const brandAttr = attributeList.find((attr) => attr.__attrKey === brandKey);
+      if (brandAttr) {
+        brand = formatAttributeValues(brandAttr.values || []) || '';
+      }
+    }
+
+    const price = editableProduct.price ?? priceInfo?.price ?? productInfo?.price ?? null;
+    const vat = editableProduct.vat ?? productInfo?.vat ?? null;
+
+    return {
+      offer_id: editableProduct.offer_id || (typeof offer_id === 'string' ? offer_id : ''),
+      name: editableProduct.name || productInfo?.name || '',
+      category_id:
+        editableProduct.description_category_id ||
+        productInfo?.description_category_id ||
+        editableProduct.descriptionCategoryId ||
+        '',
+      type_id: editableProduct.type_id || productInfo?.type_id || editableProduct.typeId || '',
+      brand,
+      images: Array.isArray(editableProduct.images)
+        ? editableProduct.images
+        : Array.isArray(productInfo?.images)
+        ? productInfo.images
+        : [],
+      price,
+      vat,
+      section: productInfo?.section || '',
+      attributes: attributesMap,
+      seo_keywords: '',
+      withWatermark: false,
+      watermarkText: ''
+    };
+  }, [
+    editableProduct,
+    attributeList,
+    attributeMetaMap,
+    availableAttributesMeta,
+    offer_id,
+    priceInfo,
+    productInfo
+  ]);
+
+  const handleSendToAi = useCallback(async () => {
+    const productPayload = buildAiProductPayload();
+    if (!productPayload) {
+      alert('Нет данных товара для отправки в AI');
+      return;
+    }
+    setAiLoading(true);
+    try {
+      const modes = ['seo-name', 'description', 'hashtags', 'rich', 'slides'];
+      for (const mode of modes) {
+        const response = await fetch('/api/ai/product-seo', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product: productPayload, mode })
+        });
+        const data = await response.json();
+        console.log('[AI] mode =', mode, 'request product:', productPayload);
+        console.log('[AI] mode =', mode, 'response:', data);
+        if (!response.ok) {
+          console.error('[AI] error for mode', mode, data);
+        }
+      }
+    } catch (error) {
+      console.error('[AI] send error', error);
+      alert('Ошибка при обращении к AI. Подробности в консоли.');
+    } finally {
+      setAiLoading(false);
+    }
+  }, [buildAiProductPayload]);
+
   const sanitizeItemsForUpdate = useCallback(() => {
     if (!editableAttributes || editableAttributes.length === 0) return [];
 
@@ -1251,6 +1453,23 @@ export default function ProductAttributesPage() {
             </button>
             <button
               type="button"
+              onClick={handleSendToAi}
+              style={{
+                padding: '8px 14px',
+                backgroundColor: '#dc2626',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 6,
+                cursor: aiLoading ? 'not-allowed' : 'pointer',
+                opacity: !editableProduct ? 0.5 : 1,
+                fontWeight: 500
+              }}
+              disabled={aiLoading || !editableProduct}
+            >
+              {aiLoading ? 'Отправляем в AI…' : 'Отправить в AI'}
+            </button>
+            <button
+              type="button"
               onClick={handleSaveAttributes}
               style={{
                 ...secondaryButtonStyle,
@@ -1552,6 +1771,7 @@ export default function ProductAttributesPage() {
                   LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey) ||
                   ['text', 'html', 'richtext'].includes((meta?.type || '').toLowerCase());
                 const isRequired = Boolean(meta?.is_required);
+                const isSuperRecommended = superRecommendedAttributeKeys.has(attrKey);
                 const hasValue = attributeHasValues(attr);
                 const rows = isLargeField ? 6 : 3;
                 const textareaProps = hasDictionaryOptions
@@ -1570,10 +1790,20 @@ export default function ProductAttributesPage() {
                   <div
                     key={`${attrKey}-${index}`}
                     style={{
-                      border: `1px solid ${isRequired && !hasValue ? '#f8b4b4' : '#e2e8f0'}`,
+                      border: `1px solid ${
+                        isRequired && !hasValue
+                          ? '#f8b4b4'
+                          : isSuperRecommended
+                          ? '#bfdbfe'
+                          : '#e2e8f0'
+                      }`,
                       borderRadius: 8,
                       padding: 16,
-                      backgroundColor: isRequired && !hasValue ? '#fff7ed' : '#fff'
+                      backgroundColor: isRequired && !hasValue
+                        ? '#fff7ed'
+                        : isSuperRecommended
+                        ? '#eff6ff'
+                        : '#fff'
                     }}
                   >
                     <div
@@ -1587,6 +1817,20 @@ export default function ProductAttributesPage() {
                       <div style={{ fontWeight: 600, color: isRequired && !hasValue ? '#b45309' : '#0f172a' }}>
                         {meta?.name || attr.name || `ID ${attrKey}`}
                         {isRequired && <span style={{ marginLeft: 8, color: '#dc2626' }}>*</span>}
+                        {!isRequired && isSuperRecommended && (
+                          <span
+                            style={{
+                              marginLeft: 8,
+                              fontSize: 11,
+                              padding: '2px 6px',
+                              borderRadius: 9999,
+                              backgroundColor: '#dbeafe',
+                              color: '#1d4ed8'
+                            }}
+                          >
+                            Важно для контент‑рейтинга
+                          </span>
+                        )}
                       </div>
                       <div style={{ fontSize: 12, color: '#94a3b8' }}>ID: {attrKey}</div>
                     </div>
