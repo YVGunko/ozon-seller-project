@@ -12,12 +12,18 @@ export function CategoryTypeSelector({
   const [modalOpen, setModalOpen] = useState(false);
   const selectedLabel = useMemo(() => {
     if (!value || !value.categoryId || !value.typeId) return '';
-    const category = categoryMap?.get(value.categoryId);
-    const type = category?.types?.find((item) => item.id === value.typeId);
+
+    const categoryId = String(value.categoryId);
+    const typeId = String(value.typeId);
+
+    const category = categoryMap?.get(categoryId);
+    const type = category?.types?.find((item) => String(item.id) === typeId);
+
     if (category && type) {
       return `${category.name} / ${type.name}`;
     }
-    return '';
+    // Фолбэк, если дерево категорий ещё не загружено или не содержит нужные ID
+    return `${categoryId} / ${typeId}`;
   }, [value, categoryMap]);
 
   const [expandedIds, setExpandedIds] = useState(new Set());
@@ -138,16 +144,37 @@ export function CategoryTypeSelector({
         onClick={() => setModalOpen(true)}
         style={{
           width: '100%',
-          padding: '10px 14px',
-          borderRadius: 6,
-          border: '1px solid #cbd5f5',
+          padding: '12px 16px',
+          borderRadius: 9999,
+          border: '1px solid #e2e8f0',
           backgroundColor: disabled ? '#f8fafc' : '#fff',
-          textAlign: 'left',
-          cursor: disabled ? 'not-allowed' : 'pointer',
-          fontSize: 14
+          cursor: disabled ? 'default' : 'pointer',
+          fontSize: 14,
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          color: selectedLabel ? '#0f172a' : '#94a3b8'
         }}
       >
-        {selectedLabel || 'Выберите категорию и тип'}
+        <span
+          style={{
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap'
+          }}
+        >
+          {selectedLabel || 'Выберите категорию и тип'}
+        </span>
+        <span
+          style={{
+            marginLeft: 8,
+            flexShrink: 0,
+            fontSize: 18,
+            color: disabled ? '#cbd5f5' : '#94a3b8'
+          }}
+        >
+          ›
+        </span>
       </button>
 
       {loading && (

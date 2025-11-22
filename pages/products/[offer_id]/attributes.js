@@ -22,6 +22,7 @@ import {
   syncTypeAttributeWithTypeId,
   TYPE_ATTRIBUTE_ID,
   LARGE_TEXT_ATTRIBUTE_IDS,
+  normalizeProductAttributes,
   parsePositiveTypeId,
   normalizeAttributeValues,
   collapseLargeTextAttributeValues,
@@ -169,7 +170,6 @@ export default function ProductAttributesPage() {
   }, []);
 
   useEffect(() => {
-    if (!isNewMode) return;
     if (categoryTreeLoadedRef.current) return;
     if (!currentProfile?.id) return;
     setCategoryTreeLoading(true);
@@ -199,7 +199,7 @@ export default function ProductAttributesPage() {
         setCategoryTreeError(error.message || 'Не удалось получить список категорий');
         setCategoryTreeLoading(false);
       });
-  }, [isNewMode, currentProfile, buildCategoryTree]);
+  }, [currentProfile, buildCategoryTree]);
 
   const updateBaseProduct = useCallback(
     (updates) => {
@@ -353,18 +353,34 @@ export default function ProductAttributesPage() {
         }
         if (cancelled) return;
         const metaAttributes = Array.isArray(data?.attributes) ? data.attributes : [];
+
+        // Обновляем базовый продукт (источник правды для available_attributes)
         setAttributes((prev) => {
           const prevResult = Array.isArray(prev?.result) ? prev.result : [];
-          const baseProduct = { ...(prevResult[0] || {}) };
-          baseProduct.available_attributes = metaAttributes;
-          baseProduct.description_category_id = categoryId;
-          baseProduct.type_id = typeId;
+          const baseProduct = {
+            ...(prevResult[0] || {}),
+            available_attributes: metaAttributes,
+            description_category_id: categoryId,
+            type_id: typeId
+          };
           return {
             ...(prev || {}),
             result: [baseProduct],
             isNewProduct: true
           };
         });
+
+        // Строим полный список характеристик для редактирования
+        const sourceProductForEdit = {
+          ...(editableProduct || {}),
+          available_attributes: metaAttributes,
+          description_category_id: categoryId,
+          type_id: typeId
+        };
+        const normalizedList = normalizeProductAttributes([sourceProductForEdit]);
+        const normalizedEditable = normalizedList[0] || sourceProductForEdit;
+        setEditableAttributes([JSON.parse(JSON.stringify(normalizedEditable))]);
+
         fetchedComboKeyRef.current = comboKey;
         setComboMetaLoading(false);
         setComboMetaError('');
@@ -384,6 +400,7 @@ export default function ProductAttributesPage() {
     editableProduct?.description_category_id,
     editableProduct?.type_id,
     setAttributes,
+    setEditableAttributes,
     comboMetaLoading,
     comboMetaError,
     currentProfile
@@ -1152,10 +1169,50 @@ export default function ProductAttributesPage() {
               style={{
                 display: 'grid',
                 gap: 12,
-                maxWidth: 420,
+                maxWidth: 520,
                 marginTop: 12
               }}
             >
+              <label style={{ fontSize: 13, color: '#475569' }}>
+                Название
+                <input
+                  type="text"
+                  value={editableProduct?.name || ''}
+                  onChange={(event) =>
+                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', event.target.value)
+                  }
+                  style={{
+                    ...inputStyle,
+                    marginTop: 6,
+                    padding: '12px 16px',
+                    borderRadius: 9999,
+                    border: '1px solid #e2e8f0'
+                  }}
+                  placeholder="Введите название товара"
+                />
+              </label>
+              <div style={{ fontSize: 13, color: '#475569' }}>
+                <label>Категория и тип *</label>
+                <div style={{ marginTop: 6 }}>
+                  <CategoryTypeSelector
+                    disabled={!isNewProduct}
+                    value={{
+                      categoryId: editableProduct?.description_category_id
+                        ? String(editableProduct.description_category_id)
+                        : '',
+                      typeId: editableProduct?.type_id ? String(editableProduct.type_id) : ''
+                    }}
+                    tree={categoryTree}
+                    categoryMap={categoryMap}
+                    loading={categoryTreeLoading}
+                    error={categoryTreeError}
+                    onChange={({ categoryId, typeId }) => {
+                      handleCategorySelect(categoryId);
+                      handleTypeSelect(typeId);
+                    }}
+                  />
+                </div>
+              </div>
               <label style={{ fontSize: 13, color: '#475569' }}>
                 Артикул (offer_id)
                 <input
@@ -1168,42 +1225,13 @@ export default function ProductAttributesPage() {
                   style={{
                     ...inputStyle,
                     marginTop: 6,
+                    padding: '12px 16px',
+                    borderRadius: 9999,
+                    border: '1px solid #e2e8f0',
                     backgroundColor: isNewProduct ? '#fff' : '#f8fafc'
                   }}
                   placeholder="Введите offer_id"
                 />
-              </label>
-              <label style={{ fontSize: 13, color: '#475569' }}>
-                Название
-                <input
-                  type="text"
-                  value={editableProduct?.name || ''}
-                  onChange={(event) =>
-                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', event.target.value)
-                  }
-                  style={{ ...inputStyle, marginTop: 6 }}
-                  placeholder="Введите название товара"
-                />
-              </label>
-              <label style={{ fontSize: 13, color: '#475569' }}>
-                Категория и тип
-                <div style={{ marginTop: 6 }}>
-                  <CategoryTypeSelector
-                    disabled={!isNewProduct}
-                    value={{
-                      categoryId: editableProduct?.description_category_id || '',
-                      typeId: editableProduct?.type_id || ''
-                    }}
-                    tree={categoryTree}
-                    categoryMap={categoryMap}
-                    loading={categoryTreeLoading}
-                    error={categoryTreeError}
-                    onChange={({ categoryId, typeId }) => {
-                      handleCategorySelect(categoryId);
-                      handleTypeSelect(typeId);
-                    }}
-                  />
-                </div>
               </label>
             </div>
           </div>

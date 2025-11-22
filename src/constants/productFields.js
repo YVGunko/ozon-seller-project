@@ -16,8 +16,8 @@ export const NUMERIC_BASE_FIELDS = ['price', 'old_price', 'min_price', 'depth', 
 export const UNIT_FIELDS = ['dimension_unit', 'weight_unit'];
 
 export const BASE_FIELD_LABELS = {
-  price: 'Цена',
-  old_price: 'Старая цена',
+  price: 'Ваша цена, ₽',
+  old_price: 'Цена до скидки, ₽',
   min_price: 'Минимальная цена',
   net_price: 'Net price (себестоимость)',
   depth: 'Глубина (depth)',
