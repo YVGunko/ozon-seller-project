@@ -34,6 +34,7 @@ import {
   areImageListsEqual
 } from '../../../src/utils/imageHelpers';
 import { PriceInfoPanel, ImagesManager, MetaFieldsSection } from '../../../src/components/attributes';
+import { CategoryTypeSelector } from '../../../src/components/CategoryTypeSelector';
 
 const PRIMARY_PRODUCT_INDEX = 0;
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
@@ -64,10 +65,10 @@ export default function ProductAttributesPage() {
   const [attributesUpdateStatus, setAttributesUpdateStatus] = useState({ message: '', error: '' });
   const [comboMetaLoading, setComboMetaLoading] = useState(false);
   const [comboMetaError, setComboMetaError] = useState('');
-  const [categoryOptions, setCategoryOptions] = useState([]);
+  const [categoryTree, setCategoryTree] = useState([]);
   const [categoryTreeLoading, setCategoryTreeLoading] = useState(false);
   const [categoryTreeError, setCategoryTreeError] = useState('');
-  const [typeOptionsMap, setTypeOptionsMap] = useState(new Map());
+  const [categoryMap, setCategoryMap] = useState(new Map());
   const fetchedComboKeyRef = useRef('');
   const categoryTreeLoadedRef = useRef(false);
   const containerRef = useRef(null);
@@ -82,47 +83,85 @@ export default function ProductAttributesPage() {
     loadAttributes
   } = useProductAttributes(apiClient, currentProfile);
 
-  const flattenCategoryTree = useCallback((nodes = []) => {
-    const categoryMap = new Map();
-    const typeMap = new Map();
+  const buildCategoryTree = useCallback((nodes = []) => {
+    const map = new Map();
 
     const traverse = (node) => {
-      if (!node) return;
-      const categoryId = node.description_category_id;
-      const categoryName = node.category_name || `Категория ${categoryId}`;
-      if (categoryId && !categoryMap.has(String(categoryId))) {
-        categoryMap.set(String(categoryId), {
-          id: String(categoryId),
-          name: categoryName,
-          disabled: Boolean(node.disabled)
-        });
-      }
-      if (categoryId && node.type_id) {
-        const key = String(categoryId);
-        const existing = typeMap.get(key) || [];
-        existing.push({
+      if (!node) return null;
+      if (node.type_id && node.type_name) {
+        return {
           id: String(node.type_id),
           name: node.type_name || `Тип ${node.type_id}`,
-          disabled: Boolean(node.disabled)
+          disabled: Boolean(node.disabled),
+          isType: true
+        };
+      }
+
+      if (node.description_category_id) {
+        const children = [];
+        const types = [];
+
+        (node.children || []).forEach((child) => {
+          const result = traverse(child);
+          if (!result) return;
+          if (result.isType) {
+            types.push({
+              id: result.id,
+              name: result.name,
+              disabled: result.disabled
+            });
+          } else {
+            children.push(result);
+          }
         });
-        typeMap.set(key, existing);
+
+        const entry = {
+          id: String(node.description_category_id),
+          name: node.category_name || `Категория ${node.description_category_id}`,
+          disabled: Boolean(node.disabled),
+          children: children.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' })),
+          types: types.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' })),
+          isType: false
+        };
+        map.set(entry.id, entry);
+        return entry;
       }
-      if (Array.isArray(node.children) && node.children.length) {
-        node.children.forEach(traverse);
+
+      if (Array.isArray(node.children)) {
+        const aggregatedChildren = [];
+        node.children.forEach((child) => {
+          const result = traverse(child);
+          if (result && !result.isType) {
+            aggregatedChildren.push(result);
+          }
+        });
+        if (aggregatedChildren.length) {
+          const entry = {
+            id: `virtual-${Math.random()}`,
+            name: node.category_name || 'Категория',
+            disabled: Boolean(node.disabled),
+            children: aggregatedChildren,
+            types: [],
+            isType: false
+          };
+          return entry;
+        }
       }
+
+      return null;
     };
 
-    nodes.forEach(traverse);
+    const tree = nodes
+      .map((node) => traverse(node))
+      .filter(Boolean)
+      .map((node) => ({
+        ...node,
+        children: node.children || []
+      }));
 
-    const categories = Array.from(categoryMap.values()).sort((a, b) =>
-      a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' })
-    );
+    tree.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' }));
 
-    typeMap.forEach((list, key) => {
-      list.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' }));
-    });
-
-    return { categories, typeMap };
+    return { tree, map };
   }, []);
 
   useEffect(() => {
@@ -149,9 +188,9 @@ export default function ProductAttributesPage() {
           throw new Error(data?.error || 'Не удалось получить список категорий');
         }
         const treeNodes = Array.isArray(data?.result) ? data.result : [];
-        const { categories, typeMap } = flattenCategoryTree(treeNodes);
-        setCategoryOptions(categories);
-        setTypeOptionsMap(new Map(typeMap));
+        const { tree, map } = buildCategoryTree(treeNodes);
+        setCategoryTree(tree);
+        setCategoryMap(map);
         categoryTreeLoadedRef.current = true;
         setCategoryTreeLoading(false);
       })
@@ -160,7 +199,7 @@ export default function ProductAttributesPage() {
         setCategoryTreeError(error.message || 'Не удалось получить список категорий');
         setCategoryTreeLoading(false);
       });
-  }, [isNewMode, currentProfile, flattenCategoryTree]);
+  }, [isNewMode, currentProfile, buildCategoryTree]);
 
   const updateBaseProduct = useCallback(
     (updates) => {
@@ -172,11 +211,11 @@ export default function ProductAttributesPage() {
         return {
           ...prev,
           result: [baseProduct],
-          isNewProduct: prev.isNewProduct || isNewProduct
+          isNewProduct: prev.isNewProduct
         };
       });
     },
-    [setAttributes, isNewProduct]
+    [setAttributes]
   );
 
   useEffect(() => {
@@ -435,17 +474,6 @@ export default function ProductAttributesPage() {
     }).length;
   }, [attributeList, attributeMetaMap]);
 
-  const typeAttributeFromList = attributeList.find(
-    (attr) => attr.__attrKey === TYPE_ATTRIBUTE_ID
-  );
-  const fallbackTypeValue = typeAttributeFromList
-    ? formatAttributeValues(typeAttributeFromList.values || [])
-    : '';
-  const typeInputRaw =
-    editableProduct?.type_id ?? productInfo?.type_id ?? fallbackTypeValue ?? '';
-  const typeInputValue =
-    typeInputRaw === undefined || typeInputRaw === null ? '' : String(typeInputRaw);
-  const typeMeta = attributeMetaMap.get(TYPE_ATTRIBUTE_ID);
 
   const sectionRefs = {
     base: useRef(null),
@@ -479,6 +507,23 @@ export default function ProductAttributesPage() {
     });
   }, [setEditableAttributes]);
 
+  const handleProductMetaChange = useCallback(
+    (productIndex, field, value) => {
+      setEditableAttributes((prev) => {
+        if (!prev) return prev;
+        const nextValue = Array.isArray(value) ? [...value] : value;
+        return prev.map((product, idx) => {
+          if (idx !== productIndex) return product;
+          return {
+            ...product,
+            [field]: nextValue
+          };
+        });
+      });
+    },
+    [setEditableAttributes]
+  );
+
   const handleCategorySelect = useCallback(
     (value) => {
       const normalized = value || '';
@@ -509,23 +554,6 @@ export default function ProductAttributesPage() {
       setComboMetaError('');
     },
     [handleProductMetaChange, updateBaseProduct, resetAttributesForNewSelection]
-  );
-
-  const handleProductMetaChange = useCallback(
-    (productIndex, field, value) => {
-      setEditableAttributes((prev) => {
-        if (!prev) return prev;
-        const nextValue = Array.isArray(value) ? [...value] : value;
-        return prev.map((product, idx) => {
-          if (idx !== productIndex) return product;
-          return {
-            ...product,
-            [field]: nextValue
-          };
-        });
-      });
-    },
-    [setEditableAttributes]
   );
 
   useEffect(() => {
@@ -747,12 +775,6 @@ export default function ProductAttributesPage() {
   const hasTypeSelection = hasValue(editableProduct?.type_id);
   const canDisplayAttributesSection =
     !isNewProduct || (hasCategorySelection && hasTypeSelection && !comboMetaLoading && !comboMetaError);
-  const typeOptionsForCategory = useMemo(() => {
-    if (!hasCategorySelection) return [];
-    const key = String(editableProduct.description_category_id);
-    const list = typeOptionsMap.get(key);
-    return Array.isArray(list) ? list : [];
-  }, [hasCategorySelection, editableProduct?.description_category_id, typeOptionsMap]);
   const sanitizeItemsForUpdate = useCallback(() => {
     if (!editableAttributes || editableAttributes.length === 0) return [];
 
@@ -1164,42 +1186,24 @@ export default function ProductAttributesPage() {
                 />
               </label>
               <label style={{ fontSize: 13, color: '#475569' }}>
-                Категория описания
-                <select
-                  value={editableProduct?.description_category_id || ''}
-                  onChange={(event) => handleCategorySelect(event.target.value)}
-                  disabled={!isNewProduct || categoryTreeLoading}
-                  style={{ ...inputStyle, marginTop: 6 }}
-                >
-                  <option value="">Выберите категорию</option>
-                  {categoryOptions.map((option) => (
-                    <option key={option.id} value={option.id} disabled={option.disabled}>
-                      {option.name} {option.disabled ? '(недоступна)' : ''}
-                    </option>
-                  ))}
-                </select>
-                {categoryTreeError && (
-                  <div style={{ fontSize: 12, color: '#b91c1c', marginTop: 4 }}>{categoryTreeError}</div>
-                )}
-                {categoryTreeLoading && (
-                  <div style={{ fontSize: 12, color: '#0f172a', marginTop: 4 }}>Загружаем категории…</div>
-                )}
-              </label>
-              <label style={{ fontSize: 13, color: '#475569' }}>
-                Тип товара
-                <select
-                  value={editableProduct?.type_id || ''}
-                  onChange={(event) => handleTypeSelect(event.target.value)}
-                  disabled={!isNewProduct || !hasCategorySelection || categoryTreeLoading}
-                  style={{ ...inputStyle, marginTop: 6 }}
-                >
-                  <option value="">{hasCategorySelection ? 'Выберите тип' : 'Сначала выберите категорию'}</option>
-                  {typeOptionsForCategory.map((option) => (
-                    <option key={option.id} value={option.id} disabled={option.disabled}>
-                      {option.name} {option.disabled ? '(недоступен)' : ''}
-                    </option>
-                  ))}
-                </select>
+                Категория и тип
+                <div style={{ marginTop: 6 }}>
+                  <CategoryTypeSelector
+                    disabled={!isNewProduct}
+                    value={{
+                      categoryId: editableProduct?.description_category_id || '',
+                      typeId: editableProduct?.type_id || ''
+                    }}
+                    tree={categoryTree}
+                    categoryMap={categoryMap}
+                    loading={categoryTreeLoading}
+                    error={categoryTreeError}
+                    onChange={({ categoryId, typeId }) => {
+                      handleCategorySelect(categoryId);
+                      handleTypeSelect(typeId);
+                    }}
+                  />
+                </div>
               </label>
             </div>
           </div>
