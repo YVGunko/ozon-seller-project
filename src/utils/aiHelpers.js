@@ -154,10 +154,12 @@ export function normalizeProductData(raw = {}) {
  *   seo_keywords, withWatermark, watermarkText, ...
  * }
  */
-export function buildAiInputsFromProduct(product = {}) {
+export function buildAiInputsFromProduct(product = {}, options = {}) {
   if (!product || typeof product !== 'object') {
     throw new Error('product is required');
   }
+
+  const mode = typeof options.mode === 'string' ? options.mode.toLowerCase() : '';
 
   const {
     offer_id,
@@ -179,6 +181,35 @@ export function buildAiInputsFromProduct(product = {}) {
   const attributesFlat = {};
   if (attributes && typeof attributes === 'object') {
     Object.entries(attributes).forEach(([key, value]) => {
+      const lowerKey = String(key || '').toLowerCase();
+      if (mode === 'hashtags') {
+        // Не подсказываем модели уже существующие хештеги
+        if (lowerKey.includes('#хештеги') || lowerKey.includes('#hashtags')) {
+          return;
+        }
+      }
+      if (mode === 'rich' || mode === 'slides') {
+        // Не подсказываем существующий rich-контент
+        if (
+          lowerKey.includes('rich-контент') ||
+          lowerKey.includes('rich content') ||
+          lowerKey.includes('rich-контент json')
+        ) {
+          return;
+        }
+      }
+      if (mode === 'seo-name' || mode === 'title' || mode === 'description') {
+        // Для текстовых задач тоже можно не мешать текущими rich / хештегами
+        if (
+          lowerKey.includes('#хештеги') ||
+          lowerKey.includes('#hashtags') ||
+          lowerKey.includes('rich-контент') ||
+          lowerKey.includes('rich content') ||
+          lowerKey.includes('rich-контент json')
+        ) {
+          return;
+        }
+      }
       if (value === null || value === undefined || value === '') return;
       if (Array.isArray(value)) {
         attributesFlat[key] = value.join(', ');
@@ -246,19 +277,23 @@ export async function generateSEOName({ products, keywords, baseProductData }) {
     Array.isArray(keywords) ? keywords.join(', ') : (keywords || 'не заданы');
 
   const system = `
-Ты профессиональный SEO-специалист, который создаёт названия товаров для маркетплейса Ozon.
+Ты профессиональный SEO-специалист компании «Ашманов и партнёры».
+Ты создаёшь SEO-названия для карточек товаров на маркетплейсе Ozon.
 Всегда отвечай строго в формате JSON.
 `;
 
   const user = [
-    'Для КАЖДОГО товара придумай ТРИ разных SEO-названия для карточки на Ozon.',
+    'Для КАЖДОГО товара сделай ТРИ РАЗНЫХ SEO-названия товара для маркетплейса Ozon.',
+    'Цель: чтобы карточка попадала как можно выше конкурентов в выдаче по релевантным запросам.',
     'Требования к каждому названию:',
     '- язык: русский;',
     '- длина: не более 120 символов;',
-    '- название должно отражать суть товара и его преимущества;',
-    '- избегай спама и прямых повторов;',
-    '- не используй кавычки и лишние знаки препинания;',
-    '- не добавляй номера вроде "(1)" или "- 1" внутрь названий.',
+    '- отразить тип товара, ключевые характеристики и выгоды покупателя;',
+    '- использовать важные ключевые фразы, но без спама и переспама;',
+    '- избегать прямых повторов между вариантами;',
+    '- не использовать кавычки, эмодзи и лишние знаки препинания;',
+    '- не добавлять ссылки на источники или сайты;',
+    '- не добавлять номера вроде "(1)" или "- 1" внутрь названий.',
     '',
     `Ключевые слова: ${kws}.`,
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,
@@ -266,7 +301,7 @@ export async function generateSEOName({ products, keywords, baseProductData }) {
     'Данные товаров:',
     productsContext,
     '',
-    'Верни ответ строго в JSON формате:',
+    'Верни ответ строго в JSON формате без лишнего текста и пояснений:',
     '{"descriptions":[{"index":0,"titles":["вариант1","вариант2","вариант3"]}, ...]}'
   ]
     .filter(Boolean)
@@ -311,27 +346,41 @@ export async function generateSEODescription({ products, keywords, baseProductDa
     Array.isArray(keywords) ? keywords.join(', ') : (keywords || 'не заданы');
 
   const system = `
-Ты SEO-копирайтер, создающий маркетинговые описания для карточек Ozon.
-Отвечай строго JSON.
+Ты профессиональный SEO-специалист компании «Ашманов и партнёры».
+Твоя задача — создавать SEO-описания для карточек товаров на маркетплейсе Ozon.
+Всегда отвечай строго в формате JSON.
 `;
 
   const user = [
-    'Для КАЖДОГО товара создай одно SEO-описание (аннотацию) длиной примерно 500–800 символов.',
-    'Задача описания:',
-    '- коротко объяснить, что за товар;',
-    '- показать, чем он полезен и кому подходит;',
-    '- использовать ключевые слова органично;',
-    '- избегать канцелярита и повторов;',
-    '- не вставлять HTML и Markdown.',
+    'Дано описание товара и его характеристики. Тебе нужно:',
     '',
-    `Ключевые слова: ${kws}.`,
+    '1) Мысленно собрать релевантные ключевые фразы для этого товара так, как если бы ты снимал их с выдачи Ozon по этому товару.',
+    '2) Разбить ключевые фразы (внутри себя, без вывода в ответе) на три группы:',
+    '- высокочастотные;',
+    '- среднечастотные;',
+    '- низкочастотные.',
+    '',
+    '3) На основе этих групп и данных о товаре создать ТРИ РАЗНЫХ SEO-описания для карточки товара на Ozon.',
+    '',
+    'Требования к КАЖДОМУ описанию:',
+    '- язык: русский;',
+    '- длина: около 1800 символов (можно ±10% — но не менее 1600 и не более 2000);',
+    '- описание должно помогать выводить карточку в ТОП по конкурентным запросам;',
+    '- обязательно использовать высоко-, средне- и низкочастотные фразы, но без спама и переспама;',
+    '- избегать «воды» и пустых фраз; писать как опытный SEO-копирайтер;',
+    '- не использовать HTML, Markdown и эмодзи;',
+    '- не вставлять списки формата "-", "*" или нумерацию — только чистый текст абзацами.',
+    '',
+    'В каждом описании делай акцент на выгодах для покупателя, сценариях использования и сильных сторонах товара относительно конкурентов.',
+    '',
+    `Ключевые слова от пользователя (если есть): ${kws}.`,
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,
     '',
     'Данные товаров:',
     productsContext,
     '',
     'Формат ответа STRICT JSON:',
-    '{"descriptions":[{"index":0,"text":"...описание..."}, ...]}'
+    '{"descriptions":[{"index":0,"text_variant_1":"...","text_variant_2":"...","text_variant_3":"..."}, ...]}'
   ]
     .filter(Boolean)
     .join('\n');
@@ -352,10 +401,23 @@ export async function generateSEODescription({ products, keywords, baseProductDa
     throw new Error('Ответ модели не содержит массива descriptions');
   }
 
-  return descriptions.map((item) => ({
-    index: item.index,
-    text: String(item.text || '').trim()
-  }));
+  return descriptions.map((item) => {
+    if (typeof item.text === 'string' && item.text.trim()) {
+      return {
+        index: item.index,
+        text: String(item.text || '').trim()
+      };
+    }
+    const v1 = String(item.text_variant_1 || '').trim();
+    const v2 = String(item.text_variant_2 || '').trim();
+    const v3 = String(item.text_variant_3 || '').trim();
+    // Склеиваем варианты через два перевода строки, если они есть
+    const combined = [v1, v2, v3].filter(Boolean).join('\n\n');
+    return {
+      index: item.index,
+      text: combined
+    };
+  });
 }
 
 /**
@@ -382,6 +444,7 @@ export async function generateHashtags({ products, baseProductData }) {
     '- содержит только буквы, цифры и символ подчеркивания;',
     '- если хештег из нескольких слов, используй нижнее подчеркивание (#черный_металлик);',
     '- длина хештега — не более 30 символов;',
+    '- часть хештегов ДОЛЖНА быть на русском языке (только кириллица + цифры + подчеркивание), часть может быть на латинице/транслите;',
     '- не дублируй название бренда и точное название товара слишком часто;',
     '- избегай общего мусора типа #скидки #цена;',
     '- фокусируйся на назначении, типе товара, стиле, сценариях использования.',
@@ -423,6 +486,59 @@ export async function generateHashtags({ products, baseProductData }) {
  * Генерация Rich-контента JSON для атрибута 11254 ("Rich-контент JSON")
  * Возвращает: [{ index, content: {...richJson...} }]
  */
+function normalizeRichContent(content) {
+  let base = content;
+  if (!base || typeof base !== 'object') {
+    try {
+      base = JSON.parse(String(content || '{}'));
+    } catch {
+      base = {};
+    }
+  }
+  const rawBlocks = Array.isArray(base.blocks) ? base.blocks : [];
+  const normalizedBlocks = [];
+
+  rawBlocks.forEach((block) => {
+    if (!block || typeof block !== 'object') return;
+    const type = String(block.type || '').toLowerCase();
+    if (type === 'text') {
+      const text = String(
+        block.text ??
+          block.value ??
+          block.content ??
+          ''
+      ).trim();
+      if (!text) return;
+      normalizedBlocks.push({
+        type: 'text',
+        text
+      });
+      return;
+    }
+    if (type === 'list') {
+      const items = Array.isArray(block.items)
+        ? block.items
+            .map((item) => String(item || '').trim())
+            .filter(Boolean)
+        : [];
+      if (!items.length) return;
+      const title = block.title ? String(block.title).trim() : undefined;
+      const listBlock = {
+        type: 'list',
+        items
+      };
+      if (title) {
+        listBlock.title = title;
+      }
+      normalizedBlocks.push(listBlock);
+    }
+  });
+
+  return {
+    blocks: normalizedBlocks
+  };
+}
+
 export async function generateRichJSON({ products, baseProductData }) {
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error('Не переданы товары для генерации Rich-контента');
@@ -487,7 +603,7 @@ export async function generateRichJSON({ products, baseProductData }) {
 
   return richArr.map((item) => ({
     index: item.index,
-    content: item.content || {}
+    content: normalizeRichContent(item.content || {})
   }));
 }
 
@@ -526,33 +642,37 @@ export async function generateSlides({
   const baseInfo = describeObject(baseProductData);
   const productsContext = buildProductsContext(products);
 
-  const watermarkInstruction = withWatermark
-    ? `Для КАЖДОГО слайда заполняй поле "watermark" строкой "${watermarkText}".`
-    : 'Для КАЖДОГО слайда заполняй поле "watermark" значением null.';
-
   const system = `
-Ты помогаешь проектировать слайды и изображения для карточек товаров Ozon.
-Каждый слайд описывается JSON-структурой. Отвечай строго JSON.
+Ты команда профессионального дизайнерского агентства MaryCo.
+Ты проектируешь промо-слайды для карточек товаров на маркетплейсе Ozon.
+Отвечай строго в формате JSON-структуры слайдов.
 `;
 
   const user = [
-    'Для КАЖДОГО товара создай от 3 до 6 слайдов.',
+    'Для КАЖДОГО товара создай РОВНО 5 отдельных промо-слайдов для карточки Ozon.',
+    'Формат слайдов — 3:4 (вертикальная ориентация, как в карточках Ozon).',
+    '',
+    'Перед генерацией мысленно проанализируй конкурентов (аналогичные товары) и их визуальные решения:',
+    '- какие УТП и преимущества они показывают;',
+    '- какие слабые стороны конкурентов можно обойти;',
+    '- какие сценарии использования и эмоции важны для покупателя.',
+    '',
+    'Выдели уникальное торговое предложение (УТП) нашего товара и построй вокруг него структуру слайдов.',
+    '',
     'Каждый слайд описывается объектом с полями:',
     '{',
     '  "title": "краткий заголовок",',
     '  "subtitle": "дополнительное пояснение (может быть пустым)",',
     '  "bullets": ["краткий пункт 1","краткий пункт 2", ...],',
-    '  "imageIdea": "что должно быть изображено на слайде",',
+    '  "imageIdea": "что должно быть изображено на слайде (учитывая формат 3:4)",',
     '  "watermark": "текст или null"',
     '}',
-    '',
-    watermarkInstruction,
     '',
     'Формат ответа STRICT JSON:',
     '{',
     '  "slides": [',
     '    {',
-    '      "index": 0,',
+      '      "index": 0,',
     '      "slides": [',
     '        { "title": "...", "subtitle": "...", "bullets": ["..."], "imageIdea": "...", "watermark": "..." },',
     '        ...',
@@ -565,7 +685,7 @@ export async function generateSlides({
     '- язык: русский;',
     '- заголовки короткие, продающие;',
     '- bullets — 2–5 штук, без длинных предложений;',
-    '- imageIdea — одно-два предложения, что должно быть на картинке.',
+    '- imageIdea — одно-два предложения, что должно быть на картинке, с учётом формата 3:4 и УТП товара.',
     '',
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,
     '',

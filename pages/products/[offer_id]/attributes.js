@@ -22,6 +22,7 @@ import {
   syncTypeAttributeWithTypeId,
   TYPE_ATTRIBUTE_ID,
   LARGE_TEXT_ATTRIBUTE_IDS,
+  TEXT_ONLY_ATTRIBUTE_IDS,
   normalizeProductAttributes,
   parsePositiveTypeId,
   normalizeAttributeValues,
@@ -75,6 +76,7 @@ export default function ProductAttributesPage() {
   const containerRef = useRef(null);
   const [ratingHints, setRatingHints] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
+  const [aiSlidesPreview, setAiSlidesPreview] = useState([]);
 
   const {
     attributes,
@@ -468,9 +470,13 @@ export default function ProductAttributesPage() {
   ]);
 
   const availableAttributesMeta = useMemo(() => {
-    return Array.isArray(productInfo?.available_attributes)
+    const source = Array.isArray(productInfo?.available_attributes)
       ? productInfo.available_attributes
       : [];
+    return source.filter((meta) => {
+      const key = getAttributeKey(meta?.id ?? meta?.attribute_id);
+      return key && key !== TYPE_ATTRIBUTE_ID;
+    });
   }, [productInfo]);
 
   const superRecommendedAttributeKeys = useMemo(() => {
@@ -533,7 +539,7 @@ export default function ProductAttributesPage() {
         __order: index,
         __attrKey: getAttributeKey(attr?.id ?? attr?.attribute_id)
       }))
-      .filter((attr) => attr.__attrKey)
+      .filter((attr) => attr.__attrKey && attr.__attrKey !== TYPE_ATTRIBUTE_ID)
       .sort((a, b) => {
         const metaA = attributeMetaMap.get(a.__attrKey);
         const metaB = attributeMetaMap.get(b.__attrKey);
@@ -904,6 +910,32 @@ export default function ProductAttributesPage() {
   const canDisplayAttributesSection =
     !isNewProduct || (hasCategorySelection && hasTypeSelection && !comboMetaLoading && !comboMetaError);
 
+  const normalizeHashtagsValue = useCallback((rawList) => {
+    if (!Array.isArray(rawList) || !rawList.length) return [];
+    const result = [];
+    const seen = new Set();
+    rawList.forEach((raw) => {
+      if (!raw) return;
+      let tag = String(raw).trim().toLowerCase();
+      // убираем обёртки и лишние символы
+      tag = tag.replace(/^[#\s]+/, '');
+      // оставляем только буквы, цифры и подчёркивания (русские + латиница)
+      tag = tag.replace(/[^0-9a-zа-яё_]+/gi, '_');
+      tag = tag.replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '');
+      if (!tag) return;
+      tag = `#${tag}`;
+      if (tag.length > 30) {
+        tag = tag.slice(0, 30);
+      }
+      if (!/^#[0-9a-zа-яё_]{1,29}$/i.test(tag)) return;
+      if (!seen.has(tag)) {
+        seen.add(tag);
+        result.push(tag);
+      }
+    });
+    return result.slice(0, 25);
+  }, []);
+
   const buildAiProductPayload = useCallback(() => {
     if (!editableProduct) return null;
 
@@ -964,16 +996,15 @@ export default function ProductAttributesPage() {
     productInfo
   ]);
 
-  const handleSendToAi = useCallback(async () => {
-    const productPayload = buildAiProductPayload();
-    if (!productPayload) {
-      alert('Нет данных товара для отправки в AI');
-      return;
-    }
-    setAiLoading(true);
-    try {
-      const modes = ['seo-name', 'description', 'hashtags', 'rich', 'slides'];
-      for (const mode of modes) {
+  const callAiForMode = useCallback(
+    async (mode) => {
+      const productPayload = buildAiProductPayload();
+      if (!productPayload) {
+        alert('Нет данных товара для отправки в AI');
+        return null;
+      }
+      setAiLoading(true);
+      try {
         const response = await fetch('/api/ai/product-seo', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -984,15 +1015,136 @@ export default function ProductAttributesPage() {
         console.log('[AI] mode =', mode, 'response:', data);
         if (!response.ok) {
           console.error('[AI] error for mode', mode, data);
+          throw new Error(data?.error || `AI error for mode ${mode}`);
         }
+        return data;
+      } catch (error) {
+        console.error('[AI] send error', error);
+        alert('Ошибка при обращении к AI. Подробности в консоли.');
+        return null;
+      } finally {
+        setAiLoading(false);
+      }
+    },
+    [buildAiProductPayload]
+  );
+
+  const handleAiSeoName = useCallback(async () => {
+    const data = await callAiForMode('seo-name');
+    if (!data || !Array.isArray(data.items) || !data.items.length) return;
+    const first = data.items[0];
+    const titles = Array.isArray(first.titles)
+      ? first.titles
+      : typeof first.description === 'string'
+      ? String(first.description)
+          .split('\n')
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+    const bestTitle = titles[0];
+    if (bestTitle) {
+      handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', bestTitle);
+    }
+  }, [callAiForMode, handleProductMetaChange]);
+
+  const handleAiDescription = useCallback(async () => {
+    const data = await callAiForMode('description');
+    if (!data || !Array.isArray(data.items) || !data.items.length) return;
+    const first = data.items[0];
+    const text = String(first.text || '').trim();
+    if (!text) return;
+    handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 4191, text);
+  }, [callAiForMode, handleAttributeValueChange]);
+
+  const handleAiHashtags = useCallback(async () => {
+    const data = await callAiForMode('hashtags');
+    if (!data || !Array.isArray(data.items) || !data.items.length) return;
+    const first = data.items[0];
+    const hashtags = Array.isArray(first.hashtags)
+      ? first.hashtags.map((h) => String(h || '').trim()).filter(Boolean)
+      : [];
+    const normalized = normalizeHashtagsValue(hashtags);
+    if (!normalized.length) {
+      alert('AI не сгенерировал валидные хештеги по правилам OZON.');
+      return;
+    }
+    const value = normalized.join(', ');
+    handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 23171, value);
+  }, [callAiForMode, handleAttributeValueChange, normalizeHashtagsValue]);
+
+  const handleAiRich = useCallback(async () => {
+    const data = await callAiForMode('rich');
+    if (!data || !Array.isArray(data.items) || !data.items.length) return;
+    const first = data.items[0];
+    const content = first.content || {};
+    const json = JSON.stringify(content, null, 2);
+    handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 11254, json);
+  }, [callAiForMode, handleAttributeValueChange]);
+
+  const handleAiSlides = useCallback(async () => {
+    const data = await callAiForMode('slides');
+    if (!data || !Array.isArray(data.items) || !data.items.length) return;
+    const first = data.items[0];
+    const slides = Array.isArray(first.slides) ? first.slides : [];
+    if (!slides.length) return;
+    const json = JSON.stringify(slides, null, 2);
+    setAiSlidesPreview(slides);
+    // Дополнительно пишем слайды в Rich-контент JSON для визуального просмотра/экспорта
+    handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 11254, json);
+  }, [callAiForMode, handleAttributeValueChange]);
+
+  const handleAiSlidesGenerateImages = useCallback(async () => {
+    if (!aiSlidesPreview || !aiSlidesPreview.length) {
+      alert('Сначала получите структуру слайдов через кнопку «AI слайды».');
+      return;
+    }
+    try {
+      setAiLoading(true);
+      const response = await fetch('/api/ai/slide-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          slides: aiSlidesPreview,
+          offerId: editableProduct?.offer_id || offer_id,
+          productName: editableProduct?.name || productInfo?.name || ''
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        // eslint-disable-next-line no-console
+        console.error('AI slide image generation error', data);
+        // eslint-disable-next-line no-alert
+        alert(data?.error || 'Не удалось создать изображения слайдов');
+        return;
+      }
+
+      const urls = Array.isArray(data?.items)
+        ? data.items
+            .map((item) => String(item.url || '').trim())
+            .filter(Boolean)
+        : [];
+
+      if (urls.length) {
+        const existing = Array.isArray(editableProduct?.images)
+          ? editableProduct.images
+          : [];
+        const merged = [...existing, ...urls];
+        handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'images', merged);
+        // eslint-disable-next-line no-alert
+        alert(`Добавлено слайдов изображений: ${urls.length}`);
+      } else {
+        // eslint-disable-next-line no-alert
+        alert('Не удалось создать изображения слайдов');
       }
     } catch (error) {
-      console.error('[AI] send error', error);
-      alert('Ошибка при обращении к AI. Подробности в консоли.');
+      // eslint-disable-next-line no-console
+      console.error('AI slide image generation error', error);
+      // eslint-disable-next-line no-alert
+      alert('Ошибка генерации слайдов. Подробности в консоли.');
     } finally {
       setAiLoading(false);
     }
-  }, [buildAiProductPayload]);
+  }, [aiSlidesPreview, editableProduct, handleProductMetaChange]);
 
   const sanitizeItemsForUpdate = useCallback(() => {
     if (!editableAttributes || editableAttributes.length === 0) return [];
@@ -1340,9 +1492,6 @@ export default function ProductAttributesPage() {
         </div>
         <header
           style={{
-            display: 'flex',
-            justifyContent: 'space-between',
-            alignItems: 'center',
             marginBottom: 24,
             position: 'sticky',
             top: 0,
@@ -1371,7 +1520,7 @@ export default function ProductAttributesPage() {
               style={{
                 display: 'grid',
                 gap: 12,
-                maxWidth: 520,
+                width: '100%',
                 marginTop: 12
               }}
             >
@@ -1437,7 +1586,116 @@ export default function ProductAttributesPage() {
               </label>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 12 }}>
+          <div
+            style={{
+              display: 'flex',
+              flexDirection: 'row',
+              justifyContent: 'space-between',
+              alignItems: 'flex-start',
+              gap: 12,
+              marginTop: 20,
+              flexWrap: 'wrap'
+            }}
+          >
+            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+              <button
+                type="button"
+                onClick={handleAiSeoName}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  fontSize: 12
+                }}
+                disabled={aiLoading || !editableProduct}
+              >
+                AI SEO‑название
+              </button>
+              <button
+                type="button"
+                onClick={handleAiDescription}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  fontSize: 12
+                }}
+                disabled={aiLoading || !editableProduct}
+              >
+                AI описание
+              </button>
+              <button
+                type="button"
+                onClick={handleAiHashtags}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  fontSize: 12
+                }}
+                disabled={aiLoading || !editableProduct}
+              >
+                AI хештеги
+              </button>
+              <button
+                type="button"
+                onClick={handleAiRich}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  fontSize: 12
+                }}
+                disabled={aiLoading || !editableProduct}
+              >
+                AI Rich JSON
+              </button>
+              <button
+                type="button"
+                onClick={handleAiSlides}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  fontSize: 12
+                }}
+                disabled={aiLoading || !editableProduct}
+              >
+                AI слайды
+              </button>
+              <button
+                type="button"
+                onClick={handleAiSlidesGenerateImages}
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #fed7aa',
+                  backgroundColor: '#fffbeb',
+                  color: '#b45309',
+                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  fontSize: 12
+                }}
+                disabled={aiLoading || !editableProduct}
+              >
+                Сделать изображения слайдов
+              </button>
+            </div>
+            <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <button
               type="button"
               onClick={handleRefreshClick}
@@ -1453,23 +1711,6 @@ export default function ProductAttributesPage() {
             </button>
             <button
               type="button"
-              onClick={handleSendToAi}
-              style={{
-                padding: '8px 14px',
-                backgroundColor: '#dc2626',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-                cursor: aiLoading ? 'not-allowed' : 'pointer',
-                opacity: !editableProduct ? 0.5 : 1,
-                fontWeight: 500
-              }}
-              disabled={aiLoading || !editableProduct}
-            >
-              {aiLoading ? 'Отправляем в AI…' : 'Отправить в AI'}
-            </button>
-            <button
-              type="button"
               onClick={handleSaveAttributes}
               style={{
                 ...secondaryButtonStyle,
@@ -1481,6 +1722,7 @@ export default function ProductAttributesPage() {
             >
               {savingAttributes ? savingLabel : 'Сохранить изменения'}
             </button>
+            </div>
           </div>
         </header>
         {!isNewProduct && (
@@ -1694,6 +1936,63 @@ export default function ProductAttributesPage() {
             )}
           </section>
         )}
+        {aiSlidesPreview && aiSlidesPreview.length > 0 && (
+          <section style={sectionStyle}>
+            <SectionHeader title="AI слайды (черновик)" />
+            <p style={{ color: '#475569', fontSize: 13, marginBottom: 12 }}>
+              Ниже — текстовая структура слайдов для визуального дизайна. Каждый слайд можно
+              использовать как основу для отдельного изображения.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+              {aiSlidesPreview.map((slide, index) => (
+                <div
+                  key={index}
+                  style={{
+                    border: '1px solid #e2e8f0',
+                    borderRadius: 8,
+                    padding: 12,
+                    backgroundColor: '#f9fafb'
+                  }}
+                >
+                  <div style={{ fontWeight: 600, marginBottom: 4 }}>
+                    {slide.title || `Слайд ${index + 1}`}
+                  </div>
+                  {slide.subtitle && (
+                    <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 6 }}>
+                      {slide.subtitle}
+                    </div>
+                  )}
+                  {Array.isArray(slide.bullets) && slide.bullets.length > 0 && (
+                    <ul
+                      style={{
+                        paddingLeft: 18,
+                        margin: '4px 0',
+                        fontSize: 13,
+                        color: '#374151'
+                      }}
+                    >
+                      {slide.bullets.map((bullet, idx) => (
+                        <li key={idx}>{bullet}</li>
+                      ))}
+                    </ul>
+                  )}
+                  {slide.imageIdea && (
+                    <div
+                      style={{
+                        marginTop: 6,
+                        fontSize: 12,
+                        color: '#6b7280'
+                      }}
+                    >
+                      <span style={{ fontWeight: 500 }}>Идея изображения:</span>{' '}
+                      {slide.imageIdea}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
         {canDisplayAttributesSection ? (
           <>
             {attributeGroups.length === 0 && editableProduct && (
@@ -1727,6 +2026,8 @@ export default function ProductAttributesPage() {
                   {group.attributes.map(({ attr, meta }, index) => {
                     const attrKey = attr.__attrKey || getAttributeKey(attr?.id ?? attr?.attribute_id);
                     if (!attrKey) return null;
+                    const forceTextOnly = TEXT_ONLY_ATTRIBUTE_IDS.has(attrKey);
+
                     let dictionaryOptions = Array.isArray(meta?.dictionary_values)
                       ? meta.dictionary_values.filter((option) => getDictionaryOptionKey(option))
                       : [];
@@ -1765,18 +2066,30 @@ export default function ProductAttributesPage() {
                   : selectedDictionaryKeys[0] ?? '';
                 const manualValueString = formatAttributeValues(manualEntries);
                 const fallbackValueString = formatAttributeValues(attr.values || []);
-                const hasDictionaryOptions = dictionaryOptions.length > 0;
-                const textareaValue = hasDictionaryOptions ? manualValueString : fallbackValueString;
+                const hasDictionaryOptions = !forceTextOnly && dictionaryOptions.length > 1;
+                const textareaValue = hasDictionaryOptions
+                  ? manualValueString || fallbackValueString
+                  : fallbackValueString;
                 const isLargeField =
                   LARGE_TEXT_ATTRIBUTE_IDS.has(attrKey) ||
                   ['text', 'html', 'richtext'].includes((meta?.type || '').toLowerCase());
+                const nameLower = String(meta?.name || attr.name || '').toLowerCase();
+                const isRichContentAttr =
+                  attrKey === '11254' ||
+                  nameLower.includes('rich-контент') ||
+                  nameLower.includes('rich-контент json') ||
+                  nameLower.includes('rich-content');
+                const isQuantityLike =
+                  !isLargeField &&
+                  !isRichContentAttr &&
+                  (nameLower.startsWith('количество') || nameLower.includes(' количество'));
                 const isRequired = Boolean(meta?.is_required);
                 const isSuperRecommended = superRecommendedAttributeKeys.has(attrKey);
                 const hasValue = attributeHasValues(attr);
-                const rows = isLargeField ? 6 : 3;
+                const rows = isRichContentAttr ? 14 : isLargeField ? 6 : isQuantityLike ? 1 : 3;
                 const textareaProps = hasDictionaryOptions
                   ? {
-                      value: manualValueString,
+                      value: textareaValue,
                       onChange: (event) =>
                         handleManualValueChange(PRIMARY_PRODUCT_INDEX, attrKey, event.target.value)
                     }
@@ -1900,7 +2213,7 @@ export default function ProductAttributesPage() {
                         borderRadius: 8,
                         border: '1px solid #cbd5f5',
                         resize: 'vertical',
-                        minHeight: isLargeField ? 140 : 90,
+                        minHeight: isRichContentAttr ? 260 : isLargeField ? 140 : isQuantityLike ? 40 : 90,
                         fontSize: 13
                       }}
                       placeholder="Введите значения"

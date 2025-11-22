@@ -5,7 +5,7 @@ import {
   generateHashtags,
   generateRichJSON,
   generateSlides
-} from '@/src/utils/aiHelpers';
+} from '../../../src/utils/aiHelpers';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -32,7 +32,7 @@ export default async function handler(req, res) {
       keywords,
       withWatermark,
       watermarkText
-    } = buildAiInputsFromProduct(product);
+    } = buildAiInputsFromProduct(product, { mode: normalizedMode });
 
     let items;
 
@@ -80,4 +80,3 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'AI error' });
   }
 }
-
