@@ -937,113 +937,167 @@ export default function ProductsPage() {
   };
 
   return (
-    <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
-      <div style={{ marginBottom: 15 }}>
-        <a href="/" style={{ color: '#0070f3', textDecoration: 'none', fontSize: 14 }}>← На главную</a>
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-        <h1 style={{ margin: 0 }}>Управление товарами OZON</h1>
-
-        {currentProfile ? (
-          <div style={{ fontSize: 14, color: '#666', textAlign: 'right' }}>
-            <div style={{ fontWeight: 'bold', color: '#28a745' }}>✅ {currentProfile.name}</div>
-            <div style={{ fontSize: 12 }}>Client ID: {currentProfile?.client_hint || '—'}</div>
-          </div>
-        ) : (
-          <div style={{ fontSize: 14, color: '#dc3545', textAlign: 'right' }}>
-            <div>⚠️ Профиль не выбран</div>
-            <a href="/" style={{ fontSize: 12, color: '#0070f3' }}>Выбрать на главной</a>
-          </div>
-        )}
-        <button
-          type="button"
-          onClick={startNewProduct}
-          style={{
-            padding: '10px 18px',
-            backgroundColor: '#22c55e',
-            color: '#fff',
-            border: 'none',
-            borderRadius: 6,
-            fontWeight: 'bold',
-            cursor: 'pointer',
-            alignSelf: 'flex-start',
-            marginLeft: 'auto'
-          }}
-        >
-          Новый товар
-        </button>
-      </div>
-
-      {/* Filters (left unchanged visually) */}
-      {/* ... same filters UI from your original file ... */}
-      {/* For brevity, use existing UI; they work with the new code because applyFilters/resetFilters call fetchProducts */}
-      <div style={{
-        backgroundColor: '#f5f5f5',
-        padding: '20px',
-        borderRadius: '8px',
-        marginBottom: '20px',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '15px'
-      }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-            Артикул (offer_id):
-          </label>
-          <input
-            type="text"
-            value={filters.offer_id}
-            onChange={(e) => setFilters(prev => ({ ...prev, offer_id: e.target.value }))}
-            placeholder="Введите артикул"
-            style={{
-              width: '100%',
-              padding: '8px',
-              border: '1px solid #ddd',
-              borderRadius: '4px'
-            }}
-          />
+    <div className="oz-page">
+      {/* Заголовок страницы */}
+      <div className="oz-page-header">
+        <div className="oz-breadcrumb">
+          <Link href="/" className="oz-breadcrumb-link">
+            Главная
+          </Link>
+          <span className="oz-breadcrumb-separator"> / </span>
+          <span className="oz-breadcrumb-link">Товары</span>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-          <button
-            onClick={applyFilters}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#0070f3',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Применить
-          </button>
-          <button
-            onClick={resetFilters}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#6c757d',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Сбросить
-          </button>
+
+        <div className="oz-page-title-block">
+          <h1 className="oz-page-title">Управление товарами OZON</h1>
+          <p className="oz-page-subtitle">
+            Просмотр, редактирование, копирование и анализ контент‑рейтинга
+          </p>
         </div>
       </div>
-      {/* show error */}
-      {error && <div style={{ color: 'red', marginBottom: 10 }}>Ошибка: {error}</div>}
 
-      <div style={{ marginBottom: 20, color: '#666' }}>
-        Показано: {filteredProducts.length} товаров
-        {products.length !== filteredProducts.length && ` (отфильтровано из ${products.length})`}
-      </div>
+      <div className="oz-main">
+        {/* Карточка профиля и создания товара */}
+        <div className="oz-card oz-card-meta">
+          <div className="oz-card-body">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 16,
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                {currentProfile ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 16,
+                      alignItems: 'baseline',
+                      fontSize: 13
+                    }}
+                  >
+                    <div>
+                      <span
+                        className="oz-meta-label"
+                        style={{ marginRight: 4 }}
+                      >
+                        Активный профиль:
+                      </span>
+                      <span className="oz-meta-value">{currentProfile.name}</span>
+                    </div>
+                    <div>
+                      <span
+                        className="oz-meta-label"
+                        style={{ marginRight: 4 }}
+                      >
+                        Client ID:
+                      </span>
+                      <span className="oz-meta-code">
+                        {currentProfile?.client_hint || '—'}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="oz-alert oz-alert-error">
+                    Профиль не выбран — вернитесь на главную и выберите профиль.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
-      {/* Table — same structure, but use fetchAttributes / openCopyModal */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+        {/* Карточка с фильтрами и таблицей */}
+        <div className="oz-card">
+          <div className="oz-card-header">
+            <h2 className="oz-card-title">Список товаров</h2>
+            <span className="oz-card-subtitle">
+              Фильтруйте по артикулу и открывайте карточку для редактирования
+            </span>
+          </div>
+
+          <div className="oz-card-body">
+            {/* Фильтры */}
+            <div className="oz-card-filters">
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  alignItems: 'flex-end'
+                }}
+              >
+                <div className="oz-form-group" style={{ flex: '1 1 260px' }}>
+                  <label className="oz-label">Артикул (offer_id)</label>
+                  <input
+                    type="text"
+                    className="oz-input"
+                    value={filters.offer_id}
+                    onChange={(e) =>
+                      setFilters((prev) => ({ ...prev, offer_id: e.target.value }))
+                    }
+                    placeholder="Введите артикул"
+                  />
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    alignItems: 'center'
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="oz-btn oz-btn-primary"
+                    onClick={applyFilters}
+                  >
+                    Применить
+                  </button>
+                  <button
+                    type="button"
+                    className="oz-btn oz-btn-secondary"
+                    onClick={resetFilters}
+                  >
+                    Сбросить
+                  </button>
+                  <div
+                    style={{
+                      width: 1,
+                      alignSelf: 'stretch',
+                      backgroundColor: '#e5e7eb',
+                      margin: '0 4px'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={startNewProduct}
+                    className="oz-btn oz-btn-success"
+                  >
+                    Новый товар
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Ошибка загрузки */}
+            {error && (
+              <div className="oz-alert oz-alert-error">Ошибка: {error}</div>
+            )}
+
+            {/* Сводка по количеству */}
+            <div style={{ marginBottom: 8, fontSize: 13, color: '#6b7280' }}>
+              Показано: {filteredProducts.length} товаров
+              {products.length !== filteredProducts.length &&
+                ` (отфильтровано из ${products.length})`}
+            </div>
+
+            {/* Таблица товаров */}
+            <div className="oz-table-wrapper">
+              <table className="oz-table">
           <thead>
             <tr style={{ backgroundColor: '#f8f9fa' }}>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Product ID</th>
@@ -1072,17 +1126,21 @@ export default function ProductsPage() {
                   <div style={{ fontSize: 11, color: '#b91c1c' }}>{ratingError}</div>
                 )}
               </th>
-              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Действия</th>
+              <th>Действия</th>
             </tr>
           </thead>
           <tbody>
             {sortedProducts.map((product) => (
-              <tr key={product.product_id || product.offer_id} style={{ borderBottom: '1px solid #dee2e6' }}>
-                <td style={{ padding: 12 }}>{product.product_id || product.id || '—'}</td>
-              <td style={{ padding: 12, fontWeight: 'bold' }}>{product.offer_id}</td>
-              <td style={{ padding: 12 }}>{product.name || '—'}</td>
-              <td style={{ padding: 12 }}>{product.sku || '—'}</td>
-                <td style={{ padding: 12, textAlign: 'center', fontSize: 14 }}>
+              <tr key={product.product_id || product.offer_id}>
+                <td className="oz-cell-mono">
+                  {product.product_id || product.id || '—'}
+                </td>
+                <td className="oz-cell-mono" style={{ fontWeight: 600 }}>
+                  {product.offer_id}
+                </td>
+                <td>{product.name || '—'}</td>
+                <td className="oz-cell-mono">{product.sku || '—'}</td>
+                <td style={{ textAlign: 'center', fontSize: 14 }}>
                   {(() => {
                     const sku = product.sku;
                     const entry = sku ? ratingMap.get(String(sku)) : null;
@@ -1108,18 +1166,12 @@ export default function ProductsPage() {
                     return showLoading ? '…' : '—';
                   })()}
                 </td>
-                <td style={{ padding: 12 }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
+                <td>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap' }}>
                     <Link href={`/products/${product.offer_id}/attributes`} legacyBehavior>
                       <a
-                        style={{
-                          padding: '6px 12px',
-                          backgroundColor: '#17a2b8',
-                          color: 'white',
-                          borderRadius: 4,
-                          textDecoration: 'none',
-                          fontSize: 12
-                        }}
+                        className="oz-btn oz-btn-primary"
+                        style={{ padding: '6px 12px', fontSize: 12 }}
                       >
                         Атрибуты
                       </a>
@@ -1127,15 +1179,8 @@ export default function ProductsPage() {
                     <button
                       onClick={() => handleCopyClick(product)}
                       disabled={copyLoading}
-                      style={{
-                        padding: '6px 12px',
-                        backgroundColor: '#28a745',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 4,
-                        cursor: copyLoading ? 'not-allowed' : 'pointer',
-                        fontSize: 12
-                      }}
+                      className="oz-btn oz-btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: 12 }}
                     >
                       {copyLoading ? 'Копируем…' : 'Копировать'}
                     </button>
@@ -1146,35 +1191,31 @@ export default function ProductsPage() {
           </tbody>
         </table>
         {filteredProducts.length === 0 && !loading && (
-          <div style={{ textAlign: 'center', padding: 40, color: '#6c757d', backgroundColor: 'white' }}>
+          <div className="oz-empty" style={{ textAlign: 'center', padding: 24 }}>
             Товары не найдены
           </div>
         )}
-      </div>
+            </div>
 
-      {pagination.hasMore && (
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <button
-            onClick={() => fetchProducts(false)}
-            disabled={loading}
-            style={{
-              padding: '12px 30px',
-              backgroundColor: loading ? '#6c757d' : '#0070f3',
-              color: 'white',
-              border: 'none',
-              borderRadius: 4,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: 16
-            }}
-          >
-            {loading ? 'Загрузка...' : 'Загрузить еще'}
-          </button>
+            {/* Пагинация */}
+            {pagination.hasMore && (
+              <div className="oz-pagination">
+                <button
+                  type="button"
+                  onClick={() => fetchProducts(false)}
+                  disabled={loading}
+                  className={`oz-btn oz-btn-primary ${loading ? 'oz-btn-disabled' : ''}`}
+                >
+                  {loading ? 'Загрузка…' : 'Загрузить ещё'}
+                </button>
+              </div>
+            )}
+
+            {!pagination.hasMore && products.length > 0 && (
+              <div className="oz-empty">Все товары загружены</div>
+            )}
+          </div>
         </div>
-      )}
-
-      {!pagination.hasMore && products.length > 0 && (
-        <div style={{ textAlign: 'center', marginTop: 20, color: '#6c757d', padding: 10 }}>Все товары загружены</div>
-      )}
 
       {/* Модальные окна: атрибуты и копирование — оставлены как в твоём UI, но используют state / функции выше */}
       <AttributesModal
@@ -1288,5 +1329,7 @@ export default function ProductsPage() {
           </div>
         </div>
       )}
-    </div>)
+      </div>
+    </div>
+  );
 }
