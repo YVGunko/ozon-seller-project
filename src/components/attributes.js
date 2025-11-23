@@ -40,7 +40,7 @@ const isValidImageUrl = (value) => {
   return /^https?:\/\//i.test(trimmed);
 };
 
-const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
+export const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
   if (!priceLoading && !priceInfo && !priceError) {
     return null;
   }
@@ -102,7 +102,7 @@ const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) =
 
 const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 
-const ImagesManager = ({
+export const ImagesManager = ({
   title = 'Изображения',
   images = [],
   primaryImage = '',
@@ -479,7 +479,7 @@ const ImagesManager = ({
   );
 };
 
-const MetaFieldsSection = ({ values, onChange, baseValues }) => {
+export const MetaFieldsSection = ({ values, onChange, baseValues }) => {
   if (!values || !onChange) {
     return null;
   }
@@ -492,33 +492,24 @@ const MetaFieldsSection = ({ values, onChange, baseValues }) => {
   return (
     <div style={{ marginBottom: 16 }}>
       <h4 style={{ margin: '10px 0' }}>Обязательные параметры для OZON</h4>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {fieldGroups.map((group) => (
-          <div key={group.title} style={{ border: '1px solid #e9ecef', borderRadius: 8, padding: 12 }}>
+          <div key={group.title}>
             <div style={{ fontWeight: 'bold', marginBottom: 8 }}>{group.title}</div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                gap: 12
-              }}
-            >
+            <div className="oz-filters-grid">
               {group.fields.map((field) => (
-                <div key={field}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
-                    {BASE_FIELD_LABELS[field] || field}
-                  </label>
+                <div key={field} className="oz-form-group">
+                  <label className="oz-label">{BASE_FIELD_LABELS[field] || field}</label>
                   <input
                     type="text"
+                    className="oz-input"
                     value={values[field] ?? ''}
                     onChange={(e) => onChange(field, e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '6px 8px',
-                      borderRadius: 4,
-                      border: '1px solid #ced4da'
-                    }}
-                    placeholder={baseValues && baseValues[field] ? `По умолчанию: ${baseValues[field]}` : ''}
+                    placeholder={
+                      baseValues && baseValues[field]
+                        ? `По умолчанию: ${baseValues[field]}`
+                        : ''
+                    }
                   />
                 </div>
               ))}

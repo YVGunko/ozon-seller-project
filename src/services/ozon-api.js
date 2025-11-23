@@ -213,6 +213,10 @@ export class OzonApiService {
     return data;
   }
 
+  async getDescriptionCategoryTree(language = 'DEFAULT') {
+    return this.request('/v1/description-category/tree', { language });
+  }
+
   async getWarehouses() {
     return this.request('/v1/warehouse/list', {});
   }

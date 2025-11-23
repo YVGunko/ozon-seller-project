@@ -1,7 +1,8 @@
-export const LARGE_TEXT_ATTRIBUTE_IDS = new Set(['4191', '7206', '22232', '4180']);
+export const LARGE_TEXT_ATTRIBUTE_IDS = new Set(['4191', '7206', '22232', '4180', '11254']);
 export const TYPE_ATTRIBUTE_ID = '8229';
 export const TYPE_ATTRIBUTE_NUMERIC = Number(TYPE_ATTRIBUTE_ID);
 export const SINGLE_VALUE_STRING_ATTRIBUTE_IDS = new Set(['23171']);
+export const TEXT_ONLY_ATTRIBUTE_IDS = new Set(['7236', '9024', '9048', '4180', '4191']);
 
 export const parsePositiveTypeId = (rawValue) => {
   if (rawValue === undefined || rawValue === null) return null;
