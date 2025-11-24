@@ -1274,10 +1274,10 @@ export default function ProductAttributesPage() {
           throw new Error(`Товар ${offerId}: добавьте хотя бы одно изображение`);
         }
 
-        if (!areImageListsEqual(normalizedImages, originalImages)) {
-          payload.images = normalizedImages;
-          hasMediaUpdates = true;
-        }
+        // Массив images является обязательным — всегда передаём его в payload,
+        // даже если по факту ссылки не менялись.
+        payload.images = normalizedImages;
+        hasMediaUpdates = true;
 
         // Всегда явно передаём primary_image, даже если он не менялся.
         // Если пользователь не задал primary_image, используем первое изображение из списка.
