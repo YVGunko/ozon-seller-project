@@ -1,6 +1,7 @@
-import { put } from '@vercel/blob';
+import { put, list } from '@vercel/blob';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../src/server/authOptions';
+import crypto from 'crypto';
 
 export const config = {
   api: {
@@ -41,7 +42,6 @@ export default async function handler(req, res) {
     const { searchParams } = new URL(req.url, 'http://localhost');
     const rawFilename = searchParams.get('filename') || 'image';
     const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '');
-    const filename = safeFilename || `image-${Date.now()}.jpg`;
     const contentType =
       searchParams.get('contentType') ||
       req.headers['content-type'] ||
@@ -56,16 +56,46 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Пустой файл' });
     }
 
-    const blob = await put(filename, bodyBuffer, {
+    // Вычисляем контент‑хэш, чтобы переиспользовать одно и то же изображение
+    const hash = crypto.createHash('sha256').update(bodyBuffer).digest('hex');
+    const nameExt = safeFilename.includes('.') ? safeFilename.split('.').pop() : '';
+    const typeExt =
+      contentType && contentType.includes('/') ? contentType.split('/')[1] : '';
+    const ext = (nameExt || typeExt || 'bin').toLowerCase();
+    const pathname = `images/${hash}.${ext}`;
+
+    // Пытаемся найти уже загруженный Blob с таким же контентом
+    try {
+      const existing = await list({
+        prefix: pathname,
+        limit: 1,
+        token: process.env.BLOB_READ_WRITE_TOKEN
+      });
+      const found = existing.blobs.find((blob) => blob.pathname === pathname);
+      if (found) {
+        return res.status(200).json({
+          url: found.url,
+          pathname: found.pathname,
+          size: found.size,
+          reused: true
+        });
+      }
+    } catch (lookupError) {
+      console.warn('[blob] failed to lookup existing image, uploading new one', lookupError);
+    }
+
+    const blob = await put(pathname, bodyBuffer, {
       access: 'public',
       token: process.env.BLOB_READ_WRITE_TOKEN,
-      contentType
+      contentType,
+      addRandomSuffix: false
     });
 
     return res.status(200).json({
       url: blob.url,
       pathname: blob.pathname,
-      size: blob.size
+      size: blob.size,
+      reused: false
     });
   } catch (error) {
     console.error('Blob upload error', error);
