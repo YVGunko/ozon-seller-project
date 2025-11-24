@@ -1,5 +1,7 @@
 // src/utils/aiHelpers.js
 
+import { runReplicate } from './replicateClient';
+
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL =
   process.env.GROQ_MODEL ||
@@ -53,6 +55,74 @@ async function callGroqChat({ system, user, temperature = 0.5, maxTokens = 1024 
   }
 
   return content;
+}
+
+// Отладочный экспорт для серверных сравнений (не использовать на клиенте)
+export async function debugGroqCall(params) {
+  return callGroqChat(params);
+}
+
+/**
+ * Универсальный вызов Replicate для SEO‑модели (openai/gpt‑5 и др.)
+ * Возвращает "сырой" текстовый контент, который затем можно распарсить
+ * через parseJsonFromModel.
+ */
+async function callReplicateSeo({ system, user, maxTokens = 2048 }) {
+  const version =
+    process.env.REPLICATE_SEO_MODEL ||
+    process.env.REPLICATE_DEFAULT_SEO_MODEL;
+  if (!version) {
+    throw new Error(
+      'REPLICATE_DEFAULT_SEO_MODEL / REPLICATE_SEO_MODEL не задан в переменных окружения'
+    );
+  }
+
+  const input = {
+    system_prompt: system || null,
+    messages: [{ role: 'user', content: user }],
+    verbosity: 'medium',
+    reasoning_effort: 'minimal',
+    max_completion_tokens: maxTokens
+  };
+
+  const prediction = await runReplicate({
+    version,
+    input,
+    pollIntervalMs: 1500,
+    timeoutMs: 3 * 60 * 1000
+  });
+
+  const out = prediction?.output;
+  if (typeof out === 'string') {
+    return out;
+  }
+  if (Array.isArray(out)) {
+    return out
+      .map((item) =>
+        typeof item === 'string' ? item : JSON.stringify(item, null, 2)
+      )
+      .join('\n');
+  }
+  if (out && typeof out === 'object') {
+    if (Array.isArray(out.choices) && out.choices[0]?.message?.content) {
+      const content = out.choices[0].message.content;
+      if (typeof content === 'string') return content;
+      if (Array.isArray(content)) {
+        const first = content[0];
+        if (typeof first === 'string') return first;
+        if (first && typeof first === 'object' && first.text) {
+          return String(first.text);
+        }
+      }
+    }
+    return JSON.stringify(out, null, 2);
+  }
+  throw new Error('Пустой ответ от Replicate SEO‑модели');
+}
+
+// Отладочный экспорт для серверных сравнений (не использовать на клиенте)
+export async function debugReplicateSeoCall(params) {
+  return callReplicateSeo(params);
 }
 
 /**
@@ -263,10 +333,9 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
 }
 
 /**
- * Генерация SEO-названий для товаров
- * Возвращает: [{ index, titles: [t1, t2, t3] }]
+ * Построение промпта для SEO-названий
  */
-export async function generateSEOName({ products, keywords, baseProductData }) {
+export function buildSeoNamePrompt({ products, keywords, baseProductData }) {
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error('Не переданы товары для генерации SEO-названий');
   }
@@ -306,12 +375,30 @@ export async function generateSEOName({ products, keywords, baseProductData }) {
   ]
     .filter(Boolean)
     .join('\n');
-
-  const content = await callGroqChat({
+  return {
     system,
     user,
     temperature: 0.7,
     maxTokens: 900
+  };
+}
+
+/**
+ * Генерация SEO-названий для товаров (через Groq)
+ * Возвращает: [{ index, titles: [t1, t2, t3] }]
+ */
+export async function generateSEOName({ products, keywords, baseProductData }) {
+  const { system, user, temperature, maxTokens } = buildSeoNamePrompt({
+    products,
+    keywords,
+    baseProductData
+  });
+
+  const content = await callGroqChat({
+    system,
+    user,
+    temperature,
+    maxTokens
   });
 
   const parsed = parseJsonFromModel(content);
@@ -332,10 +419,9 @@ export async function generateSEOName({ products, keywords, baseProductData }) {
 }
 
 /**
- * Генерация SEO-описаний (аннотаций) для товаров
- * Возвращает: [{ index, text }]
+ * Построение промпта для SEO-описаний (аннотаций)
  */
-export async function generateSEODescription({ products, keywords, baseProductData }) {
+export function buildSeoDescriptionPrompt({ products, keywords, baseProductData }) {
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error('Не переданы товары для генерации SEO-описаний');
   }
@@ -384,12 +470,30 @@ export async function generateSEODescription({ products, keywords, baseProductDa
   ]
     .filter(Boolean)
     .join('\n');
-
-  const content = await callGroqChat({
+  return {
     system,
     user,
     temperature: 0.7,
     maxTokens: 2000
+  };
+}
+
+/**
+ * Генерация SEO-описаний (аннотаций) для товаров (через Groq)
+ * Возвращает: [{ index, text }]
+ */
+export async function generateSEODescription({ products, keywords, baseProductData }) {
+  const { system, user, temperature, maxTokens } = buildSeoDescriptionPrompt({
+    products,
+    keywords,
+    baseProductData
+  });
+
+  const content = await callGroqChat({
+    system,
+    user,
+    temperature,
+    maxTokens
   });
 
   const parsed = parseJsonFromModel(content);
@@ -421,10 +525,9 @@ export async function generateSEODescription({ products, keywords, baseProductDa
 }
 
 /**
- * Генерация хештегов для Ozon (#Хештеги, атрибут 23171)
- * Возвращает: [{ index, hashtags: ["#пример", ...] }]
+ * Построение промпта для хештегов (#Хештеги, атрибут 23171)
  */
-export async function generateHashtags({ products, baseProductData }) {
+export function buildHashtagsPrompt({ products, baseProductData }) {
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error('Не переданы товары для генерации хештегов');
   }
@@ -459,12 +562,29 @@ export async function generateHashtags({ products, baseProductData }) {
   ]
     .filter(Boolean)
     .join('\n');
-
-  const content = await callGroqChat({
+  return {
     system,
     user,
     temperature: 0.6,
     maxTokens: 1200
+  };
+}
+
+/**
+ * Генерация хештегов для Ozon (#Хештеги, атрибут 23171)
+ * Возвращает: [{ index, hashtags: ["#пример", ...] }]
+ */
+export async function generateHashtags({ products, baseProductData }) {
+  const { system, user, temperature, maxTokens } = buildHashtagsPrompt({
+    products,
+    baseProductData
+  });
+
+  const content = await callGroqChat({
+    system,
+    user,
+    temperature,
+    maxTokens
   });
 
   const parsed = parseJsonFromModel(content);
@@ -483,63 +603,25 @@ export async function generateHashtags({ products, baseProductData }) {
 }
 
 /**
- * Генерация Rich-контента JSON для атрибута 11254 ("Rich-контент JSON")
- * Возвращает: [{ index, content: {...richJson...} }]
+ * Нормализация Rich‑контента к схеме OZON:
+ * { content: [...widgets], version: 0.3 }
  */
-function normalizeRichContent(content) {
-  let base = content;
+function normalizeOzonRichContent(value) {
+  let base = value;
   if (!base || typeof base !== 'object') {
     try {
-      base = JSON.parse(String(content || '{}'));
+      base = JSON.parse(String(value || '{}'));
     } catch {
       base = {};
     }
   }
-  const rawBlocks = Array.isArray(base.blocks) ? base.blocks : [];
-  const normalizedBlocks = [];
-
-  rawBlocks.forEach((block) => {
-    if (!block || typeof block !== 'object') return;
-    const type = String(block.type || '').toLowerCase();
-    if (type === 'text') {
-      const text = String(
-        block.text ??
-          block.value ??
-          block.content ??
-          ''
-      ).trim();
-      if (!text) return;
-      normalizedBlocks.push({
-        type: 'text',
-        text
-      });
-      return;
-    }
-    if (type === 'list') {
-      const items = Array.isArray(block.items)
-        ? block.items
-            .map((item) => String(item || '').trim())
-            .filter(Boolean)
-        : [];
-      if (!items.length) return;
-      const title = block.title ? String(block.title).trim() : undefined;
-      const listBlock = {
-        type: 'list',
-        items
-      };
-      if (title) {
-        listBlock.title = title;
-      }
-      normalizedBlocks.push(listBlock);
-    }
-  });
-
-  return {
-    blocks: normalizedBlocks
-  };
+  const content = Array.isArray(base.content) ? base.content : [];
+  const version =
+    base.version !== undefined && base.version !== null ? base.version : 0.3;
+  return { content, version };
 }
 
-export async function generateRichJSON({ products, baseProductData }) {
+export function buildRichJsonPrompt({ products, baseProductData }) {
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error('Не переданы товары для генерации Rich-контента');
   }
@@ -548,63 +630,150 @@ export async function generateRichJSON({ products, baseProductData }) {
   const productsContext = buildProductsContext(products);
 
   const system = `
-Ты генерируешь Rich-контент JSON для Ozon (атрибут 11254).
+Ты генерируешь Rich‑контент JSON для Ozon (атрибут 11254).
 Отвечай строго JSON, без пояснений.
+Структура должна соответствовать схеме: { "content": [...], "version": 0.3 }.
 `;
 
+  // Пытаемся выделить основное изображение товара, чтобы подставить его в img.src
+  let primaryImageUrl = '';
+  if (Array.isArray(products) && products[0]) {
+    const rawImages = products[0].images;
+    if (typeof rawImages === 'string' && rawImages.trim()) {
+      primaryImageUrl = rawImages.split(',')[0].trim();
+    }
+  }
+
   const user = [
-    'Для КАЖДОГО товара создай структуру Rich-контента в формате JSON.',
-    'Упростим структуру до следующего вида:',
+    'Создай Rich‑контент для карточки товара Ozon в формате JSON.',
+    'Строгий формат ответа (без комментариев и пояснений):',
     '',
     '{',
-    '  "rich": [',
+    '  "content": [',
     '    {',
-    '      "index": 0,',
-    '      "content": {',
-    '        "blocks": [',
-    '          { "type": "text", "text": "Краткое описание блока" },',
-    '          { "type": "list", "title": "Преимущества", "items": ["пункт1","пункт2"] },',
-    '          { "type": "text", "text": "Как использовать" }',
+    '      "widgetName": "raShowcase",',
+    '      "type": "billboard",',
+    '      "blocks": [',
+    '        {',
+    '          "imgLink": "",',
+    '          "img": {',
+    `            "src": "${primaryImageUrl}",`,
+    `            "srcMobile": "${primaryImageUrl}",`,
+    '            "alt": "Краткое описание товара",',
+    '            "position": "width_full",',
+    '            "positionMobile": "width_full",',
+    '            "widthMobile": 708,',
+    '            "heightMobile": 708',
+    '          },',
+    '          "title": {',
+    '            "content": ["Краткий главный заголовок блока"],',
+    '            "size": "size4",',
+    '            "align": "left",',
+    '            "color": "color1"',
+    '          },',
+    '          "text": {',
+    '            "size": "size2",',
+    '            "align": "left",',
+    '            "color": "color1",',
+    '            "content": [',
+    '              "Краткое введение в товар: что это, для чего, какие основные преимущества."',
+    '            ]',
+    '          }',
+    '        }',
+    '      ]',
+    '    },',
+    '    {',
+    '      "widgetName": "raTextBlock",',
+    '      "title": {',
+    '        "content": ["Ключевые преимущества товара"],',
+    '        "size": "size4",',
+    '        "color": "color1"',
+    '      },',
+    '      "theme": "tertiary",',
+    '      "padding": "type2",',
+    '      "gapSize": "s",',
+    '      "text": {',
+    '        "size": "size2",',
+    '        "align": "left",',
+    '        "color": "color1",',
+    '        "content": [',
+    '          "• Преимущество 1 — коротко и по делу.",',
+    '          "• Преимущество 2 — коротко и по делу.",',
+    '          "• Преимущество 3 — коротко и по делу.",',
+    '          "• Преимущество 4 — коротко и по делу."',
+    '        ]',
+    '      }',
+    '    },',
+    '    {',
+    '      "widgetName": "raTextBlock",',
+    '      "title": {',
+    '        "content": ["Рекомендации по установке и использованию"],',
+    '        "size": "size4",',
+    '        "color": "color1"',
+    '      },',
+    '      "theme": "primary",',
+    '      "padding": "type2",',
+    '      "gapSize": "s",',
+    '      "text": {',
+    '        "size": "size2",',
+    '        "align": "left",',
+    '        "color": "color1",',
+    '        "content": [',
+    '          "1. Шаг установки №1.",',
+    '          "2. Шаг установки №2.",',
+    '          "3. Шаг установки №3.",',
+    '          "4. Важные рекомендации по эксплуатации."',
     '        ]',
     '      }',
     '    }',
-    '  ]',
+    '  ],',
+    '  "version": 0.3',
     '}',
     '',
     'Требования:',
     '- язык: русский;',
-    '- никаких HTML-тегов;',
-    '- не упоминай, что это JSON в самих текстах;',
-    '- Rich-контент должен дополнять основное описание, а не дублировать его дословно.',
+    '- никаких HTML‑тегов;',
+    '- не упоминать, что это JSON, в самих текстах;',
+    '- тексты должны быть уникальными и описывать именно данный товар;',
+    '- используй фактические характеристики, преимущества и сценарии использования.',
     '',
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,
     '',
     'Данные товаров:',
-    productsContext,
-    '',
-    'Верни STRICT JSON ровно в указанном формате: {"rich":[...]}'
+    productsContext
   ]
     .filter(Boolean)
     .join('\n');
-
-  const content = await callGroqChat({
+  return {
     system,
     user,
     temperature: 0.6,
     maxTokens: 2500
+  };
+}
+
+export async function generateRichJSON({ products, baseProductData }) {
+  const { system, user, temperature, maxTokens } = buildRichJsonPrompt({
+    products,
+    baseProductData
+  });
+
+  const content = await callGroqChat({
+    system,
+    user,
+    temperature,
+    maxTokens
   });
 
   const parsed = parseJsonFromModel(content);
-  const richArr = Array.isArray(parsed?.rich) ? parsed.rich : parsed;
+  const normalized = normalizeOzonRichContent(parsed);
 
-  if (!Array.isArray(richArr)) {
-    throw new Error('Ответ модели не содержит массива rich');
-  }
-
-  return richArr.map((item) => ({
-    index: item.index,
-    content: normalizeRichContent(item.content || {})
-  }));
+  return [
+    {
+      index: 0,
+      content: normalized
+    }
+  ];
 }
 
 /**
@@ -663,6 +832,8 @@ export async function generateSlides({
     '{',
     '  "title": "краткий заголовок",',
     '  "subtitle": "дополнительное пояснение (может быть пустым)",',
+    '  "overlay_title_ru": "короткий продающий заголовок НА РУССКОМ, кириллицей, без ошибок",',
+    '  "overlay_subtitle_ru": "вторая строка текста на слайде, тоже на русском (может быть пустой)",',
     '  "bullets": ["краткий пункт 1","краткий пункт 2", ...],',
     '  "imageIdea": "что должно быть изображено на слайде (учитывая формат 3:4)",',
     '  "watermark": "текст или null"',
@@ -672,9 +843,17 @@ export async function generateSlides({
     '{',
     '  "slides": [',
     '    {',
-      '      "index": 0,',
+    '      "index": 0,',
     '      "slides": [',
-    '        { "title": "...", "subtitle": "...", "bullets": ["..."], "imageIdea": "...", "watermark": "..." },',
+    '        {',
+    '          "title": "...",',
+    '          "subtitle": "...",',
+    '          "overlay_title_ru": "русский заголовок для текста на картинке",',
+    '          "overlay_subtitle_ru": "русская вторая строка на картинке или пусто",',
+    '          "bullets": ["..."],',
+    '          "imageIdea": "...",',
+    '          "watermark": "..."',
+    '        },',
     '        ...',
     '      ]',
     '    }',
@@ -685,6 +864,7 @@ export async function generateSlides({
     '- язык: русский;',
     '- заголовки короткие, продающие;',
     '- bullets — 2–5 штук, без длинных предложений;',
+    '- overlay_title_ru и overlay_subtitle_ru — обязаны быть на русском языке, кириллицей, без орфографических ошибок и без псевдослов;',
     '- imageIdea — одно-два предложения, что должно быть на картинке, с учётом формата 3:4 и УТП товара.',
     '',
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,

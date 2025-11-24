@@ -1,6 +1,7 @@
 import { put } from '@vercel/blob';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../src/server/authOptions';
+import { runReplicate } from '../../../src/utils/replicateClient';
 
 export const config = {
   api: {
@@ -21,16 +22,16 @@ export default async function handler(req, res) {
     if (!session) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-
-    const apiKey = process.env.OPENAI_API_KEY;
-    if (!apiKey) {
-      return res.status(500).json({ error: 'OPENAI_API_KEY is not configured' });
-    }
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       return res
         .status(500)
         .json({ error: 'BLOB_READ_WRITE_TOKEN is not configured on the server' });
     }
+
+    const replicateModel =
+      process.env.REPLICATE_DEFAULT_IMAGE_MODEL ||
+      process.env.REPLICATE_IMAGE_MODEL ||
+      'black-forest-labs/flux-1.1-pro';
 
     const { slides, offerId, productName } = req.body || {};
 
@@ -38,10 +39,16 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Поле slides должно быть непустым массивом' });
     }
 
-    const model = process.env.OPENAI_IMAGE_MODEL || 'gpt-image-1';
     const results = [];
 
     for (let index = 0; index < slides.length; index += 1) {
+      // Чтобы не упираться в строгий rate limit Replicate (6 запросов в минуту, burst 1),
+      // делаем паузу между последовательными запросами.
+      if (index > 0) {
+        // eslint-disable-next-line no-await-in-loop
+        await new Promise((resolve) => setTimeout(resolve, 11000));
+      }
+
       const slide = slides[index] || {};
       const title = String(slide.title || `Слайд ${index + 1}`).trim();
       const subtitle = slide.subtitle ? String(slide.subtitle).trim() : '';
@@ -49,6 +56,14 @@ export default async function handler(req, res) {
         ? slide.bullets.map((b) => String(b || '').trim()).filter(Boolean)
         : [];
       const imageIdea = slide.imageIdea ? String(slide.imageIdea).trim() : '';
+      const overlayTitle =
+        typeof slide.overlay_title_ru === 'string' && slide.overlay_title_ru.trim()
+          ? slide.overlay_title_ru.trim()
+          : title;
+      const overlaySubtitle =
+        typeof slide.overlay_subtitle_ru === 'string'
+          ? slide.overlay_subtitle_ru.trim()
+          : subtitle;
 
       const promptParts = [];
       if (productName) {
@@ -72,38 +87,55 @@ export default async function handler(req, res) {
         promptParts.push(`Идея изображения: ${imageIdea}.`);
       }
       promptParts.push(
-        'Композиция в стиле маркетингового агентства MaryCo: современный, чистый дизайн, хороший контраст, читаемый объект. Можно использовать лаконичные надписи на русском языке.'
+        'Композиция в стиле маркетингового агентства MaryCo: современный, чистый дизайн, хороший контраст, читаемый объект.'
+      );
+      promptParts.push(
+        'Текст на слайде ДОЛЖЕН быть ТОЛЬКО на русском языке, кириллицей, без английских букв и псевдослов.'
+      );
+      promptParts.push(
+        `Текст на картинке (кириллица, без ошибок). Первая строка: "${overlayTitle}". Вторая строка: "${overlaySubtitle}". Не использовать английский язык и не придумывать бессмысленные слова.`
       );
 
       const prompt = promptParts.join(' ');
 
-      const openaiResponse = await fetch('https://api.openai.com/v1/images/generations', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${apiKey}`
-        },
-        body: JSON.stringify({
-          model,
-          prompt,
-          n: 1,
-          size: '1024x1024'
-        })
+      // Логируем финальный текстовый промпт для отладки
+      // eslint-disable-next-line no-console
+      console.log('[slide-images] prompt', {
+        offerId,
+        slideIndex: index,
+        title,
+        prompt
       });
 
-      const data = await openaiResponse.json();
-      if (!openaiResponse.ok) {
-        // eslint-disable-next-line no-console
-        console.error('[slide-images] openai error', data);
-        return res
-          .status(openaiResponse.status)
-          .json({ error: data?.error?.message || 'Failed to generate image' });
+      // Генерируем изображение через Replicate (flux)
+      const prediction = await runReplicate({
+        version: replicateModel,
+        input: {
+          prompt,
+          aspect_ratio: '3:4',
+          output_format: 'jpg',
+          output_quality: 90,
+          safety_tolerance: 2,
+          prompt_upsampling: false
+        }
+      });
+
+      const output = prediction?.output;
+      let imageUrl = null;
+      if (Array.isArray(output)) {
+        imageUrl = output.find((item) => typeof item === 'string' && item.startsWith('http'));
+      } else if (typeof output === 'string') {
+        imageUrl = output;
+      } else if (output && typeof output === 'object') {
+        const maybeUrl = output.url || output.image || output[0];
+        if (typeof maybeUrl === 'string') {
+          imageUrl = maybeUrl;
+        }
       }
 
-      const imageUrl = data?.data?.[0]?.url;
       if (!imageUrl) {
         // eslint-disable-next-line no-console
-        console.error('[slide-images] missing url in openai response');
+        console.error('[slide-images] replicate output does not contain image url', output);
         continue;
       }
 
@@ -111,18 +143,18 @@ export default async function handler(req, res) {
       const imageResponse = await fetch(imageUrl);
       if (!imageResponse.ok) {
         // eslint-disable-next-line no-console
-        console.error('[slide-images] failed to fetch image url', imageUrl);
+        console.error('[slide-images] failed to fetch replicate image url', imageUrl);
         continue;
       }
       const arrayBuffer = await imageResponse.arrayBuffer();
       const buffer = Buffer.from(arrayBuffer);
       const safeOffer = String(offerId || 'product').replace(/[^a-zA-Z0-9_-]/g, '');
-      const filename = `slide-${safeOffer || 'product'}-${index + 1}.png`;
+      const filename = `slide-${safeOffer || 'product'}-${index + 1}-flux.jpg`;
 
       const blob = await put(filename, buffer, {
         access: 'public',
         token: process.env.BLOB_READ_WRITE_TOKEN,
-        contentType: 'image/png'
+        contentType: 'image/jpeg'
       });
 
       results.push({

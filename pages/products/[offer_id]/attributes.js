@@ -1085,10 +1085,31 @@ export default function ProductAttributesPage() {
     const data = await callAiForMode('slides');
     if (!data || !Array.isArray(data.items) || !data.items.length) return;
     const first = data.items[0];
-    const slides = Array.isArray(first.slides) ? first.slides : [];
-    if (!slides.length) return;
-    const json = JSON.stringify(slides, null, 2);
-    setAiSlidesPreview(slides);
+    const rawSlides = Array.isArray(first.slides) ? first.slides : [];
+    if (!rawSlides.length) return;
+
+    const enhancedSlides = rawSlides.map((slide, index) => {
+      const baseTitle = typeof slide.title === 'string' ? slide.title : `Слайд ${index + 1}`;
+      const baseSubtitle = typeof slide.subtitle === 'string' ? slide.subtitle : '';
+      const overlayTitle =
+        typeof slide.overlay_title_ru === 'string' && slide.overlay_title_ru.trim()
+          ? slide.overlay_title_ru.trim()
+          : baseTitle;
+      const overlaySubtitle =
+        typeof slide.overlay_subtitle_ru === 'string'
+          ? slide.overlay_subtitle_ru.trim()
+          : baseSubtitle;
+      return {
+        ...slide,
+        title: baseTitle,
+        subtitle: baseSubtitle,
+        overlay_title_ru: overlayTitle,
+        overlay_subtitle_ru: overlaySubtitle
+      };
+    });
+
+    const json = JSON.stringify(enhancedSlides, null, 2);
+    setAiSlidesPreview(enhancedSlides);
     // Дополнительно пишем слайды в Rich-контент JSON для визуального просмотра/экспорта
     handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 11254, json);
   }, [callAiForMode, handleAttributeValueChange]);
@@ -1197,6 +1218,13 @@ export default function ProductAttributesPage() {
             if (!id) return null;
             let values = normalizeAttributeValues(attr.values);
             values = collapseLargeTextAttributeValues(id, values);
+
+            // Дополнительная нормализация для атрибута "#Хештеги" (ID: 23171):
+            // приводим хештеги к допустимому формату Ozon (#, буквы, цифры, _).
+            if (id === 23171) {
+              values = normalizeHashtagsValue(values);
+            }
+
             if (!values.length) return null;
 
             const originalAttr = (originalProduct.attributes || []).find(
@@ -1251,9 +1279,15 @@ export default function ProductAttributesPage() {
           hasMediaUpdates = true;
         }
 
-        if (normalizedPrimary !== originalPrimary) {
-          payload.primary_image = normalizedPrimary || '';
-          hasMediaUpdates = true;
+        // Всегда явно передаём primary_image, даже если он не менялся.
+        // Если пользователь не задал primary_image, используем первое изображение из списка.
+        const effectivePrimary =
+          normalizedPrimary || (normalizedImages.length ? normalizedImages[0] : '');
+        if (effectivePrimary) {
+          payload.primary_image = effectivePrimary;
+          if (effectivePrimary !== originalPrimary) {
+            hasMediaUpdates = true;
+          }
         }
 
         const baseFieldUpdates = {};
@@ -1261,6 +1295,21 @@ export default function ProductAttributesPage() {
 
         REQUIRED_BASE_FIELDS.forEach((field) => {
           let value = item[field];
+
+          // Специальное правило: если min_price не заполнен пользователем,
+          // автоматически берём значение из price (текущего или исходного товара).
+          if (field === 'min_price' && !hasValue(value)) {
+            const priceValue = hasValue(item.price)
+              ? item.price
+              : hasValue(originalProduct.price)
+              ? originalProduct.price
+              : null;
+            if (hasValue(priceValue)) {
+              value = priceValue;
+              item.min_price = priceValue;
+            }
+          }
+
           if (!hasValue(value)) {
             value = originalProduct[field];
           }
@@ -1941,7 +1990,7 @@ export default function ProductAttributesPage() {
             <SectionHeader title="AI слайды (черновик)" />
             <p style={{ color: '#475569', fontSize: 13, marginBottom: 12 }}>
               Ниже — текстовая структура слайдов для визуального дизайна. Каждый слайд можно
-              использовать как основу для отдельного изображения.
+              использовать как основу для отдельного изображения и текста на нём.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {aiSlidesPreview.map((slide, index) => (
@@ -1962,6 +2011,63 @@ export default function ProductAttributesPage() {
                       {slide.subtitle}
                     </div>
                   )}
+                  <div
+                    style={{
+                      marginTop: 6,
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
+                      gap: 8
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 2 }}>
+                        Текст на картинке — первая строка
+                      </div>
+                      <input
+                        type="text"
+                        value={slide.overlay_title_ru || ''}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setAiSlidesPreview((prev) =>
+                            prev.map((s, i) =>
+                              i === index ? { ...s, overlay_title_ru: value } : s
+                            )
+                          );
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          border: '1px solid #cbd5f5',
+                          fontSize: 13
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 2 }}>
+                        Вторая строка (опционально)
+                      </div>
+                      <input
+                        type="text"
+                        value={slide.overlay_subtitle_ru || ''}
+                        onChange={(event) => {
+                          const value = event.target.value;
+                          setAiSlidesPreview((prev) =>
+                            prev.map((s, i) =>
+                              i === index ? { ...s, overlay_subtitle_ru: value } : s
+                            )
+                          );
+                        }}
+                        style={{
+                          width: '100%',
+                          padding: '6px 8px',
+                          borderRadius: 6,
+                          border: '1px solid #cbd5f5',
+                          fontSize: 13
+                        }}
+                      />
+                    </div>
+                  </div>
                   {Array.isArray(slide.bullets) && slide.bullets.length > 0 && (
                     <ul
                       style={{

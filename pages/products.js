@@ -586,9 +586,17 @@ export default function ProductsPage() {
           hasMediaUpdates = true;
         }
 
-        if (normalizedPrimary !== originalPrimary) {
-          payload.primary_image = normalizedPrimary || '';
-          hasMediaUpdates = true;
+        // Всегда явно передаём primary_image, даже если он не менялся.
+        // Если пользователь не задал primary_image, используем первое изображение из списка.
+        const effectivePrimary =
+          normalizedPrimary || (normalizedImages.length ? normalizedImages[0] : '');
+        if (effectivePrimary) {
+          payload.primary_image = effectivePrimary;
+          // Если primary совпадает с оригинальным и images не менялись,
+          // это не считается обновлением медиа — флаг не трогаем.
+          if (effectivePrimary !== originalPrimary) {
+            hasMediaUpdates = true;
+          }
         }
 
         const baseFieldUpdates = {};
