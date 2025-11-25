@@ -389,19 +389,34 @@ export function buildSeoNamePrompt({ products, keywords, baseProductData }) {
 }
 
 /**
- * Генерация SEO-названий для товаров (через Groq)
- * Возвращает: [{ index, titles: [t1, t2, t3] }]
+ * Генерация SEO-названий с произвольным заранее подготовленным промптом.
+ * Использует ту же схему ответа, что и generateSEOName.
+ *
+ * @param {Object} params
+ * @param {Object[]} params.products
+ * @param {string|string[]} [params.keywords]
+ * @param {Object} params.baseProductData
+ * @param {{ system: string, user: string, temperature?: number, maxTokens?: number }} params.prompt
+ * @returns {Promise<Array<{ index: number, titles: string[] }>>}
  */
-export async function generateSEOName({ products, keywords, baseProductData }) {
-  const { system, user, temperature, maxTokens } = buildSeoNamePrompt({
-    products,
-    keywords,
-    baseProductData
-  });
+export async function generateSEONameWithPrompt({
+  products,
+  keywords,
+  baseProductData,
+  prompt
+}) {
+  if (!prompt || !prompt.system || !prompt.user) {
+    throw new Error('generateSEONameWithPrompt: prompt.system и prompt.user обязательны');
+  }
+
+  const temperature =
+    typeof prompt.temperature === 'number' ? prompt.temperature : 0.7;
+  const maxTokens =
+    typeof prompt.maxTokens === 'number' ? prompt.maxTokens : 900;
 
   const content = await callGroqChat({
-    system,
-    user,
+    system: prompt.system,
+    user: prompt.user,
     temperature,
     maxTokens
   });
@@ -421,6 +436,25 @@ export async function generateSEOName({ products, keywords, baseProductData }) {
       ? item.titles.map((t) => String(t || '').trim()).filter(Boolean)
       : []
   }));
+}
+
+/**
+ * Генерация SEO-названий для товаров (через Groq)
+ * Возвращает: [{ index, titles: [t1, t2, t3] }]
+ */
+export async function generateSEOName({ products, keywords, baseProductData }) {
+  const prompt = buildSeoNamePrompt({
+    products,
+    keywords,
+    baseProductData
+  });
+
+  return generateSEONameWithPrompt({
+    products,
+    keywords,
+    baseProductData,
+    prompt
+  });
 }
 
 /**
