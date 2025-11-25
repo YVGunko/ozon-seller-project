@@ -46,8 +46,12 @@ export class BlobJsonAiStorageAdapter extends AiStorageAdapter {
     const json = JSON.stringify(generation, null, 2);
 
     await put(pathname, json, {
-      access: "private",
-      contentType: "application/json",
+      // Для dev/preview‑окружений используем публичный доступ,
+      // как и для изображений (см. pages/api/uploads/blob.js).
+      // При переносе модуля в другое приложение адаптер можно
+      // переопределить на приватное/DB‑хранилище.
+      access: "public",
+      contentType: "application/json"
     });
   }
 

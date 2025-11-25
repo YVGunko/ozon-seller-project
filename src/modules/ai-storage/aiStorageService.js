@@ -45,11 +45,14 @@ export class AiStorageService {
    * @param {string} params.userId
    * @param {string} params.type         // из AiGenerationType
    * @param {string} params.subType      // из AiGenerationSubType
+   * @param {string} [params.mode]       // логический режим (seo-name, description, hashtags, rich, slides, custom…)
+   * @param {string|null} [params.promptId] // id сохранённого промпта (если есть)
    * @param {string} params.model
    * @param {Object} params.input
    * @param {string} params.prompt
    * @param {Object|string} params.output
    * @param {string[]} [params.images]
+   * @param {Object|string|null} [params.rawOutput]
    * @returns {Promise<AiGeneration>}
    */
   async createGeneration(params) {
@@ -57,11 +60,14 @@ export class AiStorageService {
       userId,
       type = AiGenerationType.CUSTOM,
       subType = AiGenerationSubType.CUSTOM_GENERIC,
+      mode,
+      promptId = null,
       model,
       input,
       prompt,
       output,
-      images = []
+      images = [],
+      rawOutput = null
     } = params || {};
 
     if (!userId) {
@@ -89,11 +95,14 @@ export class AiStorageService {
       userId,
       type,
       subType,
+      mode,
+      promptId,
       model,
       input: input || {},
       prompt: prompt || '',
       output: output ?? null,
       images: Array.isArray(images) ? images : [],
+      rawOutput,
       createdAt: now
     };
 
