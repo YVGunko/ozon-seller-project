@@ -1042,6 +1042,9 @@ export default function ProductAttributesPage() {
           .filter(Boolean)
       : [];
     const bestTitle = titles[0];
+    // TODO: если модель вернула несколько вариантов названий (titles.length > 1),
+    // показывать пользователю модалку с выбором одного из вариантов,
+    // вместо автоматического выбора первого.
     if (bestTitle) {
       handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', bestTitle);
     }

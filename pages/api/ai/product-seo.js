@@ -10,6 +10,10 @@ import {
   generateRichJSON,
   generateSlides,
   generateSEONameWithPrompt,
+  generateSEODescriptionWithPrompt,
+  generateHashtagsWithPrompt,
+  generateRichJSONWithPrompt,
+  generateSlidesWithPrompt,
   GROQ_MODEL_IN_USE
 } from '../../../src/utils/aiHelpers';
 import { getServerSession } from 'next-auth';
@@ -128,41 +132,206 @@ export default async function handler(req, res) {
         });
       }
     } else if (normalizedMode === 'description') {
-      promptMeta = buildSeoDescriptionPrompt({
-        products,
-        keywords,
-        baseProductData
-      });
-      items = await generateSEODescription({
-        products,
-        keywords,
-        baseProductData
-      });
+      let activePrompt = null;
+      try {
+        const promptsService = getAiPrompts();
+        activePrompt = await promptsService.getActivePrompt({
+          userId: null,
+          mode: AiPromptMode.SEO_DESCRIPTION
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[api/ai/product-seo] no active AiPrompt for description, using built-in prompt',
+          e?.message || e
+        );
+      }
+
+      if (activePrompt) {
+        const templateVars = {
+          product,
+          products,
+          baseProductData,
+          keywords
+        };
+        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
+        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+
+        promptMeta = {
+          system,
+          user: userPrompt,
+          temperature: 0.7,
+          maxTokens: 2000
+        };
+        usedPromptId = activePrompt.id;
+
+        items = await generateSEODescriptionWithPrompt({
+          products,
+          keywords,
+          baseProductData,
+          prompt: promptMeta
+        });
+      } else {
+        promptMeta = buildSeoDescriptionPrompt({
+          products,
+          keywords,
+          baseProductData
+        });
+        items = await generateSEODescription({
+          products,
+          keywords,
+          baseProductData
+        });
+      }
     } else if (normalizedMode === 'hashtags') {
-      promptMeta = buildHashtagsPrompt({
-        products,
-        baseProductData
-      });
-      items = await generateHashtags({
-        products,
-        baseProductData
-      });
+      let activePrompt = null;
+      try {
+        const promptsService = getAiPrompts();
+        activePrompt = await promptsService.getActivePrompt({
+          userId: null,
+          mode: AiPromptMode.HASHTAGS
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[api/ai/product-seo] no active AiPrompt for hashtags, using built-in prompt',
+          e?.message || e
+        );
+      }
+
+      if (activePrompt) {
+        const templateVars = {
+          product,
+          products,
+          baseProductData,
+          keywords
+        };
+        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
+        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+
+        promptMeta = {
+          system,
+          user: userPrompt,
+          temperature: 0.6,
+          maxTokens: 1200
+        };
+        usedPromptId = activePrompt.id;
+
+        items = await generateHashtagsWithPrompt({
+          products,
+          baseProductData,
+          prompt: promptMeta
+        });
+      } else {
+        promptMeta = buildHashtagsPrompt({
+          products,
+          baseProductData
+        });
+        items = await generateHashtags({
+          products,
+          baseProductData
+        });
+      }
     } else if (normalizedMode === 'rich') {
-      promptMeta = buildRichJsonPrompt({
-        products,
-        baseProductData
-      });
-      items = await generateRichJSON({
-        products,
-        baseProductData
-      });
+      let activePrompt = null;
+      try {
+        const promptsService = getAiPrompts();
+        activePrompt = await promptsService.getActivePrompt({
+          userId: null,
+          mode: AiPromptMode.RICH
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[api/ai/product-seo] no active AiPrompt for rich, using built-in prompt',
+          e?.message || e
+        );
+      }
+
+      if (activePrompt) {
+        const templateVars = {
+          product,
+          products,
+          baseProductData,
+          keywords
+        };
+        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
+        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+
+        promptMeta = {
+          system,
+          user: userPrompt,
+          temperature: 0.6,
+          maxTokens: 2500
+        };
+        usedPromptId = activePrompt.id;
+
+        items = await generateRichJSONWithPrompt({
+          products,
+          baseProductData,
+          prompt: promptMeta
+        });
+      } else {
+        promptMeta = buildRichJsonPrompt({
+          products,
+          baseProductData
+        });
+        items = await generateRichJSON({
+          products,
+          baseProductData
+        });
+      }
     } else if (normalizedMode === 'slides') {
-      items = await generateSlides({
-        products,
-        baseProductData,
-        withWatermark,
-        watermarkText
-      });
+      let activePrompt = null;
+      try {
+        const promptsService = getAiPrompts();
+        activePrompt = await promptsService.getActivePrompt({
+          userId: null,
+          mode: AiPromptMode.SLIDES
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[api/ai/product-seo] no active AiPrompt for slides, using built-in prompt',
+          e?.message || e
+        );
+      }
+
+      if (activePrompt) {
+        const templateVars = {
+          product,
+          products,
+          baseProductData,
+          keywords,
+          withWatermark,
+          watermarkText
+        };
+        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
+        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+
+        promptMeta = {
+          system,
+          user: userPrompt,
+          temperature: 0.7,
+          maxTokens: 3000
+        };
+        usedPromptId = activePrompt.id;
+
+        items = await generateSlidesWithPrompt({
+          products,
+          baseProductData,
+          withWatermark,
+          watermarkText,
+          prompt: promptMeta
+        });
+      } else {
+        items = await generateSlides({
+          products,
+          baseProductData,
+          withWatermark,
+          watermarkText
+        });
+      }
     } else {
       return res.status(400).json({ error: `Неизвестный mode: ${mode}` });
     }

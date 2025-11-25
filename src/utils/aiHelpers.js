@@ -520,19 +520,29 @@ export function buildSeoDescriptionPrompt({ products, keywords, baseProductData 
 }
 
 /**
- * Генерация SEO-описаний (аннотаций) для товаров (через Groq)
+ * Генерация SEO-описаний (аннотаций) для товаров с произвольным промптом.
  * Возвращает: [{ index, text }]
  */
-export async function generateSEODescription({ products, keywords, baseProductData }) {
-  const { system, user, temperature, maxTokens } = buildSeoDescriptionPrompt({
-    products,
-    keywords,
-    baseProductData
-  });
+export async function generateSEODescriptionWithPrompt({
+  products,
+  keywords,
+  baseProductData,
+  prompt
+}) {
+  if (!prompt || !prompt.system || !prompt.user) {
+    throw new Error(
+      'generateSEODescriptionWithPrompt: prompt.system и prompt.user обязательны'
+    );
+  }
+
+  const temperature =
+    typeof prompt.temperature === 'number' ? prompt.temperature : 0.7;
+  const maxTokens =
+    typeof prompt.maxTokens === 'number' ? prompt.maxTokens : 2000;
 
   const content = await callGroqChat({
-    system,
-    user,
+    system: prompt.system,
+    user: prompt.user,
     temperature,
     maxTokens
   });
@@ -563,6 +573,25 @@ export async function generateSEODescription({ products, keywords, baseProductDa
       index: item.index,
       text: chosen
     };
+  });
+}
+
+/**
+ * Генерация SEO-описаний (аннотаций) для товаров (через Groq)
+ * Возвращает: [{ index, text }]
+ */
+export async function generateSEODescription({ products, keywords, baseProductData }) {
+  const prompt = buildSeoDescriptionPrompt({
+    products,
+    keywords,
+    baseProductData
+  });
+
+  return generateSEODescriptionWithPrompt({
+    products,
+    keywords,
+    baseProductData,
+    prompt
   });
 }
 
@@ -613,18 +642,24 @@ export function buildHashtagsPrompt({ products, baseProductData }) {
 }
 
 /**
- * Генерация хештегов для Ozon (#Хештеги, атрибут 23171)
+ * Генерация хештегов для Ozon (#Хештеги, атрибут 23171) с произвольным промптом.
  * Возвращает: [{ index, hashtags: ["#пример", ...] }]
  */
-export async function generateHashtags({ products, baseProductData }) {
-  const { system, user, temperature, maxTokens } = buildHashtagsPrompt({
-    products,
-    baseProductData
-  });
+export async function generateHashtagsWithPrompt({ products, baseProductData, prompt }) {
+  if (!prompt || !prompt.system || !prompt.user) {
+    throw new Error(
+      'generateHashtagsWithPrompt: prompt.system и prompt.user обязательны'
+    );
+  }
+
+  const temperature =
+    typeof prompt.temperature === 'number' ? prompt.temperature : 0.6;
+  const maxTokens =
+    typeof prompt.maxTokens === 'number' ? prompt.maxTokens : 1200;
 
   const content = await callGroqChat({
-    system,
-    user,
+    system: prompt.system,
+    user: prompt.user,
     temperature,
     maxTokens
   });
@@ -642,6 +677,19 @@ export async function generateHashtags({ products, baseProductData }) {
       ? item.values.map((h) => String(h || '').trim()).filter(Boolean)
       : []
   }));
+}
+
+export async function generateHashtags({ products, baseProductData }) {
+  const prompt = buildHashtagsPrompt({
+    products,
+    baseProductData
+  });
+
+  return generateHashtagsWithPrompt({
+    products,
+    baseProductData,
+    prompt
+  });
 }
 
 /**
@@ -794,15 +842,21 @@ export function buildRichJsonPrompt({ products, baseProductData }) {
   };
 }
 
-export async function generateRichJSON({ products, baseProductData }) {
-  const { system, user, temperature, maxTokens } = buildRichJsonPrompt({
-    products,
-    baseProductData
-  });
+export async function generateRichJSONWithPrompt({ products, baseProductData, prompt }) {
+  if (!prompt || !prompt.system || !prompt.user) {
+    throw new Error(
+      'generateRichJSONWithPrompt: prompt.system и prompt.user обязательны'
+    );
+  }
+
+  const temperature =
+    typeof prompt.temperature === 'number' ? prompt.temperature : 0.6;
+  const maxTokens =
+    typeof prompt.maxTokens === 'number' ? prompt.maxTokens : 2500;
 
   const content = await callGroqChat({
-    system,
-    user,
+    system: prompt.system,
+    user: prompt.user,
     temperature,
     maxTokens
   });
@@ -818,27 +872,65 @@ export async function generateRichJSON({ products, baseProductData }) {
   ];
 }
 
+export async function generateRichJSON({ products, baseProductData }) {
+  const prompt = buildRichJsonPrompt({
+    products,
+    baseProductData
+  });
+
+  return generateRichJSONWithPrompt({
+    products,
+    baseProductData,
+    prompt
+  });
+}
+
+/**
+ * Генерация "слайдов" (структуры для слайдов/изображений) с произвольным промптом.
+ * withWatermark: boolean — добавлять ли watermark
+ * watermarkText: string — текст водяного знака (если слайдам требуется watermark)
+ */
+export async function generateSlidesWithPrompt({
+  products,
+  baseProductData,
+  withWatermark = false,
+  watermarkText = '',
+  prompt
+}) {
+  if (!Array.isArray(products) || products.length === 0) {
+    throw new Error('Не переданы товары для генерации слайдов');
+  }
+
+  if (!prompt || !prompt.system || !prompt.user) {
+    throw new Error(
+      'generateSlidesWithPrompt: prompt.system и prompt.user обязательны'
+    );
+  }
+
+  const content = await callGroqChat({
+    system: prompt.system,
+    user: prompt.user,
+    temperature: 0.7,
+    maxTokens: 3000
+  });
+
+  const parsed = parseJsonFromModel(content);
+  const slidesArr = Array.isArray(parsed?.slides) ? parsed.slides : parsed;
+
+  if (!Array.isArray(slidesArr)) {
+    throw new Error('Ответ модели не содержит массива slides');
+  }
+
+  return slidesArr.map((item) => ({
+    index: item.index,
+    slides: Array.isArray(item.slides) ? item.slides : []
+  }));
+}
+
 /**
  * Генерация "слайдов" (структуры для слайдов/изображений) с опциональным водяным знаком
  * withWatermark: boolean — добавлять ли watermark
  * watermarkText: string — текст водяного знака (если withWatermark = true)
- *
- * Возвращает:
- * [
- *   {
- *     index,
- *     slides: [
- *       {
- *         title,
- *         subtitle,
- *         bullets: [],
- *         imageIdea,
- *         watermark: "Текст" | null
- *       },
- *       ...
- *     ]
- *   }
- * ]
  */
 export async function generateSlides({
   products,
@@ -917,22 +1009,18 @@ export async function generateSlides({
     .filter(Boolean)
     .join('\n');
 
-  const content = await callGroqChat({
+  const prompt = {
     system,
     user,
     temperature: 0.7,
     maxTokens: 3000
+  };
+
+  return generateSlidesWithPrompt({
+    products,
+    baseProductData,
+    withWatermark,
+    watermarkText,
+    prompt
   });
-
-  const parsed = parseJsonFromModel(content);
-  const slidesArr = Array.isArray(parsed?.slides) ? parsed.slides : parsed;
-
-  if (!Array.isArray(slidesArr)) {
-    throw new Error('Ответ модели не содержит массива slides');
-  }
-
-  return slidesArr.map((item) => ({
-    index: item.index,
-    slides: Array.isArray(item.slides) ? item.slides : []
-  }));
 }
