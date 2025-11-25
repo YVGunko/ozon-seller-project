@@ -8,6 +8,11 @@ const DEFAULT_MODEL =
   process.env.GROQ_DEFAULT_MODEL ||
   'groq/compound';
 
+// Экспортируем фактически используемую модель Groq,
+// чтобы другие модули (например, ai-storage) могли
+// логировать корректное имя без дублирования логики.
+export const GROQ_MODEL_IN_USE = DEFAULT_MODEL;
+
 /**
  * Универсальный вызов Groq Chat API
  */

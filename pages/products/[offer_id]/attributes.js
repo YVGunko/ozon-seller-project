@@ -1108,11 +1108,8 @@ export default function ProductAttributesPage() {
       };
     });
 
-    const json = JSON.stringify(enhancedSlides, null, 2);
     setAiSlidesPreview(enhancedSlides);
-    // Дополнительно пишем слайды в Rich-контент JSON для визуального просмотра/экспорта
-    handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 11254, json);
-  }, [callAiForMode, handleAttributeValueChange]);
+  }, [callAiForMode, setAiSlidesPreview]);
 
   const handleAiSlidesGenerateImages = useCallback(async () => {
     if (!aiSlidesPreview || !aiSlidesPreview.length) {
