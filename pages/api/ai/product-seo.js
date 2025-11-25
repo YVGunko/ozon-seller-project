@@ -9,6 +9,7 @@ import {
   generateHashtags,
   generateRichJSON,
   generateSlides,
+  generateSEONameWithPrompt,
   GROQ_MODEL_IN_USE
 } from '../../../src/utils/aiHelpers';
 import { getServerSession } from 'next-auth';
@@ -18,6 +19,27 @@ import {
   AiGenerationSubType,
   getAiStorage
 } from '../../../src/modules/ai-storage';
+
+import { getAiPrompts, AiPromptMode } from '../../../src/modules/ai-prompts';
+
+function renderTemplate(template, variables) {
+  if (!template || typeof template !== 'string') return '';
+  const vars = variables || {};
+
+  return template.replace(/{{\s*([a-zA-Z0-9_.]+)\s*}}/g, (_, path) => {
+    const keys = path.split('.');
+    let value = vars;
+    for (const key of keys) {
+      if (value && Object.prototype.hasOwnProperty.call(value, key)) {
+        value = value[key];
+      } else {
+        value = undefined;
+        break;
+      }
+    }
+    return value == null ? '' : String(value);
+  });
+}
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -48,18 +70,63 @@ export default async function handler(req, res) {
 
     let items;
     let promptMeta = null;
+    let usedPromptId = null;
 
     if (normalizedMode === 'title' || normalizedMode === 'seo-name') {
-      promptMeta = buildSeoNamePrompt({
-        products,
-        keywords,
-        baseProductData
-      });
-      items = await generateSEOName({
-        products,
-        keywords,
-        baseProductData
-      });
+      // Пытаемся использовать кастомный AiPrompt для SEO-названий.
+      // Если промпт не найден или произошла ошибка — используем
+      // старый встроенный buildSeoNamePrompt.
+      let activePrompt = null;
+      try {
+        const promptsService = getAiPrompts();
+        activePrompt = await promptsService.getActivePrompt({
+          userId: null,
+          mode: AiPromptMode.SEO_NAME
+        });
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          '[api/ai/product-seo] no active AiPrompt for seo-name, using built-in prompt',
+          e?.message || e
+        );
+      }
+
+      if (activePrompt) {
+        const templateVars = {
+          product,
+          products,
+          baseProductData,
+          keywords
+        };
+        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
+        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+
+        promptMeta = {
+          system,
+          user: userPrompt,
+          temperature: 0.7,
+          maxTokens: 900
+        };
+        usedPromptId = activePrompt.id;
+
+        items = await generateSEONameWithPrompt({
+          products,
+          keywords,
+          baseProductData,
+          prompt: promptMeta
+        });
+      } else {
+        promptMeta = buildSeoNamePrompt({
+          products,
+          keywords,
+          baseProductData
+        });
+        items = await generateSEOName({
+          products,
+          keywords,
+          baseProductData
+        });
+      }
     } else if (normalizedMode === 'description') {
       promptMeta = buildSeoDescriptionPrompt({
         products,
@@ -138,6 +205,8 @@ export default async function handler(req, res) {
           userId,
           type,
           subType,
+          mode: normalizedMode,
+          promptId: usedPromptId || null,
           model: modelName,
           input: {
             mode: normalizedMode,
