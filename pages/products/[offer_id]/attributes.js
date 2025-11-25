@@ -1743,6 +1743,22 @@ export default function ProductAttributesPage() {
               >
                 Сделать изображения слайдов
               </button>
+              <Link href="/ai/prompts">
+                <a
+                  style={{
+                    padding: '6px 10px',
+                    borderRadius: 6,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: '#f9fafb',
+                    color: '#374151',
+                    cursor: 'pointer',
+                    fontSize: 12,
+                    textDecoration: 'none'
+                  }}
+                >
+                  Настроить AI промпты
+                </a>
+              </Link>
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <button
