@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { apiClient } from '../src/services/api-client';
 import { useProductAttributes } from '../src/hooks/useProductAttributes';

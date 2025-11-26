@@ -250,7 +250,6 @@ const ClonerOfferList = ({ offers, onRemove }) => {
 };
 
 export default function ProductClonerPage() {
-  const [currentProfile, setCurrentProfile] = useState(null);
   const [sampleOffer, setSampleOffer] = useState('');
   const [sampleAttributes, setSampleAttributes] = useState(null);
   const [basePriceOverrides, setBasePriceOverrides] = useState({
