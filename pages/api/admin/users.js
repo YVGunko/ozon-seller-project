@@ -7,6 +7,7 @@
 import { resolveServerContext } from '../../../src/server/serverContext';
 import { getAuthUsers } from '../../../src/server/userStore';
 import { mapAuthUsersToDomainUsers } from '../../../src/domain/services/userDirectory';
+import { canManageUsers } from '../../../src/domain/services/accessControl';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -18,8 +19,12 @@ export default async function handler(req, res) {
       requireProfile: false
     });
 
-    if (!serverContext.session) {
+    if (!serverContext.user) {
       return res.status(401).json({ error: 'Unauthorized' });
+    }
+
+    if (!canManageUsers(serverContext.user)) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
 
     const enterpriseId = serverContext.enterprise?.id || 'ent-legacy';
@@ -46,4 +51,3 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'Failed to load users' });
   }
 }
-

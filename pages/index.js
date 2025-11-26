@@ -5,6 +5,7 @@ import UserProfiles from '../src/components/UserProfiles';
 import { useWarehouses } from '../src/hooks/useWarehouses';
 import { signOut, useSession } from 'next-auth/react';
 import { useCurrentContext } from '../src/hooks/useCurrentContext';
+import { useAccess } from '../src/hooks/useAccess';
 
 export default function Home() {
   const router = useRouter();
@@ -14,6 +15,7 @@ export default function Home() {
   const isActionsActive = router.pathname.startsWith('/actions');
 
   const { profile: contextProfile } = useCurrentContext();
+  const { canManageUsers, canManageOrders, canManagePrices } = useAccess();
   const [currentProfile, setCurrentProfile] = useState(contextProfile || null);
   const [showProfilesModal, setShowProfilesModal] = useState(false);
 
@@ -262,7 +264,9 @@ export default function Home() {
                 cursor: 'pointer',
                 fontSize: 13,
                 backgroundColor: isOrdersActive ? '#e5e7eb' : 'transparent',
-                color: isOrdersActive ? '#0f172a' : '#e5e7eb'
+                color: isOrdersActive ? '#0f172a' : '#e5e7eb',
+                opacity: canManageOrders ? 1 : 0.4,
+                pointerEvents: canManageOrders ? 'auto' : 'none'
               }}
             >
               Заказы
@@ -278,17 +282,21 @@ export default function Home() {
                 cursor: 'pointer',
                 fontSize: 13,
                 backgroundColor: isActionsActive ? '#e5e7eb' : 'transparent',
-                color: isActionsActive ? '#0f172a' : '#e5e7eb'
+                color: isActionsActive ? '#0f172a' : '#e5e7eb',
+                opacity: canManagePrices ? 1 : 0.4,
+                pointerEvents: canManagePrices ? 'auto' : 'none'
               }}
             >
               Акции и цены
             </button>
-            <Link href="/admin/users">
-              <div style={sidebarSubItemStyle}>
-                <span>Пользователи (admin)</span>
-                <span>›</span>
-              </div>
-            </Link>
+            {canManageUsers && (
+              <Link href="/admin/users">
+                <div style={sidebarSubItemStyle}>
+                  <span>Пользователи (admin)</span>
+                  <span>›</span>
+                </div>
+              </Link>
+            )}
           </nav>
 
           <button

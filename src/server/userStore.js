@@ -18,14 +18,26 @@ const normalizeUsers = (rawUsers = []) => {
       const password = entry.password || entry.pass || '';
       const id = entry.id || username || `user-${index + 1}`;
       if (!username || !password) return null;
+      const profiles = Array.isArray(entry.profiles)
+        ? entry.profiles.map((profileId) => String(profileId))
+        : [];
+      const roles = Array.isArray(entry.roles)
+        ? entry.roles.map((role) => String(role)).filter(Boolean)
+        : [];
+      const email =
+        typeof entry.email === 'string' && entry.email
+          ? entry.email
+          : username.includes('@')
+          ? username
+          : '';
       return {
         id: String(id),
         username: String(username),
         password: String(password),
         name: entry.name || username,
-        profiles: Array.isArray(entry.profiles)
-          ? entry.profiles.map((profileId) => String(profileId))
-          : []
+        profiles,
+        roles,
+        email
       };
     })
     .filter(Boolean);
@@ -42,13 +54,16 @@ const buildFallbackUsers = () => {
     .split(',')
     .map((entry) => entry.trim())
     .filter(Boolean);
+  const email = username.includes('@') ? username : '';
   return [
     {
       id: 'admin',
       username,
       password,
       name: 'Administrator',
-      profiles
+      profiles,
+      roles: ['admin'],
+      email
     }
   ];
 };
@@ -73,6 +88,7 @@ export const findUserByCredentials = (username, password) => {
     id: user.id,
     name: user.name,
     username: user.username,
-    allowedProfiles: user.profiles || []
+    allowedProfiles: user.profiles || [],
+    roles: user.roles || []
   };
 };

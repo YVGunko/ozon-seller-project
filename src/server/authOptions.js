@@ -16,7 +16,8 @@ const buildAuthOptions = () => ({
           return {
             id: user.id,
             name: user.name,
-            allowedProfiles: user.allowedProfiles || []
+            allowedProfiles: user.allowedProfiles || [],
+            roles: user.roles || []
           };
         }
         return null;
@@ -27,6 +28,7 @@ const buildAuthOptions = () => ({
     async jwt({ token, user }) {
       if (user) {
         token.allowedProfiles = user.allowedProfiles || [];
+        token.roles = user.roles || [];
       }
       return token;
     },
@@ -34,6 +36,7 @@ const buildAuthOptions = () => ({
       if (session?.user) {
         session.user.id = token.sub;
         session.user.allowedProfiles = token.allowedProfiles || [];
+        session.user.roles = token.roles || [];
       }
       return session;
     }

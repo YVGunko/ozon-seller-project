@@ -37,6 +37,7 @@ import {
 import { PriceInfoPanel, ImagesManager, MetaFieldsSection } from '../../../src/components/attributes';
 import { CategoryTypeSelector } from '../../../src/components/CategoryTypeSelector';
 import { useCurrentContext } from '../../../src/hooks/useCurrentContext';
+import { useAccess } from '../../../src/hooks/useAccess';
 
 const PRIMARY_PRODUCT_INDEX = 0;
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
@@ -62,6 +63,7 @@ export default function ProductAttributesPage() {
     enterprise: currentEnterprise,
     seller: currentSeller
   } = useCurrentContext();
+  const { canUseAi } = useAccess();
   const [mediaFiles, setMediaFiles] = useState([]);
   const [priceInfo, setPriceInfo] = useState(null);
   const [priceLoading, setPriceLoading] = useState(false);
@@ -1734,10 +1736,11 @@ export default function ProductAttributesPage() {
                   border: '1px solid #fecaca',
                   backgroundColor: '#fee2e2',
                   color: '#b91c1c',
-                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  cursor:
+                    aiLoading || !editableProduct || !canUseAi ? 'not-allowed' : 'pointer',
                   fontSize: 12
                 }}
-                disabled={aiLoading || !editableProduct}
+                disabled={aiLoading || !editableProduct || !canUseAi}
               >
                 AI SEO‑название
               </button>
@@ -1750,10 +1753,11 @@ export default function ProductAttributesPage() {
                   border: '1px solid #fecaca',
                   backgroundColor: '#fee2e2',
                   color: '#b91c1c',
-                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  cursor:
+                    aiLoading || !editableProduct || !canUseAi ? 'not-allowed' : 'pointer',
                   fontSize: 12
                 }}
-                disabled={aiLoading || !editableProduct}
+                disabled={aiLoading || !editableProduct || !canUseAi}
               >
                 AI описание
               </button>
@@ -1766,10 +1770,11 @@ export default function ProductAttributesPage() {
                   border: '1px solid #fecaca',
                   backgroundColor: '#fee2e2',
                   color: '#b91c1c',
-                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  cursor:
+                    aiLoading || !editableProduct || !canUseAi ? 'not-allowed' : 'pointer',
                   fontSize: 12
                 }}
-                disabled={aiLoading || !editableProduct}
+                disabled={aiLoading || !editableProduct || !canUseAi}
               >
                 AI хештеги
               </button>
@@ -1782,10 +1787,11 @@ export default function ProductAttributesPage() {
                   border: '1px solid #fecaca',
                   backgroundColor: '#fee2e2',
                   color: '#b91c1c',
-                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  cursor:
+                    aiLoading || !editableProduct || !canUseAi ? 'not-allowed' : 'pointer',
                   fontSize: 12
                 }}
-                disabled={aiLoading || !editableProduct}
+                disabled={aiLoading || !editableProduct || !canUseAi}
               >
                 AI Rich JSON
               </button>
@@ -1798,10 +1804,11 @@ export default function ProductAttributesPage() {
                   border: '1px solid #fecaca',
                   backgroundColor: '#fee2e2',
                   color: '#b91c1c',
-                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  cursor:
+                    aiLoading || !editableProduct || !canUseAi ? 'not-allowed' : 'pointer',
                   fontSize: 12
                 }}
-                disabled={aiLoading || !editableProduct}
+                disabled={aiLoading || !editableProduct || !canUseAi}
               >
                 AI слайды
               </button>
@@ -1814,10 +1821,11 @@ export default function ProductAttributesPage() {
                   border: '1px solid #fed7aa',
                   backgroundColor: '#fffbeb',
                   color: '#b45309',
-                  cursor: aiLoading || !editableProduct ? 'not-allowed' : 'pointer',
+                  cursor:
+                    aiLoading || !editableProduct || !canUseAi ? 'not-allowed' : 'pointer',
                   fontSize: 12
                 }}
-                disabled={aiLoading || !editableProduct}
+                disabled={aiLoading || !editableProduct || !canUseAi}
               >
                 Сделать изображения слайдов
               </button>

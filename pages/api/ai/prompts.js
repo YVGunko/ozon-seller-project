@@ -1,5 +1,6 @@
 import { getAiPrompts, AiPromptMode } from '../../../src/modules/ai-prompts';
 import { resolveServerContext } from '../../../src/server/serverContext';
+import { canManagePrompts } from '../../../src/domain/services/accessControl';
 
 export default async function handler(req, res) {
   const promptsService = getAiPrompts();
@@ -20,6 +21,9 @@ export default async function handler(req, res) {
         });
         if (!serverContext.user) {
           return res.status(401).json({ error: 'Unauthorized' });
+        }
+        if (!canManagePrompts(serverContext.user)) {
+          return res.status(403).json({ error: 'Forbidden' });
         }
         userId = serverContext.user.id;
       }
@@ -70,14 +74,19 @@ export default async function handler(req, res) {
         normalizedMode = AiPromptMode.SEO_NAME;
       }
 
+      const serverContext = await resolveServerContext(req, res, {
+        requireProfile: false
+      });
+      if (!serverContext.user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+
+      if (!canManagePrompts(serverContext.user)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
       let userId = null;
       if (scope === 'user') {
-        const serverContext = await resolveServerContext(req, res, {
-          requireProfile: false
-        });
-        if (!serverContext.user) {
-          return res.status(401).json({ error: 'Unauthorized' });
-        }
         userId = serverContext.user.id;
       }
 

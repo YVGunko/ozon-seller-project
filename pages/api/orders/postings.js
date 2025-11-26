@@ -1,5 +1,6 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { resolveServerContext } from '../../../src/server/serverContext';
+import { canManageOrders } from '../../../src/domain/services/accessControl';
 
 const normalizeFilterPayload = (payload = {}) => {
   const filter = payload.filter || {};
@@ -38,7 +39,13 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
+    const { profile, user } = await resolveServerContext(req, res, {
+      requireProfile: true
+    });
+
+    if (!user || !canManageOrders(user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const service = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
     const filter = normalizeFilterPayload(body);

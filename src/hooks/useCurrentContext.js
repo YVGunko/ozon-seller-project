@@ -32,12 +32,15 @@ export function useCurrentContext() {
           const userId = session.user.id || session.user.email;
           const email = session.user.email || `${userId}@local`;
           const name = session.user.name || '';
+          const roles = Array.isArray(session.user.roles)
+            ? session.user.roles
+            : [];
           const mappedUser = mapAuthToUser({
             userId,
             email,
             name,
             enterpriseId: ent.id,
-            roles: [], // роли будем настраивать позже
+            roles,
             sellerIds: [sel.id]
           });
           setUser(mappedUser);

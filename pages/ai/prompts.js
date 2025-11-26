@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useAccess } from '../../src/hooks/useAccess';
 
 const modes = [
   { value: '', label: 'Все режимы' },
@@ -18,8 +19,18 @@ export default function AiPromptsPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  const { canManagePrompts } = useAccess();
 
   useEffect(() => {
+    if (!canManagePrompts) {
+      setPrompts([]);
+      setSelectedId(null);
+      setSelectedPrompt(null);
+      setError('У вас нет прав на управление AI‑промптами');
+      setLoading(false);
+      return;
+    }
+
     const fetchPrompts = async () => {
       setLoading(true);
       setError('');
