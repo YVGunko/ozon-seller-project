@@ -1,7 +1,7 @@
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useEffect, useMemo, useState } from 'react';
-import { ProfileManager } from '../../src/utils/profileManager';
+import { useCurrentContext } from '../../src/hooks/useCurrentContext';
 
 const formatNumber = (value) => {
   if (value === null || value === undefined) return '—';
@@ -31,7 +31,7 @@ const columns = [
 export default function ActionItemsPage() {
   const router = useRouter();
   const actionId = router.query.id;
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [candidates, setCandidates] = useState([]);
@@ -68,10 +68,6 @@ export default function ActionItemsPage() {
     }
     return '';
   };
-
-  useEffect(() => {
-    setCurrentProfile(ProfileManager.getCurrentProfile());
-  }, []);
 
   useEffect(() => {
     if (!router.isReady) return;

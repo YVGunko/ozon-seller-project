@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { resolveServerContext } from '../../../src/server/serverContext';
 import { extractImportStatusItems } from '../../../src/utils/importStatus';
 import { appendPriceHistory } from '../../../src/server/priceHistoryStore';
 import { appendNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
@@ -27,7 +27,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'taskId is required' });
     }
 
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const response = await ozon.getProductImportStatus(taskId);
 

@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { resolveServerContext } from '../../../src/server/serverContext';
 
 export default async function handler(req, res) {
   try {
@@ -10,7 +10,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'source_offer_id and new_offer_id required' });
     }
 
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const { ozon_client_id, ozon_api_key } = profile;
 
     const service = new OzonApiService(ozon_api_key, ozon_client_id);

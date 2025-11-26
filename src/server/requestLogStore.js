@@ -16,6 +16,8 @@ const buildLogEntry = (entry = {}) => ({
   barcode: entry.barcode || null,
   barcode_error: entry.barcode_error || null,
   user_id: entry.user_id || 'anonymous',
+  enterprise_id: entry.enterprise_id || null,
+  seller_id: entry.seller_id || null,
   task_id: entry.task_id || null,
   timestamp: entry.timestamp || new Date().toISOString()
 });

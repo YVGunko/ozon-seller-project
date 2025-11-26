@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { resolveServerContext } from '../../../src/server/serverContext';
 
 const normalizeFilterPayload = (payload = {}) => {
   const filter = payload.filter || {};
@@ -38,7 +38,7 @@ export default async function handler(req, res) {
 
   try {
     const body = req.body || {};
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const service = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
     const filter = normalizeFilterPayload(body);

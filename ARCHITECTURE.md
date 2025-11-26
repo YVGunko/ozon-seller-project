@@ -1,0 +1,296 @@
+# Архитектура проекта ozon-seller-project
+
+Этот документ фиксирует текущую целевую архитектуру проекта.  
+Он описывает слои, основные доменные сущности и то, как связаны UI, API, интеграции с маркетплейсами и AI‑подсистема.
+
+## 1. Слои проекта
+
+Проект структурирован по слоям (от внешнего к внутреннему):
+
+1. **UI (Next.js pages / React компоненты)**
+   - Каталоги: `pages/*.js`, `pages/*/*.js`, `src/components/*`, `src/hooks/*`.
+   - Отвечают только за представление и локальное состояние.
+   - Общаются с backend **только через REST‑эндпоинты** в `pages/api/*`.
+
+2. **API слой (Next.js API routes)**
+   - Каталог: `pages/api/**`.
+   - Тонкие контроллеры:
+     - вызывают `resolveServerContext` для получения пользователя / профиля / enterprise / seller;
+     - делегируют работу доменным сервисам или адаптерам;
+     - формируют HTTP‑ответы (`res.status(...).json(...)`).
+   - Логика в API должна быть минимальной.
+
+3. **Server context / инфраструктура сервера**
+   - Каталог: `src/server/*`.
+   - Главный элемент: `resolveServerContext(req, res, { requireProfile })`.
+     - На основе `next-auth` сессии и параметров запроса возвращает:
+       ```js
+       {
+         session,     // сессия next-auth
+         user,        // доменный пользователь (см. ниже)
+         profile,     // текущий профиль OZON (или null)
+         profileId,   // строковый id профиля
+         enterprise,  // доменный Enterprise
+         seller       // доменный Seller (привязка к marketplace)
+       }
+       ```
+   - Используется во всех ключевых API‑роутах вместо старого `profileResolver`.
+   - Здесь же находятся хранилища логов запросов и прочая серверная инфраструктура.
+
+4. **Доменный слой (`src/domain`)**
+   - Чистая бизнес‑логика без привязки к Next.js или конкретным API.
+   - Подкаталоги:
+     - `src/domain/entities` — фабрики доменных сущностей;
+     - `src/domain/services` — доменные сервисы.
+   - Этот слой может вызываться как из API, так и потенциально из других приложений.
+
+5. **Интеграционный / инфраструктурный слой (`src/modules`)**
+   - Адаптеры к внешним системам:
+     - Ozon API, AI‑провайдеры, Vercel Blob, Replicate и т.д.
+   - Примеры:
+     - `src/modules/marketplaces/ozonAdapter.js` — обёртка над Ozon API;
+     - `src/modules/ai-storage` — сохранение результатов генераций;
+     - `src/modules/ai-prompts` — библиотека AI‑промптов;
+     - `src/utils/aiHelpers.js` — вспомогательные функции для вызова AI‑моделей.
+
+6. **Shared utils**
+   - Переиспользуемые функции форматирования, парсинга, вспомогательные утилиты.
+
+Идея: зависимости направлены **вглубь** — UI знает об API, API знает о serverContext и домене, домен знает только об абстрактных интерфейсах адаптеров.
+
+---
+
+## 2. Доменные сущности
+
+### 2.1 Root / Enterprise / Seller / User
+
+Базовая модель многоарендности:
+
+- **Root**
+  - Логический «владелец» системы (уровень платформы).
+  - В коде представлен простой фабрикой `createRoot` в `src/domain/entities/root.js`.
+
+- **Enterprise**
+  - Организация / бизнес‑сущность.
+  - Фабрика: `createEnterprise({ id, rootId, name, slug?, settings? })`  
+    (`src/domain/entities/enterprise.js`).
+  - Может иметь несколько **Seller**ов (аккаунтов на маркетплейсах).
+
+- **Seller**
+  - Конкретный аккаунт на маркетплейсе (например, профиль OZON).
+  - Фабрика: `createSeller({ id, enterpriseId, marketplace, name, externalIds, metadata })`  
+    (`src/domain/entities/seller.js`).
+  - `externalIds` используются для связи с реальными `client_id`, `profile_id` и т.п.
+
+- **User**
+  - Пользователь внутри Enterprise.
+  - Фабрика: `createUser({ id, enterpriseId, email, name?, roles?, sellerIds? })`  
+    (`src/domain/entities/user.js`).
+  - Может иметь роли (admin / manager / content‑creator и т.п.) и доступ к одному или нескольким Seller.
+
+### 2.2 Identity / serverContext
+
+- Сервис `src/domain/services/identityMapping.js`:
+  - `mapProfileToEnterpriseAndSeller(profile)` → `{ root, enterprise, seller }`.
+  - `mapAuthToUser({ userId, email, name, enterpriseId, roles, sellerIds })` → доменный `User`.
+
+- `src/server/serverContext.js`:
+  - Использует `next-auth` и identity‑сервисы, чтобы преобразовать HTTP‑запрос в понятный доменный контекст (см. выше).
+
+---
+
+## 3. Marketplace‑адаптеры и работа с атрибутами
+
+### 3.1 Абстрактный адаптер
+
+В `src/domain/services/marketplaceAdapter.js` описывается базовый контракт:
+
+- `MarketplaceAdapter` — базовый класс/интерфейс для всех маркетплейсов.
+  - Пример метода: `fetchDescriptionAttributesForCombo(params)` — получить атрибуты по комбинации `description_category_id + type_id`.
+
+### 3.2 OzonMarketplaceAdapter
+
+В `src/modules/marketplaces/ozonAdapter.js`:
+
+- `OzonMarketplaceAdapter` реализует интерфейс `MarketplaceAdapter` для OZON:
+  - опирается на существующий сервис работы с Ozon API;
+  - инкапсулирует детали запросов к `/v3/description-category/attribute` и связанным эндпоинтам.
+
+### 3.3 AttributesService
+
+В `src/domain/services/AttributesService.js`:
+
+- `AttributesService.fetchDescriptionAttributesForCombo(adapter, params)`:
+  - валидирует входные параметры;
+  - вызывает соответствующий метод адаптера;
+  - возвращает нормализованный набор атрибутов для UI.
+
+### 3.4 API для описательных атрибутов
+
+Роут `pages/api/products/description-attributes.js`:
+
+- Получает `profileId` через `resolveServerContext`;
+- Создаёт `OzonMarketplaceAdapter` для текущего Seller;
+- Вызывает `AttributesService.fetchDescriptionAttributesForCombo`;
+- Возвращает JSON, совместимый с текущим UI `/attributes`.
+
+---
+
+## 4. AI‑подсистема
+
+### 4.1 aiHelpers + Groq
+
+Файл `src/utils/aiHelpers.js` содержит:
+
+- Функции подготовки промптов:
+  - `buildSeoNamePrompt`, `buildSeoDescriptionPrompt`, `buildHashtagsPrompt`, `buildRichJsonPrompt`, `buildRichJsonPrompt`, `buildSlidesPrompt` (внутренняя логика).
+- Функции генерации:
+  - `generateSEOName`, `generateSEODescription`, `generateHashtags`, `generateRichJSON`, `generateSlides`.
+  - `generate*WithPrompt` — варианты, которые принимают внешний промпт (AiPrompt).
+- Общая вспомогательная логика:
+  - `buildAiInputsFromProduct(product, { mode })` — превращает структуру товара и атрибутов в нормализованные входные данные для AI.
+  - `parseJsonFromModel` — аккуратный парсинг JSON из текстового ответа модели.
+
+Все AI‑запросы (SEO‑название, описание, хештеги, Rich, слайды) сведены к одному API‑роуту.
+
+### 4.2 `/api/ai/product-seo`
+
+Файл: `pages/api/ai/product-seo.js`.
+
+- Принимает `POST { product, mode }`, где `mode` ∈:
+  - `seo-name` (или `title`), `description`, `hashtags`, `rich`, `slides`.
+- В зависимости от `mode`:
+  - Строит базовый промпт (например, `buildSeoDescriptionPrompt`).
+  - Пытается взять активный `AiPrompt` для соответствующего режима:
+    - `AiPromptMode.SEO_NAME`, `SEO_DESCRIPTION`, `HASHTAGS`, `RICH`, `SLIDES`.
+    - Если найден — **дополняет** базовый промпт (а не заменяет) и вызывает `generate*WithPrompt`.
+    - Если нет — использует только базовый промпт и вызывает `generate*`.
+- После успешной генерации:
+  - через `resolveServerContext` берёт `user / enterprise / seller`;
+  - логирует генерацию в `ai-storage` (см. ниже).
+
+Ответ имеет вид:
+
+```json
+{
+  "mode": "description",
+  "items": [
+    { "index": 0, "texts": ["вариант 1", "вариант 2", "вариант 3"] }
+  ]
+}
+```
+
+UI в `/attributes` использует эти данные для:
+
+- модальной выборки SEO‑названий и описаний (когда вариантов несколько);
+- заполнения атрибутов `#Хештеги` и `Rich‑контент JSON`;
+- генерации структуры слайдов и последующей генерации изображений через отдельный API.
+
+### 4.3 AiStorage (результаты генераций)
+
+Каталог: `src/modules/ai-storage`.
+
+Основные элементы:
+
+- Тип `AiGeneration` (`types.js`):
+  - `id`, `userId`, `enterpriseId?`, `sellerId?`,
+  - `type`, `subType`, `mode`, `promptId?`,
+  - `model`, `input`, `prompt`, `output`, `images[]`, `rawOutput?`, `createdAt`.
+- `AiStorageService` (`aiStorageService.js`):
+  - `createGeneration(params)` — собирает объект `AiGeneration` и сохраняет его через адаптер.
+  - Методы чтения/удаления (для будущего UI истории генераций).
+- Адаптер `BlobJsonAiStorageAdapter`:
+  - сохраняет каждую генерацию как JSON в Vercel Blob;
+  - структура путей: `ai/users/<userId>/<timestamp>-<type>-<subType>-<random>.json`.
+- `getAiStorage()` (`serviceInstance.js`) — singleton‑фабрика сервиса.
+
+### 4.4 AiPrompts (библиотека промптов)
+
+Каталог: `src/modules/ai-prompts`.
+
+- Тип `AiPrompt` (`types.js`):
+  - `id`, `userId?`, `mode`, `scope` (`global`/`user`),
+  - `title`, `description`,
+  - `systemTemplate`, `userTemplate`,
+  - `variablesSchema?`, `isDefault`, `isDeleted`, `createdAt`, `updatedAt`.
+- `AiPromptsService` (`aiPromptsService.js`):
+  - `createPrompt`, `updatePrompt`, `setDefaultPrompt`, `getActivePrompt`, `listPrompts`.
+- Адаптер `BlobJsonPromptsAdapter`:
+  - хранит промпты в Vercel Blob:
+    - глобальные: `ai/prompts/_global/<id>-<random>.json`,
+    - пользовательские: `ai/prompts/users/<userId>/<id>-<random>.json`.
+- API:
+  - `pages/api/ai/prompts.js` — создание и список промптов;
+  - `pages/api/ai/prompts/[id].js` — обновление/смена default/soft‑delete.
+- UI:
+  - `pages/ai/prompts.js` — простая страница:
+    - список промптов по mode;
+    - форма редактирования выбранного промпта;
+    - отметка `isDefault` и soft‑delete.
+
+---
+
+## 5. UI‑слой и основные экраны
+
+### 5.1 Главная (`/`)
+
+- Sidebar с:
+  - профилем пользователя (из `useCurrentContext`);
+  - текущим складом и переключателем складов;
+  - навигацией: товары, заказы, акции/цены и т.п.
+- Центральная часть:
+  - пока простые блоки, в будущем — дашборд с метриками (заказы, контент‑рейтинг и т.д.).
+
+### 5.2 Товары (`/products`, `/products/[offer_id]/attributes`)
+
+- `/products`:
+  - список товаров выбранного профиля;
+  - быстрый фильтр по `offer_id`;
+  - действия: открыть атрибуты, копировать товар, создать новый.
+
+- `/products/[offer_id]/attributes`:
+  - работа с атрибутами и обязательными параметрами товара:
+    - навигация по группам слева (Обязательные, Фото, Общие, Прочие, Технические свойства);
+    - стабильный порядок групп и атрибутов внутри (по id).
+  - AI‑кнопки:
+    - `AI SEO‑название` → модалка выбора одного из вариантов, затем запись в поле `Название`;
+    - `AI описание` → модалка выбора варианта, запись в атрибут `Аннотация` (id 4191);
+    - `AI хештеги` → прямое заполнение атрибута `#Хештеги` (id 23171) с валидацией;
+    - `AI Rich JSON` → заполнение атрибута 11254 структурой Rich‑контента;
+    - `AI слайды` → генерация структуры слайдов + кнопка «Сделать изображения слайдов» (через отдельный API).
+  - Навигационные кнопки к ключевым AI‑атрибутам и кнопка «Наверх».
+
+---
+
+## 6. Тесты
+
+- Конфигурация: `jest.config.cjs` (на базе `next/jest`).
+- Уже покрыты юнит‑тестами:
+  - `src/modules/ai-storage/aiStorageService.test.js`;
+  - `src/modules/ai-prompts/aiPromptsService.test.js`;
+  - `src/domain/services/identityMapping.test.js`;
+  - `src/domain/services/AttributesService.test.js`.
+- Общая идея:
+  - тестировать доменные сервисы и модули (ai-storage, ai-prompts, attributes, identity);
+  - API‑роуты и UI полагаются на стабильное поведение этих сервисов.
+
+---
+
+## 7. Куда двигаться дальше
+
+Кратко о следующем этапе развития архитектуры:
+
+1. **User / Enterprise / Seller админка**
+   - Минимальный UI для просмотра пользователей, их enterprise и seller‑доступов.
+   - Ролевые проверки для AI‑функций и управления промптами.
+
+2. **Расширение доменных сервисов**
+   - `ProductsService` (работа с товарами и ценами);
+   - история цен/нетто‑цен с привязкой к `enterpriseId`/`sellerId`.
+
+3. **Поддержка новых маркетплейсов**
+   - Добавление новых адаптеров, реализующих интерфейс `MarketplaceAdapter`.
+   - Переиспользование существующих доменных сервисов и UI‑слоя.
+
+Этот документ должен помогать ориентироваться в структуре проекта и принимать решения о дальнейшем рефакторинге и развитии без ломки уже работающих частей.
+

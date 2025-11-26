@@ -2,7 +2,7 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { addRequestLog } from '../../../src/server/requestLogStore';
 import { buildStatusCheckMessage, extractImportStatusItems } from '../../../src/utils/importStatus';
-import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { resolveServerContext } from '../../../src/server/serverContext';
 import { enrichProductsWithDescriptionAttributes } from '../../../src/server/descriptionAttributesHelper';
 import {
   appendPriceHistory,
@@ -128,6 +128,8 @@ const applyPendingResolutions = async ({ offerSkuPairs = [], profileId = null } 
 export default async function handler(req, res) {
   try {
               console.log('attributes.js handler');
+    let serverContext = null;
+
     if (req.method === 'GET') {
       const { offer_id } = req.query;
 
@@ -135,7 +137,10 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Missing offer_id' });
       }
 
-      const { profile } = await resolveProfileFromRequest(req, res);
+      serverContext = await resolveServerContext(req, res, {
+        requireProfile: true
+      });
+      const { profile } = serverContext;
       const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
       const result = await ozon.getProductAttributes(offer_id);
@@ -171,9 +176,11 @@ export default async function handler(req, res) {
           return;
         }
 
-        const resolved = await resolveProfileFromRequest(req, res);
-        session = resolved.session;
-        const { profile } = resolved;
+        serverContext = await resolveServerContext(req, res, {
+          requireProfile: true
+        });
+        session = serverContext.session;
+        const { profile } = serverContext;
         const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
         offerIdForLog = String(items?.[0]?.offer_id || items?.[0]?.offerId || '');
@@ -282,10 +289,10 @@ export default async function handler(req, res) {
 
         if (useImportMode && statusResult) {
           const statusPairs = extractOfferSkuPairs(extractImportStatusItems(statusResult));
-          await applyPendingResolutions({
-            offerSkuPairs: statusPairs,
-            profileId: profile?.id ?? null
-          });
+            await applyPendingResolutions({
+              offerSkuPairs: statusPairs,
+              profileId: profile?.id ?? null
+            });
         }
 
         const offerIdsForStatusCheck = Array.isArray(items)
@@ -308,10 +315,10 @@ export default async function handler(req, res) {
               : [];
             if (useImportMode) {
               const infoPairs = extractOfferSkuPairs(infoItems);
-              await applyPendingResolutions({
-                offerSkuPairs: infoPairs,
-                profileId: profile?.id ?? null
-              });
+            await applyPendingResolutions({
+              offerSkuPairs: infoPairs,
+              profileId: profile?.id ?? null
+            });
             }
             const primaryOfferId = offerIdsForStatusCheck[0];
             const matchedItem =
@@ -372,6 +379,8 @@ export default async function handler(req, res) {
             duration_ms: duration,
             error_message: statusCode >= 400 ? responseBody?.error || null : null,
             user_id: session?.user?.name || session?.user?.id || 'authenticated-user',
+            enterprise_id: serverContext?.enterprise?.id || null,
+            seller_id: serverContext?.seller?.id || null,
             task_id: responseBody?.update?.result?.task_id || null
           });
         } catch (logError) {

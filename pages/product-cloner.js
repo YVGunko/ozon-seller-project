@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react';
 import Link from 'next/link';
-import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
 import { useProductAttributes } from '../src/hooks/useProductAttributes';
 import { getAttributeKey } from '../src/utils/attributesHelpers';
@@ -14,6 +13,7 @@ import {
   normalizePrimaryImage,
   normalizeImageList
 } from '../src/utils/imageHelpers';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 
 const pageStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -270,11 +270,7 @@ export default function ProductClonerPage() {
   const [previewError, setPreviewError] = useState('');
   const [importing, setImporting] = useState(false);
   const [importStatus, setImportStatus] = useState({ message: '', error: '' });
-
-  useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-  }, []);
+  const { profile: currentProfile } = useCurrentContext();
 
   const { loadAttributes } = useProductAttributes(apiClient, currentProfile);
 

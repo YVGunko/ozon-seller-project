@@ -1,10 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
 import UserProfiles from '../src/components/UserProfiles';
-import { ProfileManager } from '../src/utils/profileManager';
 import { useWarehouses } from '../src/hooks/useWarehouses';
 import { signOut, useSession } from 'next-auth/react';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 
 export default function Home() {
   const router = useRouter();
@@ -13,7 +13,8 @@ export default function Home() {
   const isOrdersActive = router.pathname.startsWith('/postings');
   const isActionsActive = router.pathname.startsWith('/actions');
 
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: contextProfile } = useCurrentContext();
+  const [currentProfile, setCurrentProfile] = useState(contextProfile || null);
   const [showProfilesModal, setShowProfilesModal] = useState(false);
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
@@ -28,14 +29,16 @@ export default function Home() {
     selectWarehouse
   } = useWarehouses(currentProfile);
 
-  // Загружаем профиль
+  // Синхронизируем локальное состояние профиля с контекстом,
+  // если профиль был изменён в другой части приложения.
   useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-  }, []);
+    setCurrentProfile(contextProfile || null);
+  }, [contextProfile]);
 
   const handleProfileChange = (profile) => {
-    setCurrentProfile(profile);
+    // Мгновенно обновляем локальный профиль для UI,
+    // ProfileManager уже обновлён внутри UserProfiles.
+    setCurrentProfile(profile || null);
     setShowProfilesModal(false);
   };
 
@@ -97,7 +100,8 @@ export default function Home() {
                 className="oz-btn oz-btn-secondary"
                 style={{ padding: '4px 10px', fontSize: 11, opacity: session ? 1 : 0.6 }}
                 onClick={() => {
-                  ProfileManager.clearProfile();
+                  // Профиль очищается внутри UserProfiles / ProfileManager,
+                  // здесь достаточно выйти из сессии.
                   signOut({ callbackUrl: '/auth/signin' });
                 }}
               >
@@ -279,6 +283,12 @@ export default function Home() {
             >
               Акции и цены
             </button>
+            <Link href="/admin/users">
+              <div style={sidebarSubItemStyle}>
+                <span>Пользователи (admin)</span>
+                <span>›</span>
+              </div>
+            </Link>
           </nav>
 
           <button

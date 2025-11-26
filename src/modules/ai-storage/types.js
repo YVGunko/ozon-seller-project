@@ -42,6 +42,8 @@ export const AiGenerationSubType = {
  * @property {string} userId            Идентификатор пользователя (next-auth)
  * @property {string} type              Категория (из AiGenerationType)
  * @property {string} subType           Подтип (из AiGenerationSubType)
+ * @property {string|null} [enterpriseId]  ID Enterprise (если доступен)
+ * @property {string|null} [sellerId]      ID Seller (если доступен)
  * @property {string} [mode]            Логический режим вызова (seo-name, description, hashtags, rich, slides, custom и т.д.)
  * @property {string|null} [promptId]   Идентификатор промпта (если генерация запускалась по сохранённому шаблону)
  * @property {string} model             Название модели (groq-llama3, gpt-4o, flux-pro и т.д.)

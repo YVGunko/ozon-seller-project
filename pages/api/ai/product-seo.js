@@ -16,8 +16,6 @@ import {
   generateSlidesWithPrompt,
   GROQ_MODEL_IN_USE
 } from '../../../src/utils/aiHelpers';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../src/server/authOptions';
 import {
   AiGenerationType,
   AiGenerationSubType,
@@ -25,6 +23,7 @@ import {
 } from '../../../src/modules/ai-storage';
 
 import { getAiPrompts, AiPromptMode } from '../../../src/modules/ai-prompts';
+import { resolveServerContext } from '../../../src/server/serverContext';
 
 function renderTemplate(template, variables) {
   if (!template || typeof template !== 'string') return '';
@@ -402,8 +401,8 @@ export default async function handler(req, res) {
 
     // Побочно сохраняем результат генерации в ai-storage (если есть авторизованный пользователь)
     try {
-      const session = await getServerSession(req, res, authOptions);
-      const userId = session?.user?.id || session?.user?.email || null;
+      const serverContext = await resolveServerContext(req, res, { requireProfile: false });
+      const userId = serverContext.user?.id || null;
 
       if (userId) {
         const aiStorage = getAiStorage();
@@ -440,6 +439,8 @@ export default async function handler(req, res) {
           subType,
           mode: normalizedMode,
           promptId: usedPromptId || null,
+          enterpriseId: serverContext.enterprise?.id || null,
+          sellerId: serverContext.seller?.id || null,
           model: modelName,
           input: {
             mode: normalizedMode,

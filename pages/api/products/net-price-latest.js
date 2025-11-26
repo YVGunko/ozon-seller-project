@@ -1,4 +1,4 @@
-import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { resolveServerContext } from '../../../src/server/serverContext';
 import { getNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
 
 export default async function handler(req, res) {
@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    await resolveProfileFromRequest(req, res); // только авторизация, данные берём из BLOB
+    await resolveServerContext(req, res, { requireProfile: true }); // только авторизация, данные берём из BLOB
     const body = req.body || {};
     const ids = Array.isArray(body.productIds) ? body.productIds : [];
     const productIds = ids

@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { resolveServerContext } from '../../../src/server/serverContext';
 
 const parseArray = (value) => {
   if (!value) return [];
@@ -32,7 +32,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Передайте offer_id или product_id' });
     }
 
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const response = await ozon.getProductInfoPrices({
       offer_ids,

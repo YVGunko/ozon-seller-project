@@ -36,6 +36,8 @@ describe('AiStorageService', () => {
 
     const generation = await service.createGeneration({
       userId: 'user-1',
+      enterpriseId: 'ent-1',
+      sellerId: 'sell-1',
       type: AiGenerationType.SEO,
       subType: AiGenerationSubType.SEO_NAME,
       mode: 'seo-name',
@@ -49,6 +51,8 @@ describe('AiStorageService', () => {
 
     expect(generation.id).toBeDefined();
     expect(generation.createdAt).toBeDefined();
+    expect(generation.enterpriseId).toBe('ent-1');
+    expect(generation.sellerId).toBe('sell-1');
 
     const list = await service.listUserGenerations('user-1', AiGenerationType.SEO);
     expect(list).toHaveLength(1);

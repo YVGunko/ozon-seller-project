@@ -6,7 +6,6 @@ import {
   BASE_FIELD_LABELS,
   NUMERIC_BASE_FIELDS
 } from '../../../src/constants/productFields';
-import { ProfileManager } from '../../../src/utils/profileManager';
 import { useProductAttributes } from '../../../src/hooks/useProductAttributes';
 import { apiClient } from '../../../src/services/api-client';
 import {
@@ -37,6 +36,7 @@ import {
 } from '../../../src/utils/imageHelpers';
 import { PriceInfoPanel, ImagesManager, MetaFieldsSection } from '../../../src/components/attributes';
 import { CategoryTypeSelector } from '../../../src/components/CategoryTypeSelector';
+import { useCurrentContext } from '../../../src/hooks/useCurrentContext';
 
 const PRIMARY_PRODUCT_INDEX = 0;
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
@@ -57,7 +57,11 @@ export default function ProductAttributesPage() {
   const { offer_id } = router.query;
   const mode = typeof router.query.mode === 'string' ? router.query.mode : '';
   const isNewMode = mode === 'new';
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const {
+    profile: currentProfile,
+    enterprise: currentEnterprise,
+    seller: currentSeller
+  } = useCurrentContext();
   const [mediaFiles, setMediaFiles] = useState([]);
   const [priceInfo, setPriceInfo] = useState(null);
   const [priceLoading, setPriceLoading] = useState(false);
@@ -169,10 +173,6 @@ export default function ProductAttributesPage() {
     tree.sort((a, b) => a.name.localeCompare(b.name, 'ru', { sensitivity: 'base' }));
 
     return { tree, map };
-  }, []);
-
-  useEffect(() => {
-    setCurrentProfile(ProfileManager.getCurrentProfile());
   }, []);
 
   useEffect(() => {
@@ -1093,12 +1093,27 @@ export default function ProductAttributesPage() {
   const handleAiDescription = useCallback(async () => {
     const data = await callAiForMode('description');
     if (!data || !Array.isArray(data.items) || !data.items.length) return;
-    const first = data.items[0];
-    const texts = Array.isArray(first.texts)
-      ? first.texts.map((t) => String(t || '').trim()).filter(Boolean)
-      : first.text
-      ? [String(first.text || '').trim()]
-      : [];
+
+    // Собираем ВСЕ варианты описаний из всех items:
+    // - если у item есть texts (массив) — берём его;
+    // - иначе, если есть text — считаем его одиночным вариантом.
+    const texts = Array.from(
+      new Set(
+        data.items
+          .flatMap((item) => {
+            if (Array.isArray(item.texts) && item.texts.length > 0) {
+              return item.texts;
+            }
+            if (typeof item.text === 'string') {
+              return [item.text];
+            }
+            return [];
+          })
+          .map((t) => String(t || '').trim())
+          .filter(Boolean)
+      )
+    );
+
     if (!texts.length) return;
     if (texts.length === 1) {
       handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 4191, texts[0]);

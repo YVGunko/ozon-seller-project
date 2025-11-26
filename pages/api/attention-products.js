@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../src/server/profileResolver';
+import { resolveServerContext } from '../../src/server/serverContext';
 
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 1000;
@@ -110,7 +110,7 @@ export default async function handler(req, res) {
       maxPages = DEFAULT_MAX_PAGES
     } = req.body || {};
 
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
 
     const requestLimit = Math.max(1, Math.min(Number(limit) || DEFAULT_LIMIT, MAX_LIMIT));
     const pagesLimit = Math.max(

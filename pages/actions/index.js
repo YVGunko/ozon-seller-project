@@ -1,18 +1,13 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { ProfileManager } from '../../src/utils/profileManager';
+import { useCurrentContext } from '../../src/hooks/useCurrentContext';
 
 export default function ActionsPage() {
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [actionsLoading, setActionsLoading] = useState(false);
   const [actions, setActions] = useState([]);
   const [actionsError, setActionsError] = useState('');
   const [actionsTotal, setActionsTotal] = useState(0);
-
-  useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-  }, []);
 
   const fetchActions = async () => {
     if (!currentProfile) {
@@ -150,4 +145,3 @@ const formatActionDate = (value) => {
   const date = new Date(value);
   return date.toLocaleDateString('ru-RU');
 };
-

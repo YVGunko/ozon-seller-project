@@ -1,6 +1,6 @@
 // pages/api/products.js
 import { OzonApiService } from '../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../src/server/profileResolver';
+import { resolveServerContext } from '../../src/server/serverContext';
 
 /**
  * Универсальный API route для получения списка товаров OZON.
@@ -17,7 +17,7 @@ export default async function handler(req, res) {
     }
 
     const { limit = 20, last_id = '', offer_id } = req.query;
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
     const options = {

@@ -1,18 +1,14 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { ProfileManager } from '../src/utils/profileManager';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 
 export default function OzonProductCopier() {
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [originalLink, setOriginalLink] = useState('');
   const [rawDescription, setRawDescription] = useState('');
   const [imageLinksText, setImageLinksText] = useState('');
   const [files, setFiles] = useState([]);
   const [status, setStatus] = useState('');
-
-  useEffect(() => {
-    setCurrentProfile(ProfileManager.getCurrentProfile());
-  }, []);
 
   const handleFilesChange = (event) => {
     const selectedFiles = Array.from(event.target.files || []);

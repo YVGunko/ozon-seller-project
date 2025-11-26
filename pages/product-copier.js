@@ -1,6 +1,5 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
 import { useProductAttributes } from '../src/hooks/useProductAttributes';
 import { getAttributeKey } from '../src/utils/attributesHelpers';
@@ -13,6 +12,7 @@ import {
   normalizePrimaryImage,
   ensureImagesPresent
 } from '../src/utils/imageHelpers';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 
 const pageStyle = {
   fontFamily: 'Arial, sans-serif',
@@ -157,7 +157,7 @@ const transformAttributes = (attributes = [], replacements = [], attributeMetaMa
 };
 
 export default function ProductCopierPage() {
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [sampleOffer, setSampleOffer] = useState('');
   const [sampleAttributes, setSampleAttributes] = useState(null);
   const [sampleError, setSampleError] = useState('');
@@ -179,11 +179,6 @@ export default function ProductCopierPage() {
   const [importStatus, setImportStatus] = useState({ message: '', error: '' });
 
   const { loadAttributes } = useProductAttributes(apiClient, currentProfile);
-
-  useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-  }, []);
 
   const handleLoadSample = async () => {
     if (!currentProfile) {

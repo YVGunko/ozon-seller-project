@@ -1,6 +1,5 @@
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../src/server/authOptions';
 import { getAiPrompts, AiPromptMode } from '../../../src/modules/ai-prompts';
+import { resolveServerContext } from '../../../src/server/serverContext';
 
 export default async function handler(req, res) {
   const promptsService = getAiPrompts();
@@ -16,14 +15,13 @@ export default async function handler(req, res) {
 
       let userId = null;
       if (scope === 'user') {
-        const session = await getServerSession(req, res, authOptions);
-        if (!session) {
+        const serverContext = await resolveServerContext(req, res, {
+          requireProfile: false
+        });
+        if (!serverContext.user) {
           return res.status(401).json({ error: 'Unauthorized' });
         }
-        userId = session.user?.id || session.user?.email || null;
-        if (!userId) {
-          return res.status(401).json({ error: 'Invalid user session' });
-        }
+        userId = serverContext.user.id;
       }
 
       const prompts = await promptsService.listPromptsByUser(
@@ -74,14 +72,13 @@ export default async function handler(req, res) {
 
       let userId = null;
       if (scope === 'user') {
-        const session = await getServerSession(req, res, authOptions);
-        if (!session) {
+        const serverContext = await resolveServerContext(req, res, {
+          requireProfile: false
+        });
+        if (!serverContext.user) {
           return res.status(401).json({ error: 'Unauthorized' });
         }
-        userId = session.user?.id || session.user?.email || null;
-        if (!userId) {
-          return res.status(401).json({ error: 'Invalid user session' });
-        }
+        userId = serverContext.user.id;
       }
 
       const prompt = await promptsService.createPrompt({

@@ -2,9 +2,9 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
 import { useProductAttributes } from '../src/hooks/useProductAttributes';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 import {
   REQUIRED_BASE_FIELDS,
   NUMERIC_BASE_FIELDS,
@@ -61,7 +61,7 @@ export default function ProductsPage() {
   const autoOpenHandled = useRef(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [filters, setFilters] = useState({
     offer_id: '',
     archived: 'all',
@@ -107,11 +107,7 @@ export default function ProductsPage() {
     router.push(`/products/${offerId}/attributes?mode=new`);
   }, [router, currentProfile]);
 
-  // load profile once
-  useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-  }, []);
+  // currentProfile теперь приходит из useCurrentContext
 
   // fetchProducts function
   const loadRatingsForSkus = useCallback(

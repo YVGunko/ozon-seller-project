@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
-import { ProfileManager } from '../src/utils/profileManager';
 import { useWarehouses } from '../src/hooks/useWarehouses';
 import { OzonProxyService } from '../src/services/ozon-proxy-client';
 import { generateBarcodesForEntries } from '../src/utils/importStatusClient';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 
 const FILTER_OPTIONS = [
   { value: 'all', label: 'Все' },
@@ -59,7 +59,7 @@ const formatStockErrors = (errors) => {
 };
 
 export default function AttentionPage() {
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [filters, setFilters] = useState(DEFAULT_FILTERS);
   const [textFilters, setTextFilters] = useState(DEFAULT_TEXT_FILTERS);
   const [presenceFilters, setPresenceFilters] = useState(DEFAULT_PRESENCE_FILTERS);
@@ -85,11 +85,6 @@ export default function AttentionPage() {
   const [netLogStatus, setNetLogStatus] = useState('');
   const [netLogError, setNetLogError] = useState('');
   const [manualNetPrice, setManualNetPrice] = useState('');
-
-  useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-  }, []);
 
   const {
     warehouses,

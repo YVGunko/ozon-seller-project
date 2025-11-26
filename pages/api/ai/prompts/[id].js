@@ -1,6 +1,5 @@
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../../src/server/authOptions';
 import { getAiPrompts } from '../../../../src/modules/ai-prompts';
+import { resolveServerContext } from '../../../../src/server/serverContext';
 
 export default async function handler(req, res) {
   const {
@@ -19,7 +18,12 @@ export default async function handler(req, res) {
   try {
     // На будущее: при необходимости можно ограничить
     // редактирование только владельцем промпта.
-    await getServerSession(req, res, authOptions);
+    const serverContext = await resolveServerContext(req, res, {
+      requireProfile: false
+    });
+    if (!serverContext.user) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
     const {
       title,
@@ -62,4 +66,3 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'Internal server error' });
   }
 }
-

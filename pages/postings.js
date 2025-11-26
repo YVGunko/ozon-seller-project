@@ -1,6 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import Link from 'next/link';
-import { ProfileManager } from '../src/utils/profileManager';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 
 const defaultWithOptions = {
   analytics_data: true,
@@ -28,7 +28,7 @@ const toIsoString = (value) => {
 };
 
 export default function PostingsPage() {
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [filterMode, setFilterMode] = useState('cutoff');
   const [form, setForm] = useState({
     dir: 'desc',
@@ -47,10 +47,6 @@ export default function PostingsPage() {
   const [pageIndex, setPageIndex] = useState(0);
   const [lastIdFromResponse, setLastIdFromResponse] = useState('');
   const [lastFetchTime, setLastFetchTime] = useState(null);
-
-  useEffect(() => {
-    setCurrentProfile(ProfileManager.getCurrentProfile());
-  }, []);
 
   const handleFormChange = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }));

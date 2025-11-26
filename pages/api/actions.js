@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../src/server/profileResolver';
+import { resolveServerContext } from '../../src/server/serverContext';
 
 export default async function handler(req, res) {
   if (req.method !== 'GET') {
@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   }
 
   try {
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const service = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const data = await service.getActions(req.query || {});
     return res.status(200).json(data);
