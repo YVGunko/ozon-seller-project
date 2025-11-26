@@ -88,7 +88,8 @@ export class AiPromptsService {
       variablesSchema,
       isDefault: Boolean(isDefault),
       createdAt: now,
-      updatedAt: now
+      updatedAt: now,
+      deletedAt: null
     };
 
     try {
@@ -180,9 +181,10 @@ export class AiPromptsService {
     }
     try {
       const prompts = await this.adapter.listPromptsByUser(userId, mode);
+      const activePrompts = prompts.filter((p) => !p.deletedAt);
       const now = new Date().toISOString();
 
-      for (const prompt of prompts) {
+      for (const prompt of activePrompts) {
         const shouldBeDefault = prompt.id === promptId;
         if (Boolean(prompt.isDefault) === shouldBeDefault) continue;
 
@@ -223,14 +225,14 @@ export class AiPromptsService {
     }
 
     try {
-      // 1. Пользовательский дефолт
+      // 1. Пользовательский дефолт (без удалённых промптов)
       const userPrompts = await this.adapter.listPromptsByUser(userId, mode);
-      const userDefault = userPrompts.find((p) => p.isDefault);
+      const userDefault = userPrompts.find((p) => p.isDefault && !p.deletedAt);
       if (userDefault) return userDefault;
 
-      // 2. Глобальный дефолт
+      // 2. Глобальный дефолт (без удалённых промптов)
       const globalPrompts = await this.adapter.listPromptsByUser(null, mode);
-      const globalDefault = globalPrompts.find((p) => p.isDefault);
+      const globalDefault = globalPrompts.find((p) => p.isDefault && !p.deletedAt);
       if (globalDefault) return globalDefault;
 
       throw new Error(
@@ -257,7 +259,8 @@ export class AiPromptsService {
    */
   async listPromptsByUser(userId, mode) {
     try {
-      return await this.adapter.listPromptsByUser(userId, mode);
+      const list = await this.adapter.listPromptsByUser(userId, mode);
+      return list.filter((p) => !p.deletedAt);
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('[AiPromptsService] listPromptsByUser failed', {
@@ -281,7 +284,21 @@ export class AiPromptsService {
       throw new Error('AiPromptsService.deletePrompt: id is required');
     }
     try {
-      return await this.adapter.deletePromptById(id);
+      const existing = await this.adapter.getPromptById(id);
+      if (!existing) {
+        return false;
+      }
+
+      const now = new Date().toISOString();
+      const updated = {
+        ...existing,
+        isDefault: false,
+        deletedAt: now,
+        updatedAt: now
+      };
+
+      await this.adapter.savePrompt(updated);
+      return true;
     } catch (error) {
       // eslint-disable-next-line no-console
       console.error('[AiPromptsService] deletePrompt failed', {
@@ -293,4 +310,3 @@ export class AiPromptsService {
     }
   }
 }
-

@@ -521,28 +521,7 @@ export const MetaFieldsSection = ({ values, onChange, baseValues }) => {
   );
 };
 
-const getOrderValue = (attr, fallback = 0) => {
-  const raw =
-    attr?.order ??
-    attr?.position ??
-    attr?.sort_index ??
-    attr?.sortIndex ??
-    attr?.__order ??
-    attr?.__index;
-  if (raw === undefined || raw === null) {
-    return fallback;
-  }
-  const numeric = Number(raw);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
 const attributeComparator = (a = {}, b = {}) => {
-  const orderA = getOrderValue(a, 0);
-  const orderB = getOrderValue(b, 0);
-  if (orderA !== orderB) {
-    return orderA - orderB;
-  }
-
   const idA = Number(a?.id ?? a?.attribute_id ?? a?.attributeId);
   const idB = Number(b?.id ?? b?.attribute_id ?? b?.attributeId);
   if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {

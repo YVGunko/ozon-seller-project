@@ -77,9 +77,17 @@ export default async function handler(req, res) {
     let usedPromptId = null;
 
     if (normalizedMode === 'title' || normalizedMode === 'seo-name') {
+      // Базовый промпт, который включает весь контекст товара и атрибутов
+      const basePrompt = buildSeoNamePrompt({
+        products,
+        keywords,
+        baseProductData
+      });
+
       // Пытаемся использовать кастомный AiPrompt для SEO-названий.
-      // Если промпт не найден или произошла ошибка — используем
-      // старый встроенный buildSeoNamePrompt.
+      // AiPrompt дополняет базовый промпт, а не заменяет его:
+      //   system_final = base.system + extra.system (если есть)
+      //   user_final   = extra.user (если есть) + base.user
       let activePrompt = null;
       try {
         const promptsService = getAiPrompts();
@@ -90,7 +98,7 @@ export default async function handler(req, res) {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn(
-          '[api/ai/product-seo] no active AiPrompt for seo-name, using built-in prompt',
+          '[api/ai/product-seo] no active AiPrompt for seo-name, using base prompt only',
           e?.message || e
         );
       }
@@ -102,14 +110,27 @@ export default async function handler(req, res) {
           baseProductData,
           keywords
         };
-        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
-        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+        const extraSystem = renderTemplate(
+          activePrompt.systemTemplate || '',
+          templateVars
+        ).trim();
+        const extraUser = renderTemplate(
+          activePrompt.userTemplate || '',
+          templateVars
+        ).trim();
+
+        const finalSystem = extraSystem
+          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
+          : basePrompt.system;
+        const finalUser = extraUser
+          ? `${extraUser}\n\n${basePrompt.user.trim()}`
+          : basePrompt.user;
 
         promptMeta = {
-          system,
-          user: userPrompt,
-          temperature: 0.7,
-          maxTokens: 900
+          system: finalSystem,
+          user: finalUser,
+          temperature: basePrompt.temperature,
+          maxTokens: basePrompt.maxTokens
         };
         usedPromptId = activePrompt.id;
 
@@ -120,11 +141,7 @@ export default async function handler(req, res) {
           prompt: promptMeta
         });
       } else {
-        promptMeta = buildSeoNamePrompt({
-          products,
-          keywords,
-          baseProductData
-        });
+        promptMeta = basePrompt;
         items = await generateSEOName({
           products,
           keywords,
@@ -132,6 +149,12 @@ export default async function handler(req, res) {
         });
       }
     } else if (normalizedMode === 'description') {
+      const basePrompt = buildSeoDescriptionPrompt({
+        products,
+        keywords,
+        baseProductData
+      });
+
       let activePrompt = null;
       try {
         const promptsService = getAiPrompts();
@@ -142,7 +165,7 @@ export default async function handler(req, res) {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn(
-          '[api/ai/product-seo] no active AiPrompt for description, using built-in prompt',
+          '[api/ai/product-seo] no active AiPrompt for description, using base prompt only',
           e?.message || e
         );
       }
@@ -154,14 +177,27 @@ export default async function handler(req, res) {
           baseProductData,
           keywords
         };
-        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
-        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+        const extraSystem = renderTemplate(
+          activePrompt.systemTemplate || '',
+          templateVars
+        ).trim();
+        const extraUser = renderTemplate(
+          activePrompt.userTemplate || '',
+          templateVars
+        ).trim();
+
+        const finalSystem = extraSystem
+          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
+          : basePrompt.system;
+        const finalUser = extraUser
+          ? `${extraUser}\n\n${basePrompt.user.trim()}`
+          : basePrompt.user;
 
         promptMeta = {
-          system,
-          user: userPrompt,
-          temperature: 0.7,
-          maxTokens: 2000
+          system: finalSystem,
+          user: finalUser,
+          temperature: basePrompt.temperature,
+          maxTokens: basePrompt.maxTokens
         };
         usedPromptId = activePrompt.id;
 
@@ -172,11 +208,7 @@ export default async function handler(req, res) {
           prompt: promptMeta
         });
       } else {
-        promptMeta = buildSeoDescriptionPrompt({
-          products,
-          keywords,
-          baseProductData
-        });
+        promptMeta = basePrompt;
         items = await generateSEODescription({
           products,
           keywords,
@@ -184,6 +216,11 @@ export default async function handler(req, res) {
         });
       }
     } else if (normalizedMode === 'hashtags') {
+      const basePrompt = buildHashtagsPrompt({
+        products,
+        baseProductData
+      });
+
       let activePrompt = null;
       try {
         const promptsService = getAiPrompts();
@@ -194,7 +231,7 @@ export default async function handler(req, res) {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn(
-          '[api/ai/product-seo] no active AiPrompt for hashtags, using built-in prompt',
+          '[api/ai/product-seo] no active AiPrompt for hashtags, using base prompt only',
           e?.message || e
         );
       }
@@ -206,14 +243,27 @@ export default async function handler(req, res) {
           baseProductData,
           keywords
         };
-        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
-        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+        const extraSystem = renderTemplate(
+          activePrompt.systemTemplate || '',
+          templateVars
+        ).trim();
+        const extraUser = renderTemplate(
+          activePrompt.userTemplate || '',
+          templateVars
+        ).trim();
+
+        const finalSystem = extraSystem
+          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
+          : basePrompt.system;
+        const finalUser = extraUser
+          ? `${extraUser}\n\n${basePrompt.user.trim()}`
+          : basePrompt.user;
 
         promptMeta = {
-          system,
-          user: userPrompt,
-          temperature: 0.6,
-          maxTokens: 1200
+          system: finalSystem,
+          user: finalUser,
+          temperature: basePrompt.temperature,
+          maxTokens: basePrompt.maxTokens
         };
         usedPromptId = activePrompt.id;
 
@@ -223,16 +273,18 @@ export default async function handler(req, res) {
           prompt: promptMeta
         });
       } else {
-        promptMeta = buildHashtagsPrompt({
-          products,
-          baseProductData
-        });
+        promptMeta = basePrompt;
         items = await generateHashtags({
           products,
           baseProductData
         });
       }
     } else if (normalizedMode === 'rich') {
+      const basePrompt = buildRichJsonPrompt({
+        products,
+        baseProductData
+      });
+
       let activePrompt = null;
       try {
         const promptsService = getAiPrompts();
@@ -243,7 +295,7 @@ export default async function handler(req, res) {
       } catch (e) {
         // eslint-disable-next-line no-console
         console.warn(
-          '[api/ai/product-seo] no active AiPrompt for rich, using built-in prompt',
+          '[api/ai/product-seo] no active AiPrompt for rich, using base prompt only',
           e?.message || e
         );
       }
@@ -255,14 +307,27 @@ export default async function handler(req, res) {
           baseProductData,
           keywords
         };
-        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
-        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+        const extraSystem = renderTemplate(
+          activePrompt.systemTemplate || '',
+          templateVars
+        ).trim();
+        const extraUser = renderTemplate(
+          activePrompt.userTemplate || '',
+          templateVars
+        ).trim();
+
+        const finalSystem = extraSystem
+          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
+          : basePrompt.system;
+        const finalUser = extraUser
+          ? `${extraUser}\n\n${basePrompt.user.trim()}`
+          : basePrompt.user;
 
         promptMeta = {
-          system,
-          user: userPrompt,
-          temperature: 0.6,
-          maxTokens: 2500
+          system: finalSystem,
+          user: finalUser,
+          temperature: basePrompt.temperature,
+          maxTokens: basePrompt.maxTokens
         };
         usedPromptId = activePrompt.id;
 
@@ -272,16 +337,15 @@ export default async function handler(req, res) {
           prompt: promptMeta
         });
       } else {
-        promptMeta = buildRichJsonPrompt({
-          products,
-          baseProductData
-        });
+        promptMeta = basePrompt;
         items = await generateRichJSON({
           products,
           baseProductData
         });
       }
     } else if (normalizedMode === 'slides') {
+      // Для слайдов пока оставляем прежнюю схему: базовый промпт внутри generateSlides,
+      // AiPrompt может полностью переопределять структуру, если нужен другой подход.
       let activePrompt = null;
       try {
         const promptsService = getAiPrompts();

@@ -77,6 +77,8 @@ export default function ProductAttributesPage() {
   const [ratingHints, setRatingHints] = useState(null);
   const [aiLoading, setAiLoading] = useState(false);
   const [aiSlidesPreview, setAiSlidesPreview] = useState([]);
+  const [seoTitleOptions, setSeoTitleOptions] = useState(null);
+  const [seoDescriptionOptions, setSeoDescriptionOptions] = useState(null);
 
   const {
     attributes,
@@ -558,7 +560,15 @@ export default function ProductAttributesPage() {
   }, [editableProduct, attributeMetaMap, superRecommendedAttributeKeys]);
 
   const attributeGroups = useMemo(() => {
+    // Жёсткий, человеко‑понятный порядок групп:
+    // 1) «Общие»
+    // 2) «Технические свойства»
+    // 3) «Прочее»
+    // 4) остальные — по алфавиту после этих трёх.
+    const GROUP_ORDER = ['Общие', 'Технические свойства', 'Прочее'];
+
     const map = new Map();
+
     attributeList.forEach((attr) => {
       const meta = attributeMetaMap.get(attr.__attrKey);
       const groupName =
@@ -566,6 +576,7 @@ export default function ProductAttributesPage() {
         meta?.attribute_group_name ||
         attr?.attribute_group_name ||
         'Прочее';
+
       if (!map.has(groupName)) {
         map.set(groupName, {
           key: groupName,
@@ -575,8 +586,10 @@ export default function ProductAttributesPage() {
           hasSuperRecommended: false
         });
       }
+
       const group = map.get(groupName);
       group.attributes.push({ attr, meta });
+
       if (meta?.is_required) {
         group.hasRequired = true;
       }
@@ -584,16 +597,25 @@ export default function ProductAttributesPage() {
         group.hasSuperRecommended = true;
       }
     });
+
     const groups = Array.from(map.values());
+
+    const getGroupPriority = (label) => {
+      const idx = GROUP_ORDER.indexOf(label);
+      return idx === -1 ? GROUP_ORDER.length : idx;
+    };
+
     groups.sort((a, b) => {
-      if (a.hasRequired !== b.hasRequired) {
-        return a.hasRequired ? -1 : 1;
+      const pa = getGroupPriority(a.label);
+      const pb = getGroupPriority(b.label);
+      if (pa !== pb) {
+        return pa - pb;
       }
-      if (a.hasSuperRecommended !== b.hasSuperRecommended) {
-        return a.hasSuperRecommended ? -1 : 1;
-      }
+      // Если приоритет одинаковый (например, обе группы "прочие"),
+      // сортируем по алфавиту, чтобы порядок был стабильным.
       return a.label.localeCompare(b.label, 'ru');
     });
+
     return groups;
   }, [attributeList, attributeMetaMap, superRecommendedAttributeKeys]);
 
@@ -612,12 +634,30 @@ export default function ProductAttributesPage() {
   const sectionRefs = {
     base: useRef(null),
     media: useRef(null),
-    groups: useRef(new Map())
+    groups: useRef(new Map()),
+    attributes: useRef(new Map())
   };
 
   const scrollToRef = (target) => {
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const scrollToTop = () => {
+    if (typeof window !== 'undefined') {
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+  };
+
+  const scrollToAttribute = (attributeId) => {
+    const key = String(attributeId);
+    const map = sectionRefs.attributes.current;
+    if (map && map.has(key)) {
+      const el = map.get(key);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }
   };
 
   const handleDrop = (event) => {
@@ -1041,22 +1081,30 @@ export default function ProductAttributesPage() {
           .map((s) => s.trim())
           .filter(Boolean)
       : [];
-    const bestTitle = titles[0];
-    // TODO: если модель вернула несколько вариантов названий (titles.length > 1),
-    // показывать пользователю модалку с выбором одного из вариантов,
-    // вместо автоматического выбора первого.
-    if (bestTitle) {
-      handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', bestTitle);
+    if (!titles.length) return;
+    if (titles.length === 1) {
+      handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', titles[0]);
+      return;
     }
+    // Несколько вариантов: предлагаем пользователю выбрать в простом модальном окне.
+    setSeoTitleOptions(titles);
   }, [callAiForMode, handleProductMetaChange]);
 
   const handleAiDescription = useCallback(async () => {
     const data = await callAiForMode('description');
     if (!data || !Array.isArray(data.items) || !data.items.length) return;
     const first = data.items[0];
-    const text = String(first.text || '').trim();
-    if (!text) return;
-    handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 4191, text);
+    const texts = Array.isArray(first.texts)
+      ? first.texts.map((t) => String(t || '').trim()).filter(Boolean)
+      : first.text
+      ? [String(first.text || '').trim()]
+      : [];
+    if (!texts.length) return;
+    if (texts.length === 1) {
+      handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 4191, texts[0]);
+      return;
+    }
+    setSeoDescriptionOptions(texts);
   }, [callAiForMode, handleAttributeValueChange]);
 
   const handleAiHashtags = useCallback(async () => {
@@ -1226,17 +1274,6 @@ export default function ProductAttributesPage() {
             }
 
             if (!values.length) return null;
-
-            const originalAttr = (originalProduct.attributes || []).find(
-              (original) => Number(original?.id ?? original?.attribute_id) === id
-            );
-            let originalValues = normalizeAttributeValues(originalAttr?.values || []);
-            originalValues = collapseLargeTextAttributeValues(id, originalValues);
-
-            const isRequiredAttr = requiredAttributeIds.has(id);
-            if (!isRequiredAttr && areAttributeValuesEqual(values, originalValues)) {
-              return null;
-            }
 
             return {
               id,
@@ -1510,12 +1547,38 @@ export default function ProductAttributesPage() {
       >
         <h3 style={{ marginTop: 0 }}>Навигация</h3>
         <nav style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {renderGroupButton('Наверх', scrollToTop, false)}
           {renderGroupButton(
             'Обязательные параметры',
             () => scrollToRef(sectionRefs.base.current),
             !editableProduct
           )}
           {renderGroupButton('Фото', () => scrollToRef(sectionRefs.media.current), !editableProduct)}
+          <div
+            style={{
+              marginTop: 8,
+              marginBottom: 4,
+              fontSize: 11,
+              textTransform: 'uppercase',
+              color: '#9ca3af'
+            }}
+          >
+            AI поля
+          </div>
+          {renderGroupButton('Аннотация (AI)', () => scrollToAttribute(4191), !editableProduct)}
+          {renderGroupButton('#Хештеги (AI)', () => scrollToAttribute(23171), !editableProduct)}
+          {renderGroupButton('Rich‑контент (AI)', () => scrollToAttribute(11254), !editableProduct)}
+          <div
+            style={{
+              marginTop: 8,
+              marginBottom: 4,
+              fontSize: 11,
+              textTransform: 'uppercase',
+              color: '#9ca3af'
+            }}
+          >
+            Группы характеристик
+          </div>
           {attributeGroups.map((group) => (
             <button
               type="button"
@@ -1743,22 +1806,27 @@ export default function ProductAttributesPage() {
               >
                 Сделать изображения слайдов
               </button>
-              <Link href="/ai/prompts">
-                <a
-                  style={{
-                    padding: '6px 10px',
-                    borderRadius: 6,
-                    border: '1px solid #e5e7eb',
-                    backgroundColor: '#f9fafb',
-                    color: '#374151',
-                    cursor: 'pointer',
-                    fontSize: 12,
-                    textDecoration: 'none'
-                  }}
-                >
-                  Настроить AI промпты
-                </a>
-              </Link>
+              <button
+                type="button"
+                style={{
+                  padding: '6px 10px',
+                  borderRadius: 6,
+                  border: '1px solid #e5e7eb',
+                  backgroundColor: '#f9fafb',
+                  color: '#374151',
+                  cursor: 'pointer',
+                  fontSize: 12,
+                  textDecoration: 'none'
+                }}
+                onClick={() => {
+                  if (typeof window === 'undefined') return;
+                  const from = window.location.pathname + window.location.search;
+                  const url = `/ai/prompts?from=${encodeURIComponent(from)}`;
+                  window.open(url, '_blank', 'noopener,noreferrer');
+                }}
+              >
+                Настроить AI промпты
+              </button>
             </div>
             <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <button
@@ -2224,6 +2292,15 @@ export default function ProductAttributesPage() {
                 return (
                   <div
                     key={`${attrKey}-${index}`}
+                    ref={(el) => {
+                      const map = sectionRefs.attributes.current;
+                      if (!map) return;
+                      if (el) {
+                        map.set(attrKey, el);
+                      } else {
+                        map.delete(attrKey);
+                      }
+                    }}
                     style={{
                       border: `1px solid ${
                         isRequired && !hasValue
@@ -2379,6 +2456,206 @@ export default function ProductAttributesPage() {
             </section>
           )
         )}
+        {seoDescriptionOptions && seoDescriptionOptions.length > 0 && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(15,23,42,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 50
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: '#fff',
+                borderRadius: 12,
+                padding: 20,
+                width: 'min(720px, 96vw)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                boxShadow: '0 20px 40px rgba(15,23,42,0.35)'
+              }}
+            >
+              <h2 style={{ marginTop: 0, marginBottom: 8, fontSize: 18 }}>
+                Выберите SEO‑описание (аннотацию)
+              </h2>
+              <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: '#4b5563' }}>
+                Каждый вариант ниже — полноценный текст для поля «Аннотация». Нажмите «Выбрать» рядом
+                с подходящим вариантом, чтобы подставить его в атрибут.
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+                {seoDescriptionOptions.map((text, index) => (
+                  <div
+                    key={index}
+                    style={{
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 8,
+                      padding: 10,
+                      backgroundColor: '#f9fafb'
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 13,
+                        marginBottom: 6
+                      }}
+                    >
+                      Вариант {index + 1}
+                    </div>
+                    <textarea
+                      readOnly
+                      value={text}
+                      style={{
+                        width: '100%',
+                        minHeight: 160,
+                        resize: 'vertical',
+                        padding: 8,
+                        borderRadius: 6,
+                        border: '1px solid #d1d5db',
+                        fontSize: 13,
+                        lineHeight: 1.5,
+                        boxSizing: 'border-box',
+                        backgroundColor: '#fff'
+                      }}
+                    />
+                    <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 8 }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 4191, text);
+                          setSeoDescriptionOptions(null);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 9999,
+                          border: 'none',
+                          backgroundColor: '#2563eb',
+                          color: '#fff',
+                          fontSize: 12,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Выбрать
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setSeoDescriptionOptions(null)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 9999,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: '#f9fafb',
+                    fontSize: 12,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+        {seoTitleOptions && seoTitleOptions.length > 0 && (
+          <div
+            style={{
+              position: 'fixed',
+              inset: 0,
+              backgroundColor: 'rgba(15,23,42,0.45)',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              zIndex: 50
+            }}
+          >
+            <div
+              style={{
+                backgroundColor: '#fff',
+                borderRadius: 12,
+                padding: 20,
+                width: 'min(520px, 95vw)',
+                maxHeight: '90vh',
+                overflowY: 'auto',
+                boxShadow: '0 20px 40px rgba(15,23,42,0.35)'
+              }}
+            >
+              <h2 style={{ marginTop: 0, marginBottom: 8, fontSize: 18 }}>
+                Выберите SEO‑название
+              </h2>
+              <p style={{ marginTop: 0, marginBottom: 12, fontSize: 13, color: '#4b5563' }}>
+                Нажмите «Выбрать» рядом с подходящим вариантом — он будет подставлен в поле
+                «Название».
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, marginBottom: 12 }}>
+                {seoTitleOptions.map((title, index) => (
+                  <div
+                    key={index}
+                    style={{
+                      border: '1px solid #e5e7eb',
+                      borderRadius: 8,
+                      padding: 10,
+                      backgroundColor: '#f9fafb'
+                    }}
+                  >
+                    <div
+                      style={{
+                        fontSize: 13,
+                        marginBottom: 6,
+                        whiteSpace: 'pre-wrap',
+                        wordBreak: 'break-word'
+                      }}
+                    >
+                      {title}
+                    </div>
+                    <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', title);
+                          setSeoTitleOptions(null);
+                        }}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: 9999,
+                          border: 'none',
+                          backgroundColor: '#2563eb',
+                          color: '#fff',
+                          fontSize: 12,
+                          cursor: 'pointer'
+                        }}
+                      >
+                        Выбрать
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={() => setSeoTitleOptions(null)}
+                  style={{
+                    padding: '6px 12px',
+                    borderRadius: 9999,
+                    border: '1px solid #e5e7eb',
+                    backgroundColor: '#f9fafb',
+                    fontSize: 12,
+                    cursor: 'pointer'
+                  }}
+                >
+                  Отмена
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </main>
     </div>
   );
@@ -2429,27 +2706,7 @@ const inputStyle = {
   fontSize: 14
 };
 
-const getOrderValue = (attr, fallback = 0) => {
-  const raw =
-    attr?.order ??
-    attr?.position ??
-    attr?.sort_index ??
-    attr?.sortIndex ??
-    attr?.__order ??
-    attr?.__index;
-  if (raw === undefined || raw === null) {
-    return fallback;
-  }
-  const numeric = Number(raw);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
 const attributeComparator = (a = {}, b = {}) => {
-  const orderA = getOrderValue(a, 0);
-  const orderB = getOrderValue(b, 0);
-  if (orderA !== orderB) {
-    return orderA - orderB;
-  }
   const idA = Number(a?.id ?? a?.attribute_id ?? a?.attributeId);
   const idB = Number(b?.id ?? b?.attribute_id ?? b?.attributeId);
   if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {

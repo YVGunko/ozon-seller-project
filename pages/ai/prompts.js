@@ -94,6 +94,46 @@ export default function AiPromptsPage() {
     }
   };
 
+  const handleDelete = async () => {
+    if (!selectedPrompt) return;
+    // eslint-disable-next-line no-alert
+    const confirmed = window.confirm('Удалить этот промпт? Его нельзя будет использовать в генерации.');
+    if (!confirmed) return;
+
+    setSaving(true);
+    setError('');
+    try {
+      const res = await fetch(`/api/ai/prompts/${selectedPrompt.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          deletedAt: new Date().toISOString(),
+          isDefault: false
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'Не удалось удалить промпт');
+      }
+
+      setPrompts((prev) => prev.filter((p) => p.id !== selectedPrompt.id));
+      const remaining = prompts.filter((p) => p.id !== selectedPrompt.id);
+      if (remaining.length) {
+        setSelectedId(remaining[0].id);
+        setSelectedPrompt(remaining[0]);
+      } else {
+        setSelectedId(null);
+        setSelectedPrompt(null);
+      }
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[AI Prompts] delete error', e);
+      setError(e?.message || 'Ошибка удаления промпта');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
       <h1 style={{ marginBottom: 16 }}>AI промпты</h1>
@@ -291,6 +331,22 @@ export default function AiPromptsPage() {
               >
                 {saving ? 'Сохранение…' : 'Сохранить промпт'}
               </button>
+              <button
+                type="button"
+                onClick={handleDelete}
+                disabled={saving || !selectedPrompt}
+                style={{
+                  padding: '8px 14px',
+                  borderRadius: 9999,
+                  border: '1px solid #fecaca',
+                  backgroundColor: '#fee2e2',
+                  color: '#b91c1c',
+                  fontSize: 13,
+                  cursor: saving || !selectedPrompt ? 'not-allowed' : 'pointer'
+                }}
+              >
+                Удалить промпт
+              </button>
             </div>
           </div>
         )}
@@ -298,4 +354,3 @@ export default function AiPromptsPage() {
     </div>
   );
 }
-

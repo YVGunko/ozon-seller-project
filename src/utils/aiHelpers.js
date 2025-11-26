@@ -141,6 +141,18 @@ function parseJsonFromModel(text) {
   try {
     return JSON.parse(trimmed);
   } catch {
+    // Попробуем вытащить JSON из блока ```json ... ```
+    const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    if (fenced && fenced[1]) {
+      const candidate = fenced[1].trim();
+      try {
+        return JSON.parse(candidate);
+      } catch {
+        // игнорируем и пойдём к следующей эвристике
+      }
+    }
+
+    // Общий случай — первый фрагмент в фигурных скобках
     const match = trimmed.match(/\{[\s\S]*\}/);
     if (match) {
       return JSON.parse(match[0]);
@@ -422,9 +434,26 @@ export async function generateSEONameWithPrompt({
   });
 
   const parsed = parseJsonFromModel(content);
-  const descriptions = Array.isArray(parsed?.descriptions)
+  let descriptions = Array.isArray(parsed?.descriptions)
     ? parsed.descriptions
     : parsed;
+
+  // Поддержка двух форматов:
+  // 1) [{ index, titles: ["...", "..."] }]
+  // 2) ["...", "...", "..."] — массив строк.
+  if (Array.isArray(descriptions) && descriptions.length > 0) {
+    if (typeof descriptions[0] === 'string') {
+      const titles = descriptions
+        .map((t) => String(t || '').trim())
+        .filter(Boolean);
+      return [
+        {
+          index: 0,
+          titles
+        }
+      ];
+    }
+  }
 
   if (!Array.isArray(descriptions)) {
     throw new Error('Ответ модели не содержит массива descriptions');
@@ -521,7 +550,7 @@ export function buildSeoDescriptionPrompt({ products, keywords, baseProductData 
 
 /**
  * Генерация SEO-описаний (аннотаций) для товаров с произвольным промптом.
- * Возвращает: [{ index, text }]
+ * Возвращает: [{ index, texts: [вариант1, вариант2, ...] }]
  */
 export async function generateSEODescriptionWithPrompt({
   products,
@@ -557,28 +586,28 @@ export async function generateSEODescriptionWithPrompt({
   }
 
   return descriptions.map((item) => {
+    const variants = [];
     if (typeof item.text === 'string' && item.text.trim()) {
-      return {
-        index: item.index,
-        text: String(item.text || '').trim()
-      };
+      variants.push(String(item.text).trim());
     }
     const v1 = String(item.text_variant_1 || '').trim();
     const v2 = String(item.text_variant_2 || '').trim();
     const v3 = String(item.text_variant_3 || '').trim();
-    // Для OZON "Аннотация" используем только ОДИН вариант,
-    // чтобы не превышать лимит по символам и не дублировать текст.
-    const chosen = v1 || v2 || v3;
+    if (v1) variants.push(v1);
+    if (v2) variants.push(v2);
+    if (v3) variants.push(v3);
+    // убираем дубли, если модель вернула одинаковые варианты
+    const unique = Array.from(new Set(variants));
     return {
       index: item.index,
-      text: chosen
+      texts: unique
     };
   });
 }
 
 /**
  * Генерация SEO-описаний (аннотаций) для товаров (через Groq)
- * Возвращает: [{ index, text }]
+ * Возвращает: [{ index, texts: [...] }]
  */
 export async function generateSEODescription({ products, keywords, baseProductData }) {
   const prompt = buildSeoDescriptionPrompt({

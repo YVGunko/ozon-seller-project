@@ -27,5 +27,5 @@ export const AiPromptMode = {
  * @property {boolean} [isDefault]       Является ли промпт дефолтным для пары (userId, mode)
  * @property {string} createdAt          Время создания ISOString
  * @property {string} updatedAt          Время последнего обновления ISOString
+ * @property {string|null} [deletedAt]   Время мягкого удаления (если промпт помечен как удалённый)
  */
-
