@@ -39,12 +39,14 @@ describe('domain/entities basic factories', () => {
     const user = createUser({
       id: 'u1',
       enterpriseId: 'ent-1',
+      username: 'admin',
       email: 'test@example.com',
       roles: ['admin'],
       sellerIds: ['sell-1']
     });
     expect(user.id).toBe('u1');
     expect(user.enterpriseId).toBe('ent-1');
+    expect(user.username).toBe('admin');
     expect(user.email).toBe('test@example.com');
     expect(user.roles).toEqual(['admin']);
     expect(user.sellerIds).toEqual(['sell-1']);
@@ -72,6 +74,7 @@ describe('identityMapping', () => {
   test('mapAuthToUser builds User linked to enterprise', () => {
     const user = mapAuthToUser({
       userId: 'u1',
+      username: 'root-admin',
       email: 'admin@example.com',
       name: 'Admin',
       enterpriseId: 'ent-1',
@@ -81,6 +84,7 @@ describe('identityMapping', () => {
 
     expect(user.id).toBe('u1');
     expect(user.enterpriseId).toBe('ent-1');
+    expect(user.username).toBe('root-admin');
     expect(user.email).toBe('admin@example.com');
     expect(user.roles).toEqual(['admin']);
     expect(user.sellerIds).toEqual(['sell-1', 'sell-2']);

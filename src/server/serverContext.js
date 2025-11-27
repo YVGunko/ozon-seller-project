@@ -96,13 +96,15 @@ export async function resolveServerContext(req, res, options = {}) {
   const rawUserId = rawUser.id || rawUser.email || null;
 
   if (rawUserId) {
-    const email = rawUser.email || `${rawUserId}@local`;
+    const username = rawUser.username || rawUserId;
+    const email = rawUser.email || (username.includes('@') ? username : `${rawUserId}@local`);
     const name = rawUser.name || '';
     const enterpriseId = enterprise?.id || `ent-${rawUserId}`;
     const sellerIds = seller ? [seller.id] : [];
 
     user = mapAuthToUser({
       userId: rawUserId,
+      username,
       email,
       name,
       enterpriseId,
@@ -120,4 +122,3 @@ export async function resolveServerContext(req, res, options = {}) {
     seller
   };
 }
-

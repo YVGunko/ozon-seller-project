@@ -62,7 +62,8 @@ export function mapProfileToEnterpriseAndSeller(profile) {
  *
  * @param {Object} params
  * @param {string} params.userId
- * @param {string} params.email
+ * @param {string} [params.username]
+ * @param {string} [params.email]
  * @param {string} [params.name]
  * @param {string} params.enterpriseId
  * @param {string[]} [params.roles]
@@ -73,11 +74,11 @@ export function mapAuthToUser(params) {
   return createUser({
     id: params.userId,
     enterpriseId: params.enterpriseId,
-    email: params.email,
+    username: params.username || params.userId,
+    email: params.email || '',
     name: params.name,
     roles: params.roles || [],
     sellerIds: params.sellerIds || [],
     preferences: {}
   });
 }
-

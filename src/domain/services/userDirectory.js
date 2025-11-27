@@ -51,15 +51,14 @@ export function mapAuthUsersToDomainUsers({ enterpriseId, authUsers }) {
     return createUser({
       id: String(entry.id || username),
       enterpriseId,
+      username,
       email,
       name: entry.name || username,
       roles,
       sellerIds,
       preferences: {
-        username,
         allowedProfiles
       }
     });
   });
 }
-

@@ -30,13 +30,15 @@ export function useCurrentContext() {
 
         if (session?.user?.id || session?.user?.email) {
           const userId = session.user.id || session.user.email;
-          const email = session.user.email || `${userId}@local`;
+          const username = session.user.username || userId;
+          const email = session.user.email || (username.includes('@') ? username : `${userId}@local`);
           const name = session.user.name || '';
           const roles = Array.isArray(session.user.roles)
             ? session.user.roles
             : [];
           const mappedUser = mapAuthToUser({
             userId,
+            username,
             email,
             name,
             enterpriseId: ent.id,

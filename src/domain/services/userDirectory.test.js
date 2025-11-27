@@ -31,7 +31,7 @@ describe('userDirectory.mapAuthUsersToDomainUsers', () => {
     expect(u1.email).toBe('admin@example.com');
     expect(u1.name).toBe('Admin User');
     expect(u1.roles).toEqual(['admin']);
-    expect(u1.preferences.username).toBe('admin@example.com');
+    expect(u1.username).toBe('admin@example.com');
     expect(u1.preferences.allowedProfiles).toEqual(['3497256', '123']);
 
     expect(u2.id).toBe('u2');
@@ -39,7 +39,7 @@ describe('userDirectory.mapAuthUsersToDomainUsers', () => {
     expect(u2.email).toBe('');
     expect(u2.name).toBe('Operator');
     expect(u2.roles).toEqual([]);
-    expect(u2.preferences.username).toBe('operator');
+    expect(u2.username).toBe('operator');
     expect(u2.preferences.allowedProfiles).toEqual([]);
   });
 
@@ -49,4 +49,3 @@ describe('userDirectory.mapAuthUsersToDomainUsers', () => {
     ).toThrow(/enterpriseId is required/);
   });
 });
-

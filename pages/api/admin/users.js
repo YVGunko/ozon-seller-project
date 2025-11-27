@@ -38,7 +38,7 @@ export default async function handler(req, res) {
       email: user.email,
       roles: user.roles,
       sellerIds: user.sellerIds,
-      username: user.preferences?.username || '',
+      username: user.username || '',
       allowedProfiles: user.preferences?.allowedProfiles || []
     }));
 
