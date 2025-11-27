@@ -1,4 +1,14 @@
-const { OZON_PROFILES, OZON_CLIENT_ID, OZON_API_KEY } = process.env;
+import { list } from '@vercel/blob';
+
+const {
+  OZON_PROFILES,
+  OZON_CLIENT_ID,
+  OZON_API_KEY,
+  CONFIG_PROFILES_BLOB_PREFIX
+} = process.env;
+
+const PROFILES_BLOB_PREFIX = CONFIG_PROFILES_BLOB_PREFIX || 'config/profiles.json';
+
 const parseJsonEnv = (value, fallback = []) => {
   if (!value) return fallback;
   try {
@@ -48,25 +58,94 @@ const buildFallbackProfiles = () => {
   ];
 };
 
-const cachedProfiles = (() => {
-  const configured = normalizeProfiles(parseJsonEnv(OZON_PROFILES, []));
-  if (configured.length > 0) return configured;
-  return normalizeProfiles(buildFallbackProfiles());
-})();
+let cachedProfiles = null;
 
-export const getAllProfiles = () => cachedProfiles;
+const loadProfilesFromEnv = () => {
+  const configured = normalizeProfiles(parseJsonEnv(OZON_PROFILES, []));
+  if (configured.length > 0) {
+    console.log(
+      '[profileStore] using OZON_PROFILES from env, profiles:',
+      configured.length
+    );
+    return configured;
+  }
+  const fallback = normalizeProfiles(buildFallbackProfiles());
+  if (fallback.length > 0) {
+    console.log('[profileStore] using OZON_CLIENT_ID / OZON_API_KEY fallback profile');
+  } else {
+    console.warn('[profileStore] no profiles configured in env (OZON_PROFILES or OZON_*)');
+  }
+  return fallback;
+};
+
+async function loadProfilesFromBlob() {
+  try {
+    const { blobs } = await list({ prefix: PROFILES_BLOB_PREFIX });
+    if (!blobs || blobs.length === 0) {
+      console.log(
+        '[profileStore] no profiles config blob found, prefix =',
+        PROFILES_BLOB_PREFIX
+      );
+      return null;
+    }
+
+    const blob = blobs[0];
+    const downloadUrl = blob.downloadUrl || blob.url;
+    const res = await fetch(downloadUrl);
+    const text = await res.text();
+    const json = JSON.parse(text);
+
+    if (!Array.isArray(json)) {
+      console.error(
+        '[profileStore] profiles config blob is not an array, pathname =',
+        blob.pathname
+      );
+      return null;
+    }
+
+    const normalized = normalizeProfiles(json);
+    console.log(
+      '[profileStore] loaded profiles from Blob',
+      JSON.stringify({ count: normalized.length, pathname: blob.pathname })
+    );
+    return normalized;
+  } catch (error) {
+    console.error(
+      '[profileStore] failed to load profiles from Blob, fallback to env',
+      error
+    );
+    return null;
+  }
+}
+
+export const ensureProfilesLoaded = async () => {
+  if (cachedProfiles) return cachedProfiles;
+
+  const fromBlob = await loadProfilesFromBlob();
+  if (fromBlob && fromBlob.length > 0) {
+    cachedProfiles = fromBlob;
+    return cachedProfiles;
+  }
+
+  cachedProfiles = loadProfilesFromEnv();
+  return cachedProfiles;
+};
+
+export const getAllProfiles = () => cachedProfiles || loadProfilesFromEnv();
 
 export const getProfileById = (profileId) => {
   if (!profileId) return null;
-  return cachedProfiles.find((profile) => profile.id === profileId) || null;
+  const source = cachedProfiles || loadProfilesFromEnv();
+  return source.find((profile) => profile.id === profileId) || null;
 };
 
 export const getProfilesForUser = (allowedProfiles = []) => {
+  const source = cachedProfiles || loadProfilesFromEnv();
   if (!Array.isArray(allowedProfiles) || allowedProfiles.length === 0) {
-    return cachedProfiles;
+    return source;
   }
   const allowedSet = new Set(allowedProfiles.map(String));
-  return cachedProfiles.filter((profile) => allowedSet.has(profile.id));
+  return source.filter((profile) => allowedSet.has(profile.id));
 };
 
 export const getProfileMetadataList = (allowedProfiles = []) =>

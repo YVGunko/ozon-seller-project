@@ -6,7 +6,7 @@
 
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from './authOptions';
-import { getProfileById } from './profileStore';
+import { getProfileById, ensureProfilesLoaded } from './profileStore';
 import {
   mapProfileToEnterpriseAndSeller,
   mapAuthToUser
@@ -69,6 +69,8 @@ export async function resolveServerContext(req, res, options = {}) {
   let profileId = profileIdFromReq;
 
   if (profileIdFromReq) {
+    // Перед любым использованием профилей убеждаемся, что конфиг загружен (Blob/ENV).
+    await ensureProfilesLoaded();
     if (!isProfileAllowed(profileIdFromReq, session.user?.allowedProfiles)) {
       const error = new Error('Profile is not allowed for current user');
       error.statusCode = 403;

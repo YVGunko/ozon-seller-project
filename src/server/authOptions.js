@@ -11,7 +11,10 @@ const buildAuthOptions = () => ({
         password: { label: 'Password', type: 'password' }
       },
       async authorize(credentials) {
-        const user = findUserByCredentials(credentials?.username, credentials?.password);
+        const user = await findUserByCredentials(
+          credentials?.username,
+          credentials?.password
+        );
         if (user) {
           return {
             id: user.id,

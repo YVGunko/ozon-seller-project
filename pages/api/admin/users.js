@@ -28,7 +28,7 @@ export default async function handler(req, res) {
     }
 
     const enterpriseId = serverContext.enterprise?.id || 'ent-legacy';
-    const authUsers = getAuthUsers();
+    const authUsers = await getAuthUsers();
     const users = mapAuthUsersToDomainUsers({ enterpriseId, authUsers });
 
     const items = users.map((user) => ({

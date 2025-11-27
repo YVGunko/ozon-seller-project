@@ -1,4 +1,10 @@
-const { AUTH_USERS, ADMIN_USER, ADMIN_PASS, ADMIN_PROFILES } = process.env;
+import { list } from '@vercel/blob';
+
+const { AUTH_USERS, ADMIN_USER, ADMIN_PASS, ADMIN_PROFILES, CONFIG_USERS_BLOB_PREFIX } =
+  process.env;
+
+const USERS_BLOB_PREFIX = CONFIG_USERS_BLOB_PREFIX || 'config/users.json';
+
 const parseJsonEnv = (value, fallback = null) => {
   if (!value) return fallback;
   try {
@@ -68,18 +74,78 @@ const buildFallbackUsers = () => {
   ];
 };
 
-const cachedUsers = (() => {
+let cachedUsers = null;
+
+const loadUsersFromEnv = () => {
   const configured = normalizeUsers(parseJsonEnv(AUTH_USERS, []));
   if (configured.length > 0) {
+    console.log('[userStore] using AUTH_USERS from env, users:', configured.length);
     return configured;
   }
-  return normalizeUsers(buildFallbackUsers());
-})();
+  const fallback = normalizeUsers(buildFallbackUsers());
+  if (fallback.length > 0) {
+    console.log('[userStore] using ADMIN_* fallback user');
+  } else {
+    console.warn('[userStore] no users configured in env (AUTH_USERS or ADMIN_*)');
+  }
+  return fallback;
+};
 
-export const getAuthUsers = () => cachedUsers;
+async function loadUsersFromBlob() {
+  try {
+    const { blobs } = await list({ prefix: USERS_BLOB_PREFIX });
+    if (!blobs || blobs.length === 0) {
+      console.log(
+        '[userStore] no users config blob found, prefix =',
+        USERS_BLOB_PREFIX
+      );
+      return null;
+    }
 
-export const findUserByCredentials = (username, password) => {
+    const blob = blobs[0];
+    const downloadUrl = blob.downloadUrl || blob.url;
+    const res = await fetch(downloadUrl);
+    const text = await res.text();
+    const json = JSON.parse(text);
+
+    if (!Array.isArray(json)) {
+      console.error(
+        '[userStore] users config blob is not an array, pathname =',
+        blob.pathname
+      );
+      return null;
+    }
+
+    console.log(
+      '[userStore] loaded users from Blob',
+      JSON.stringify({ count: json.length, pathname: blob.pathname })
+    );
+
+    return normalizeUsers(json);
+  } catch (error) {
+    console.error('[userStore] failed to load users from Blob, fallback to env', error);
+    return null;
+  }
+}
+
+export const getAuthUsers = async () => {
+  if (cachedUsers) return cachedUsers;
+
+  // Пытаемся сначала загрузить конфиг из Blob.
+  const fromBlob = await loadUsersFromBlob();
+  if (fromBlob && fromBlob.length > 0) {
+    cachedUsers = fromBlob;
+    return cachedUsers;
+  }
+
+  // Фолбэк — env.
+  cachedUsers = loadUsersFromEnv();
+  return cachedUsers;
+};
+
+export const findUserByCredentials = async (username, password) => {
   if (!username || !password) return null;
+  const users = await getAuthUsers();
   const user = cachedUsers.find(
     (entry) => entry.username === username && entry.password === password
   );
