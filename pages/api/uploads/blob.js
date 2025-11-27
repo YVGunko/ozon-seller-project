@@ -1,6 +1,5 @@
 import { put, list } from '@vercel/blob';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../src/server/authOptions';
+import { resolveServerContext } from '../../../src/server/serverContext';
 import crypto from 'crypto';
 
 export const config = {
@@ -27,10 +26,11 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
-  const session = await getServerSession(req, res, authOptions);
-  if (!session) {
-    return res.status(401).json({ error: 'Unauthorized' });
-  }
+  try {
+    const { session } = await resolveServerContext(req, res);
+    if (!session) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
 
   if (!process.env.BLOB_READ_WRITE_TOKEN) {
     return res
@@ -91,16 +91,17 @@ export default async function handler(req, res) {
       addRandomSuffix: false
     });
 
-    return res.status(200).json({
-      url: blob.url,
-      pathname: blob.pathname,
-      size: blob.size,
-      reused: false
-    });
-  } catch (error) {
-    console.error('Blob upload error', error);
-    return res
-      .status(500)
-      .json({ error: error?.message || 'Не удалось загрузить изображение' });
-  }
+      return res.status(200).json({
+        url: blob.url,
+        pathname: blob.pathname,
+        size: blob.size,
+        reused: false
+      });
+    } catch (error) {
+      console.error('Blob upload error', error);
+      const status = error.statusCode || 500;
+      return res
+        .status(status)
+        .json({ error: error?.message || 'Не удалось загрузить изображение' });
+    }
 }

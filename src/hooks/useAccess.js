@@ -7,11 +7,13 @@ import { useCurrentContext } from './useCurrentContext';
 import {
   isRootAdmin,
   canManageUsers,
+  canManageProducts,
   canUseAi,
   canManagePrompts,
   canManagePrices,
   canManageOrders,
-  canManageEnterprises
+  canManageEnterprises,
+  canViewLogs
 } from '../domain/services/accessControl';
 
 export function useAccess() {
@@ -21,10 +23,12 @@ export function useAccess() {
     user,
     isRootAdmin: isRootAdmin(user),
     canManageUsers: canManageUsers(user),
+    canManageProducts: canManageProducts(user),
     canUseAi: canUseAi(user),
     canManagePrompts: canManagePrompts(user),
     canManagePrices: canManagePrices(user),
     canManageOrders: canManageOrders(user),
-    canManageEnterprises: canManageEnterprises(user)
+    canManageEnterprises: canManageEnterprises(user),
+    canViewLogs: canViewLogs(user)
   };
 }

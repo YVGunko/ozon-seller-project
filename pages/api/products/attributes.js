@@ -4,6 +4,7 @@ import { addRequestLog } from '../../../src/server/requestLogStore';
 import { buildStatusCheckMessage, extractImportStatusItems } from '../../../src/utils/importStatus';
 import { resolveServerContext } from '../../../src/server/serverContext';
 import { enrichProductsWithDescriptionAttributes } from '../../../src/server/descriptionAttributesHelper';
+import { canManageProducts, canManagePrices } from '../../../src/domain/services/accessControl';
 import {
   appendPriceHistory,
   getPriceHistory
@@ -140,6 +141,9 @@ export default async function handler(req, res) {
       serverContext = await resolveServerContext(req, res, {
         requireProfile: true
       });
+      if (!serverContext.user || !canManageProducts(serverContext.user)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
       const { profile } = serverContext;
       const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
@@ -179,6 +183,23 @@ export default async function handler(req, res) {
         serverContext = await resolveServerContext(req, res, {
           requireProfile: true
         });
+        if (!serverContext.user) {
+          statusCode = 401;
+          responseBody = { error: 'Unauthorized' };
+          res.status(statusCode).json(responseBody);
+          return;
+        }
+
+        const canManage =
+          mode === 'import'
+            ? canManagePrices(serverContext.user)
+            : canManageProducts(serverContext.user);
+        if (!canManage) {
+          statusCode = 403;
+          responseBody = { error: 'Forbidden' };
+          res.status(statusCode).json(responseBody);
+          return;
+        }
         session = serverContext.session;
         const { profile } = serverContext;
         const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);

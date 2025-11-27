@@ -3,19 +3,19 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import UserProfiles from '../src/components/UserProfiles';
 import { useWarehouses } from '../src/hooks/useWarehouses';
-import { signOut, useSession } from 'next-auth/react';
+import { signOut } from 'next-auth/react';
 import { useCurrentContext } from '../src/hooks/useCurrentContext';
 import { useAccess } from '../src/hooks/useAccess';
 
 export default function Home() {
   const router = useRouter();
-  const { data: session } = useSession();
 
   const isOrdersActive = router.pathname.startsWith('/postings');
   const isActionsActive = router.pathname.startsWith('/actions');
 
   const { profile: contextProfile } = useCurrentContext();
   const {
+    user,
     canManageUsers,
     canManageOrders,
     canManagePrices,
@@ -90,9 +90,9 @@ export default function Home() {
             <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
               Client ID: {currentProfile?.client_hint || '—'}
             </div>
-            {session?.user && (
+            {user && (
               <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
-                Пользователь: {session.user.name || session.user.id}
+                Пользователь: {user.name || user.username || user.id}
               </div>
             )}
             <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
@@ -105,7 +105,7 @@ export default function Home() {
               </button>
               <button
                 className="oz-btn oz-btn-secondary"
-                style={{ padding: '4px 10px', fontSize: 11, opacity: session ? 1 : 0.6 }}
+                style={{ padding: '4px 10px', fontSize: 11, opacity: user ? 1 : 0.6 }}
                 onClick={() => {
                   // Профиль очищается внутри UserProfiles / ProfileManager,
                   // здесь достаточно выйти из сессии.

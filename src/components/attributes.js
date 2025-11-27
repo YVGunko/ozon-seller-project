@@ -233,6 +233,35 @@ export const ImagesManager = ({
     }
   };
 
+  const handleDownload = async (url) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        // eslint-disable-next-line no-console
+        console.error('Image download failed', response.status, response.statusText);
+        return;
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      try {
+        const urlObj = new URL(url);
+        const parts = urlObj.pathname.split('/');
+        anchor.download = parts[parts.length - 1] || 'image.jpg';
+      } catch {
+        anchor.download = 'image.jpg';
+      }
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Image download error', err);
+    }
+  };
+
   return (
     <div
       style={{
@@ -468,6 +497,42 @@ export const ImagesManager = ({
                     }}
                   >
                     Удалить
+                  </button>
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor: '#fff',
+                      color: '#0d6efd',
+                      textDecoration: 'none',
+                      fontSize: 12,
+                      display: 'inline-flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    Открыть
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(url)}
+                    disabled={disabled}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor: '#fff',
+                      color: '#0d6efd',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      display: 'inline-flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    Скачать
                   </button>
                 </div>
               </div>

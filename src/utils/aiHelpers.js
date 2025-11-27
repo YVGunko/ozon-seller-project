@@ -152,10 +152,59 @@ function parseJsonFromModel(text) {
       }
     }
 
-    // Общий случай — первый фрагмент в фигурных скобках
-    const match = trimmed.match(/\{[\s\S]*\}/);
-    if (match) {
-      return JSON.parse(match[0]);
+    // Общий случай — пытаемся вытащить ПЕРВЫЙ законченный JSON-объект { ... }
+    // Даже если после него модель добавила комментарии / объяснения.
+    const firstBrace = trimmed.indexOf('{');
+    if (firstBrace !== -1) {
+      let depth = 0;
+      for (let i = firstBrace; i < trimmed.length; i += 1) {
+        const ch = trimmed[i];
+        if (ch === '{') {
+          depth += 1;
+        } else if (ch === '}') {
+          depth -= 1;
+          if (depth === 0) {
+            const candidate = trimmed.slice(firstBrace, i + 1);
+            try {
+              return JSON.parse(candidate);
+            } catch {
+              // eslint-disable-next-line no-console
+              console.error(
+                '[aiHelpers] parseJsonFromModel: failed to parse candidate JSON object',
+                candidate
+              );
+            }
+            break;
+          }
+        }
+      }
+    }
+
+    // Аналогично поддержим случай, когда модель вернула массив `[...]` с хвостом
+    const firstBracket = trimmed.indexOf('[');
+    if (firstBracket !== -1) {
+      let depth = 0;
+      for (let i = firstBracket; i < trimmed.length; i += 1) {
+        const ch = trimmed[i];
+        if (ch === '[') {
+          depth += 1;
+        } else if (ch === ']') {
+          depth -= 1;
+          if (depth === 0) {
+            const candidate = trimmed.slice(firstBracket, i + 1);
+            try {
+              return JSON.parse(candidate);
+            } catch {
+              // eslint-disable-next-line no-console
+              console.error(
+                '[aiHelpers] parseJsonFromModel: failed to parse candidate JSON array',
+                candidate
+              );
+            }
+            break;
+          }
+        }
+      }
     }
   }
   throw new Error('Не удалось распарсить JSON из ответа модели');

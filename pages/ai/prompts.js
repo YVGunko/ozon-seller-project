@@ -61,8 +61,7 @@ export default function AiPromptsPage() {
       }
     };
     fetchPrompts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [modeFilter]);
+  }, [modeFilter, canManagePrompts, selectedId]);
 
   const handleSelectPrompt = (prompt) => {
     setSelectedId(prompt.id);
@@ -71,6 +70,46 @@ export default function AiPromptsPage() {
 
   const handleFieldChange = (field, value) => {
     setSelectedPrompt((prev) => (prev ? { ...prev, [field]: value } : prev));
+  };
+
+  const handleCreate = async () => {
+    // Базовые черновые шаблоны, чтобы API прошло валидацию
+    const baseSystemTemplate =
+      'Черновой system‑prompt для генерации контента. Отредактируйте этот текст под свои задачи.';
+    const baseUserTemplate =
+      'Черновой user‑prompt. Здесь можно использовать переменные товара, например {{product.name}} и {{product.offer_id}}.';
+
+    setError('');
+    setSaving(true);
+    try {
+      const mode = modeFilter || 'seo-name';
+      const res = await fetch('/api/ai/prompts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode,
+          scope: 'global',
+          title: 'Новый промпт',
+          description: '',
+          systemTemplate: baseSystemTemplate,
+          userTemplate: baseUserTemplate
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data?.error || 'Не удалось создать промпт');
+      }
+      const created = data.prompt;
+      setPrompts((prev) => [...prev, created]);
+      setSelectedId(created.id);
+      setSelectedPrompt(created);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[AI Prompts] create error', e);
+      setError(e?.message || 'Ошибка создания промпта');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleSave = async () => {
@@ -166,6 +205,23 @@ export default function AiPromptsPage() {
         </label>
         {loading && <span style={{ fontSize: 12, color: '#6b7280' }}>Загрузка…</span>}
         {error && <span style={{ fontSize: 12, color: '#b91c1c' }}>{error}</span>}
+        <button
+          type="button"
+          onClick={handleCreate}
+          disabled={saving || !canManagePrompts}
+          style={{
+            marginLeft: 'auto',
+            padding: '6px 12px',
+            borderRadius: 9999,
+            border: 'none',
+            backgroundColor: saving || !canManagePrompts ? '#9ca3af' : '#16a34a',
+            color: '#fff',
+            fontSize: 12,
+            cursor: saving || !canManagePrompts ? 'not-allowed' : 'pointer'
+          }}
+        >
+          Создать промпт
+        </button>
       </div>
 
       <div
@@ -291,7 +347,7 @@ export default function AiPromptsPage() {
                 <textarea
                   value={selectedPrompt.systemTemplate || ''}
                   onChange={(e) => handleFieldChange('systemTemplate', e.target.value)}
-                  rows={4}
+                  rows={12}
                   style={{
                     marginTop: 4,
                     width: '100%',
@@ -310,7 +366,7 @@ export default function AiPromptsPage() {
                 <textarea
                   value={selectedPrompt.userTemplate || ''}
                   onChange={(e) => handleFieldChange('userTemplate', e.target.value)}
-                  rows={6}
+                  rows={18}
                   style={{
                     marginTop: 4,
                     width: '100%',

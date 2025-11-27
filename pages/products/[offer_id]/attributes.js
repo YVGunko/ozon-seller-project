@@ -700,22 +700,11 @@ export default function ProductAttributesPage() {
         __attrKey: getAttributeKey(attr?.id ?? attr?.attribute_id)
       }))
       .filter((attr) => attr.__attrKey && attr.__attrKey !== TYPE_ATTRIBUTE_ID)
-      .sort((a, b) => {
-        const metaA = attributeMetaMap.get(a.__attrKey);
-        const metaB = attributeMetaMap.get(b.__attrKey);
-        const reqA = metaA?.is_required ? 1 : 0;
-        const reqB = metaB?.is_required ? 1 : 0;
-        if (reqA !== reqB) {
-          return reqA ? -1 : 1;
-        }
-        const superA = superRecommendedAttributeKeys.has(a.__attrKey) ? 1 : 0;
-        const superB = superRecommendedAttributeKeys.has(b.__attrKey) ? 1 : 0;
-        if (superA !== superB) {
-          return superA ? -1 : 1;
-        }
-        return attributeComparator(a, b);
-      });
-  }, [editableProduct, attributeMetaMap, superRecommendedAttributeKeys]);
+      // Стабильный порядок: строго по ID (а при равенстве — по имени).
+      // Обязательность и "важность для контент‑рейтинга" влияют только на подсветку,
+      // но не на позицию атрибута в списке.
+      .sort(attributeComparator);
+  }, [editableProduct]);
 
   const attributeGroups = useMemo(() => {
     // Жёсткий, человеко‑понятный порядок групп:
@@ -1134,25 +1123,41 @@ export default function ProductAttributesPage() {
     if (!Array.isArray(rawList) || !rawList.length) return [];
     const result = [];
     const seen = new Set();
+
     rawList.forEach((raw) => {
       if (!raw) return;
-      let tag = String(raw).trim().toLowerCase();
-      // убираем обёртки и лишние символы
-      tag = tag.replace(/^[#\s]+/, '');
-      // оставляем только буквы, цифры и подчёркивания (русские + латиница)
-      tag = tag.replace(/[^0-9a-zа-яё_]+/gi, '_');
-      tag = tag.replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '');
-      if (!tag) return;
-      tag = `#${tag}`;
-      if (tag.length > 30) {
-        tag = tag.slice(0, 30);
-      }
-      if (!/^#[0-9a-zа-яё_]{1,29}$/i.test(tag)) return;
-      if (!seen.has(tag)) {
-        seen.add(tag);
-        result.push(tag);
-      }
+      const base = String(raw).toLowerCase();
+
+      // Один элемент списка может содержать сразу несколько тегов,
+      // разделённых пробелами или запятыми.
+      const tokens = base
+        .split(/[,\s]+/)
+        .map((token) => token.trim())
+        .filter(Boolean);
+
+      tokens.forEach((token) => {
+        if (!token) return;
+        let tag = token;
+
+        // убираем обёртки и лишние символы
+        tag = tag.replace(/^[#\s]+/, '');
+        // оставляем только буквы, цифры и подчёркивания (русские + латиница)
+        tag = tag.replace(/[^0-9a-zа-яё_]+/gi, '_');
+        tag = tag.replace(/_{2,}/g, '_').replace(/^_+|_+$/g, '');
+        if (!tag) return;
+
+        tag = `#${tag}`;
+        if (tag.length > 30) {
+          tag = tag.slice(0, 30);
+        }
+        if (!/^#[0-9a-zа-яё_]{1,29}$/i.test(tag)) return;
+        if (!seen.has(tag)) {
+          seen.add(tag);
+          result.push(tag);
+        }
+      });
     });
+
     return result.slice(0, 25);
   }, []);
 
@@ -1315,7 +1320,7 @@ export default function ProductAttributesPage() {
       alert('AI не сгенерировал валидные хештеги по правилам OZON.');
       return;
     }
-    const value = normalized.join(', ');
+    const value = normalized.join(' ');
     handleAttributeValueChange(PRIMARY_PRODUCT_INDEX, 23171, value);
   }, [callAiForMode, handleAttributeValueChange, normalizeHashtagsValue]);
 
@@ -1465,9 +1470,20 @@ export default function ProductAttributesPage() {
             values = collapseLargeTextAttributeValues(id, values);
 
             // Дополнительная нормализация для атрибута "#Хештеги" (ID: 23171):
-            // приводим хештеги к допустимому формату Ozon (#, буквы, цифры, _).
+            // 1) извлекаем плоские строки из values;
+            // 2) прогоняем через normalizeHashtagsValue (возвращает массив строк-хештегов);
+            // 3) собираем обратно в один entry { value: "<tag1> <tag2> ..." }.
             if (id === 23171) {
-              values = normalizeHashtagsValue(values);
+              const rawList = (values || []).map((entry) =>
+                entry && typeof entry.value === 'string' ? entry.value : String(entry?.value ?? '').trim()
+              );
+              const normalizedTags = normalizeHashtagsValue(rawList);
+              const valueString = normalizedTags.join(' ');
+              if (!valueString) {
+                values = [];
+              } else {
+                values = [{ value: valueString }];
+              }
             }
 
             if (!values.length) return null;
@@ -1498,11 +1514,17 @@ export default function ProductAttributesPage() {
 
         const normalizedPrimary = normalizePrimaryImage(item.primary_image);
         const originalPrimary = normalizePrimaryImage(originalProduct.primary_image);
-        const normalizedImages = clampImageListToLimit(
+        let normalizedImages = clampImageListToLimit(
           Array.isArray(item.images) ? item.images : [],
           normalizedPrimary
         );
         const originalImages = normalizeImageList(originalProduct.images || []);
+
+        // Если пользователь указал только главное изображение, но не заполнил массив images,
+        // автоматически считаем его единственным изображением товара, не беспокоя пользователя.
+        if (!normalizedImages.length && normalizedPrimary) {
+          normalizedImages = [normalizedPrimary];
+        }
 
         if (!normalizedImages.length) {
           throw new Error(`Товар ${offerId}: добавьте хотя бы одно изображение`);
@@ -2811,8 +2833,15 @@ export default function ProductAttributesPage() {
                       Вариант {index + 1}
                     </div>
                     <textarea
-                      readOnly
                       value={text}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setSeoDescriptionOptions((prev) =>
+                          prev
+                            ? prev.map((t, idx) => (idx === index ? value : t))
+                            : prev
+                        );
+                      }}
                       style={{
                         width: '100%',
                         minHeight: 160,
@@ -2909,16 +2938,30 @@ export default function ProductAttributesPage() {
                       backgroundColor: '#f9fafb'
                     }}
                   >
-                    <div
-                      style={{
-                        fontSize: 13,
-                        marginBottom: 6,
-                        whiteSpace: 'pre-wrap',
-                        wordBreak: 'break-word'
+                    <div style={{ fontSize: 13, marginBottom: 6 }}>Вариант {index + 1}</div>
+                    <textarea
+                      value={title}
+                      onChange={(event) => {
+                        const value = event.target.value;
+                        setSeoTitleOptions((prev) =>
+                          prev
+                            ? prev.map((t, idx) => (idx === index ? value : t))
+                            : prev
+                        );
                       }}
-                    >
-                      {title}
-                    </div>
+                      style={{
+                        width: '100%',
+                        minHeight: 80,
+                        resize: 'vertical',
+                        padding: 8,
+                        borderRadius: 6,
+                        border: '1px solid #d1d5db',
+                        fontSize: 13,
+                        lineHeight: 1.4,
+                        boxSizing: 'border-box',
+                        backgroundColor: '#fff'
+                      }}
+                    />
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <button
                         type="button"

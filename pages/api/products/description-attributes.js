@@ -1,6 +1,7 @@
 import { resolveServerContext } from '../../../src/server/serverContext';
 import { OzonMarketplaceAdapter } from '../../../src/modules/marketplaces/ozonAdapter';
 import { AttributesService } from '../../../src/domain/services/AttributesService';
+import { canManageProducts } from '../../../src/domain/services/accessControl';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -21,7 +22,10 @@ export default async function handler(req, res) {
         .json({ error: 'description_category_id и type_id обязательны' });
     }
 
-    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
+    const { profile, user } = await resolveServerContext(req, res, { requireProfile: true });
+    if (!user || !canManageProducts(user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const adapter = new OzonMarketplaceAdapter(profile);
 
     const { attributes: metaAttributes } =

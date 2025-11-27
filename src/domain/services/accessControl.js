@@ -27,6 +27,21 @@ export function canManageUsers(user) {
   return isRootAdmin(user) || hasRole(user, ROLE_MANAGER);
 }
 
+/**
+ * Управление товарами (создание, обновление атрибутов, копирование).
+ * Доступно:
+ *  - root/admin;
+ *  - manager;
+ *  - content-creator.
+ */
+export function canManageProducts(user) {
+  return (
+    isRootAdmin(user) ||
+    hasRole(user, ROLE_MANAGER) ||
+    hasRole(user, ROLE_CONTENT)
+  );
+}
+
 export function canUseAi(user) {
   return (
     isRootAdmin(user) ||
@@ -56,6 +71,21 @@ export function canManageOrders(user) {
     isRootAdmin(user) ||
     hasRole(user, ROLE_MANAGER) ||
     hasRole(user, ROLE_ORDER)
+  );
+}
+
+/**
+ * Просмотр технических логов (импорт / обновление атрибутов).
+ * По умолчанию даём доступ:
+ *  - root/admin;
+ *  - manager;
+ *  - finance (для контроля операций).
+ */
+export function canViewLogs(user) {
+  return (
+    isRootAdmin(user) ||
+    hasRole(user, ROLE_MANAGER) ||
+    hasRole(user, ROLE_FINANCE)
   );
 }
 

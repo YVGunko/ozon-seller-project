@@ -1,25 +1,42 @@
 import { addRequestLog, getRequestLogs } from '../../src/server/requestLogStore';
+import { resolveServerContext } from '../../src/server/serverContext';
+import { canViewLogs } from '../../src/domain/services/accessControl';
 
 export default async function handler(req, res) {
   if (req.method === 'GET') {
-    const {
-      limit = '50',
-      cursor = '0',
-      offer_id = '',
-      date_from = '',
-      date_to = ''
-    } = req.query || {};
+    try {
+      const { user } = await resolveServerContext(req, res, { requireProfile: false });
+      if (!user) {
+        return res.status(401).json({ error: 'Unauthorized' });
+      }
+      if (!canViewLogs(user)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
 
-    const options = {
-      limit: limit ? Number(limit) : undefined,
-      cursor: cursor ? Number(cursor) : 0,
-      offerId: offer_id || '',
-      dateFrom: date_from || '',
-      dateTo: date_to || ''
-    };
+      const {
+        limit = '50',
+        cursor = '0',
+        offer_id = '',
+        date_from = '',
+        date_to = ''
+      } = req.query || {};
 
-    const result = await getRequestLogs(options);
-    return res.status(200).json(result);
+      const options = {
+        limit: limit ? Number(limit) : undefined,
+        cursor: cursor ? Number(cursor) : 0,
+        offerId: offer_id || '',
+        dateFrom: date_from || '',
+        dateTo: date_to || ''
+      };
+
+      const result = await getRequestLogs(options);
+      return res.status(200).json(result);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('[api/logs][GET] error', error);
+      const status = error.statusCode || 500;
+      return res.status(status).json({ error: error.message || 'Internal server error' });
+    }
   }
 
   if (req.method === 'POST') {

@@ -1,5 +1,6 @@
 import { resolveServerContext } from '../../../src/server/serverContext';
 import { getNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
+import { canManagePrices } from '../../../src/domain/services/accessControl';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -7,7 +8,10 @@ export default async function handler(req, res) {
   }
 
   try {
-    await resolveServerContext(req, res, { requireProfile: true }); // только авторизация, данные берём из BLOB
+    const { user } = await resolveServerContext(req, res, { requireProfile: true }); // только авторизация, данные берём из BLOB
+    if (!user || !canManagePrices(user)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const body = req.body || {};
     const ids = Array.isArray(body.productIds) ? body.productIds : [];
     const productIds = ids

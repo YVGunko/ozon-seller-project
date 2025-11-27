@@ -1,11 +1,11 @@
 import { useEffect, useState, useCallback } from 'react';
 import Link from 'next/link';
-import { useSession } from 'next-auth/react';
+import { useAccess } from '../src/hooks/useAccess';
 
 const PAGE_LIMIT = 50;
 
 export default function LogsPage() {
-  const { data: session, status } = useSession();
+  const { user, canViewLogs } = useAccess();
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -17,7 +17,7 @@ export default function LogsPage() {
 
   const fetchLogs = useCallback(
     async ({ cursor = 0, append = false, silent = false } = {}) => {
-      if (status !== 'authenticated') return;
+      if (!user || !canViewLogs) return;
       if (append) {
         setLoadingMore(true);
       } else if (!silent) {
@@ -56,13 +56,13 @@ export default function LogsPage() {
         }
       }
     },
-    [status, filters.offerId, filters.dateFrom, filters.dateTo]
+    [user, canViewLogs, filters.offerId, filters.dateFrom, filters.dateTo]
   );
 
   useEffect(() => {
-    if (status !== 'authenticated') return;
+    if (!user || !canViewLogs) return;
     fetchLogs({ cursor: 0 });
-  }, [status, fetchLogs]);
+  }, [user, canViewLogs, fetchLogs]);
 
   const handleFilterInputChange = (field, value) => {
     setFormFilters((prev) => ({ ...prev, [field]: value }));
@@ -110,7 +110,8 @@ export default function LogsPage() {
         Здесь отображаются последние записи о запросах, связанных с импортом товаров и обновлением атрибутов.
       </p>
 
-      <div
+      {user && canViewLogs && (
+        <div
         style={{
           backgroundColor: '#f8f9fa',
           padding: 16,
@@ -200,7 +201,14 @@ export default function LogsPage() {
             Обновить
           </button>
         </div>
-      </div>
+        </div>
+      )}
+
+      {!canViewLogs && (
+        <div style={{ padding: '10px 0', color: '#b91c1c', fontSize: 13 }}>
+          У вас нет прав на просмотр логов импорта.
+        </div>
+      )}
 
       {loading && <div style={{ padding: '10px 0', color: '#0070f3' }}>Загрузка логов…</div>}
       {error && (

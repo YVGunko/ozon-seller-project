@@ -1,12 +1,18 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { resolveServerContext } from '../../../src/server/serverContext';
+import { canManageProducts, canManagePrices } from '../../../src/domain/services/accessControl';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
   try {
-    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
+    const { profile, user } = await resolveServerContext(req, res, { requireProfile: true });
+    // Контент‑рейтинг читаем только авторизованным,
+    // но разрешаем как контент‑, так и финансовым ролям.
+    if (!user || (!canManageProducts(user) && !canManagePrices(user))) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     const { skus } = req.body || {};
     if (!Array.isArray(skus) || !skus.length) {
       return res.status(400).json({ error: 'skus array is required' });
