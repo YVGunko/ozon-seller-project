@@ -21,6 +21,12 @@ export function useProductAttributes(apiClient, currentProfile) {
         const data = await apiClient.getAttributes(offerId, currentProfile);
         const rawProducts = Array.isArray(data?.result) ? data.result : [];
         const normalized = normalizeProductAttributes(rawProducts);
+        // eslint-disable-next-line no-console
+        console.log('[attributes] loadAttributes from OZON', {
+          offerId,
+          profileId: currentProfile.id,
+          items: rawProducts.length
+        });
         setAttributes(data);
         const editable = JSON.parse(JSON.stringify(normalized));
         setEditableAttributes(editable);

@@ -38,6 +38,11 @@ import { PriceInfoPanel, ImagesManager, MetaFieldsSection } from '../../../src/c
 import { CategoryTypeSelector } from '../../../src/components/CategoryTypeSelector';
 import { useCurrentContext } from '../../../src/hooks/useCurrentContext';
 import { useAccess } from '../../../src/hooks/useAccess';
+import {
+  loadAttributesDraft,
+  saveAttributesDraft,
+  clearAttributesDraft
+} from '../../../src/utils/attributesDraftStore';
 
 const PRIMARY_PRODUCT_INDEX = 0;
 const STATUS_CHECK_PROGRESS_MESSAGE = 'Проверяю статус карточки...';
@@ -63,7 +68,7 @@ export default function ProductAttributesPage() {
     enterprise: currentEnterprise,
     seller: currentSeller
   } = useCurrentContext();
-  const { canUseAi } = useAccess();
+  const { user, canUseAi } = useAccess();
   const [mediaFiles, setMediaFiles] = useState([]);
   const [priceInfo, setPriceInfo] = useState(null);
   const [priceLoading, setPriceLoading] = useState(false);
@@ -85,6 +90,13 @@ export default function ProductAttributesPage() {
   const [aiSlidesPreview, setAiSlidesPreview] = useState([]);
   const [seoTitleOptions, setSeoTitleOptions] = useState(null);
   const [seoDescriptionOptions, setSeoDescriptionOptions] = useState(null);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [draftInfo, setDraftInfo] = useState(null);
+  const initialAttributesLoadedRef = useRef(false);
+  const initDoneRef = useRef(false);
+  const draftSaveTimeoutRef = useRef(null);
+  const DEBUG_ATTR_ID = '4385';
+  const userChangePendingRef = useRef(false);
 
   const {
     attributes,
@@ -209,6 +221,83 @@ export default function ProductAttributesPage() {
       });
   }, [currentProfile, buildCategoryTree]);
 
+  // После первой загрузки editableAttributes начинаем отслеживать изменения
+  // и сохранять черновик в localStorage.
+  useEffect(() => {
+    if (!editableAttributes || !Array.isArray(editableAttributes)) return;
+
+    const offerIdKey = typeof offer_id === 'string' ? offer_id : '';
+    const profileId = currentProfile?.id || null;
+    const userId = user?.id || null;
+
+    // Без профиля / пользователя / offer_id нет смысла сохранять черновик
+    if (!offerIdKey || !profileId || !userId) return;
+
+    // Если изменения не были инициированы пользователем, черновик не трогаем.
+    if (!userChangePendingRef.current) {
+      if (!initialAttributesLoadedRef.current) {
+        initialAttributesLoadedRef.current = true;
+        const baseProduct = editableAttributes[PRIMARY_PRODUCT_INDEX];
+        const baseAttr =
+          baseProduct &&
+          Array.isArray(baseProduct.attributes)
+            ? baseProduct.attributes.find(
+                (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === DEBUG_ATTR_ID
+              )
+            : null;
+        // eslint-disable-next-line no-console
+        console.log('[draft] initial load (no user change), attr 4385 =', baseAttr);
+      }
+      return;
+    }
+
+    // Сбрасываем флаг, дальше считаем, что изменение — пользовательское.
+    userChangePendingRef.current = false;
+
+    const currentProduct = editableAttributes[PRIMARY_PRODUCT_INDEX];
+    const currentAttr =
+      currentProduct &&
+      Array.isArray(currentProduct.attributes)
+        ? currentProduct.attributes.find(
+            (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === DEBUG_ATTR_ID
+          )
+        : null;
+    // eslint-disable-next-line no-console
+    console.log('[draft] change detected, before schedule save, attr 4385 =', currentAttr);
+
+    setHasUnsavedChanges(true);
+
+    if (draftSaveTimeoutRef.current) {
+      clearTimeout(draftSaveTimeoutRef.current);
+    }
+
+    draftSaveTimeoutRef.current = setTimeout(() => {
+      const productForSave = editableAttributes[PRIMARY_PRODUCT_INDEX];
+      const attrForSave =
+        productForSave &&
+        Array.isArray(productForSave.attributes)
+          ? productForSave.attributes.find(
+              (attr) => getAttributeKey(attr?.id ?? attr?.attribute_id) === DEBUG_ATTR_ID
+            )
+          : null;
+      // eslint-disable-next-line no-console
+      console.log('[draft] saving to localStorage, attr 4385 =', attrForSave);
+
+      saveAttributesDraft({
+        userId,
+        profileId,
+        offerId: offerIdKey,
+        editableAttributes
+      });
+    }, 400);
+
+    return () => {
+      if (draftSaveTimeoutRef.current) {
+        clearTimeout(draftSaveTimeoutRef.current);
+      }
+    };
+  }, [editableAttributes, currentProfile, user, offer_id]);
+
   const updateBaseProduct = useCallback(
     (updates) => {
       setAttributes((prev) => {
@@ -226,12 +315,69 @@ export default function ProductAttributesPage() {
     [setAttributes]
   );
 
+  // Единая инициализация данных товара:
+  // 1) если есть черновик в localStorage — используем его и НЕ грузим OZON;
+  // 2) если черновика нет — загружаем атрибуты из OZON через loadAttributes.
   useEffect(() => {
-    if (isNewMode) return;
-    if (offer_id && currentProfile) {
-      loadAttributes(offer_id);
+    if (isNewMode) {
+      // eslint-disable-next-line no-console
+      console.log('[init] skip init (new mode)');
+      return;
     }
-  }, [offer_id, currentProfile, loadAttributes, isNewMode]);
+
+    const offerIdKey = typeof offer_id === 'string' ? offer_id : '';
+    const profileId = currentProfile?.id || null;
+    const userId = user?.id || null;
+
+    // eslint-disable-next-line no-console
+    console.log('[init] init effect fired', {
+      offerIdKey,
+      profileId,
+      userId,
+      initDone: initDoneRef.current
+    });
+
+    if (!offerIdKey || !profileId || !userId) {
+      // eslint-disable-next-line no-console
+      console.log('[init] missing data, abort init');
+      return;
+    }
+    if (initDoneRef.current) {
+      // eslint-disable-next-line no-console
+      console.log('[init] already done, skip');
+      return;
+    }
+
+    const draft = loadAttributesDraft({ userId, profileId, offerId: offerIdKey });
+
+    const hasEditable =
+      draft && Array.isArray(draft.editableAttributes) && draft.editableAttributes.length > 0;
+    // eslint-disable-next-line no-console
+    console.log('[init] draft presence check', {
+      offerIdKey,
+      hasDraft: !!draft,
+      hasEditable,
+      editableLength: Array.isArray(draft?.editableAttributes)
+        ? draft.editableAttributes.length
+        : 0
+    });
+
+    if (hasEditable) {
+      const draftEditable = draft.editableAttributes;
+      console.log('[init] using draft only, no OZON', offerIdKey);
+      setAttributes({ result: draftEditable, isNewProduct: false });
+      setEditableAttributes(JSON.parse(JSON.stringify(draftEditable)));
+      if (draft.updatedAt) {
+        setDraftInfo({ updatedAt: draft.updatedAt });
+      }
+      initDoneRef.current = true;
+      return;
+    }
+
+    console.log('[init] no draft, loading from OZON', offerIdKey);
+    loadAttributes(offerIdKey);
+    initDoneRef.current = true;
+  }, [offer_id, currentProfile, user, isNewMode, loadAttributes, setAttributes, setEditableAttributes]);
 
   useEffect(() => {
     return () => {
@@ -253,6 +399,8 @@ export default function ProductAttributesPage() {
         if (raw) {
           const parsed = JSON.parse(raw);
           if (parsed?.offer_id === offerValue && parsed.attributes && parsed.editable) {
+            // eslint-disable-next-line no-console
+            console.log('[attributes] restore from attributesCopyDraft for offer', offerValue);
             setAttributes(parsed.attributes);
             setEditableAttributes([JSON.parse(JSON.stringify(parsed.editable))]);
             window.localStorage.removeItem('attributesCopyDraft');
@@ -276,6 +424,8 @@ export default function ProductAttributesPage() {
       primary_image: '',
       available_attributes: []
     };
+    // eslint-disable-next-line no-console
+    console.log('[attributes] init empty product for new offer', offerValue);
     setAttributes({ result: [emptyProduct], isNewProduct: true });
     setEditableAttributes([JSON.parse(JSON.stringify(emptyProduct))]);
   }, [isNewMode, offer_id, attributes?.isNewProduct, editableAttributes, setAttributes, setEditableAttributes]);
@@ -446,6 +596,12 @@ export default function ProductAttributesPage() {
         };
         const normalizedList = normalizeProductAttributes([sourceProductForEdit]);
         const normalizedEditable = normalizedList[0] || sourceProductForEdit;
+        // eslint-disable-next-line no-console
+        console.log('[attributes] init editableAttributes from description-attributes', {
+          categoryId,
+          typeId,
+          metaCount: metaAttributes.length
+        });
         setEditableAttributes([JSON.parse(JSON.stringify(normalizedEditable))]);
 
         fetchedComboKeyRef.current = comboKey;
@@ -640,6 +796,21 @@ export default function ProductAttributesPage() {
     attributes: useRef(new Map())
   };
 
+  const handleBackToProducts = useCallback(() => {
+    const offerIdKey = typeof offer_id === 'string' ? offer_id : '';
+    const profileId = currentProfile?.id || null;
+    const userId = user?.id || null;
+    if (offerIdKey && profileId && userId) {
+      clearAttributesDraft({ userId, profileId, offerId: offerIdKey });
+      // eslint-disable-next-line no-console
+      console.log('[draft] cleared on back-to-products', {
+        offerId: offerIdKey,
+        profileId,
+        userId
+      });
+    }
+  }, [offer_id, currentProfile, user]);
+
   const scrollToRef = (target) => {
     if (!target) return;
     target.scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -703,6 +874,7 @@ export default function ProductAttributesPage() {
   const handleCategorySelect = useCallback(
     (value) => {
       const normalized = value || '';
+      userChangePendingRef.current = true;
       handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'description_category_id', normalized);
       handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'type_id', '');
       updateBaseProduct({
@@ -720,6 +892,7 @@ export default function ProductAttributesPage() {
   const handleTypeSelect = useCallback(
     (value) => {
       const normalized = value || '';
+      userChangePendingRef.current = true;
       handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'type_id', normalized);
       updateBaseProduct({
         type_id: normalized,
@@ -747,6 +920,7 @@ export default function ProductAttributesPage() {
     (productIndex, attributeId, rawValue) => {
       setEditableAttributes((prev) => {
         if (!prev) return prev;
+        userChangePendingRef.current = true;
         return prev.map((product, idx) => {
           if (idx !== productIndex) return product;
           const values = parseAttributeInput(rawValue, attributeId);
@@ -790,6 +964,7 @@ export default function ProductAttributesPage() {
     (productIndex, attributeId, rawValue) => {
       setEditableAttributes((prev) => {
         if (!prev) return prev;
+        userChangePendingRef.current = true;
         const manualValues = parseAttributeInput(rawValue, attributeId);
         return prev.map((product, idx) => {
           if (idx !== productIndex) return product;
@@ -837,6 +1012,7 @@ export default function ProductAttributesPage() {
     (productIndex, attributeId, selectedKeys, optionsMap) => {
       setEditableAttributes((prev) => {
         if (!prev) return prev;
+        userChangePendingRef.current = true;
         const normalizedKeys = Array.isArray(selectedKeys)
           ? Array.from(new Set(selectedKeys.filter(Boolean)))
           : [];
@@ -892,6 +1068,7 @@ export default function ProductAttributesPage() {
     (productIndex, rawValue) => {
       setEditableAttributes((prev) => {
         if (!prev) return prev;
+        userChangePendingRef.current = true;
         return prev.map((product, idx) => {
           if (idx !== productIndex) return product;
           const nextProduct = { ...product };
@@ -917,6 +1094,7 @@ export default function ProductAttributesPage() {
     if (!links.length) return;
     const existing = Array.isArray(editableProduct.images) ? editableProduct.images : [];
     const merged = Array.from(new Set([...existing, ...links]));
+    userChangePendingRef.current = true;
     handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'images', merged);
   };
 
@@ -1085,6 +1263,7 @@ export default function ProductAttributesPage() {
       : [];
     if (!titles.length) return;
     if (titles.length === 1) {
+      userChangePendingRef.current = true;
       handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', titles[0]);
       return;
     }
@@ -1215,6 +1394,7 @@ export default function ProductAttributesPage() {
           ? editableProduct.images
           : [];
         const merged = [...existing, ...urls];
+        userChangePendingRef.current = true;
         handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'images', merged);
         // eslint-disable-next-line no-alert
         alert(`Добавлено слайдов изображений: ${urls.length}`);
@@ -1470,6 +1650,13 @@ export default function ProductAttributesPage() {
     }
 
     try {
+      // eslint-disable-next-line no-console
+      console.log('[attributes] handleSaveAttributes click', {
+        offerId: selectedOfferId,
+        profileId: currentProfile.id,
+        itemsCount: items.length
+      });
+
       setSavingAttributes(true);
       setSavingLabel(STATUS_CHECK_PROGRESS_MESSAGE);
       setAttributesUpdateStatus({ message: STATUS_CHECK_PROGRESS_MESSAGE, error: '' });
@@ -1500,6 +1687,20 @@ export default function ProductAttributesPage() {
           error: ''
         });
       }
+
+      // Успешное сохранение — сбрасываем флаг несохранённых изменений
+      // и очищаем черновик для текущего пользователя / профиля / товара.
+      const offerIdKey = typeof offer_id === 'string' ? offer_id : '';
+      const profileId = currentProfile?.id || null;
+      const userId = user?.id || null;
+      clearAttributesDraft({ userId, profileId, offerId: offerIdKey });
+       // eslint-disable-next-line no-console
+       console.log('[draft] cleared after successful save', {
+         offerId: offerIdKey,
+         profileId,
+         userId
+       });
+      setHasUnsavedChanges(false);
     } catch (error) {
       console.error('handleSaveAttributes error', error);
       setAttributesUpdateStatus({
@@ -1510,7 +1711,7 @@ export default function ProductAttributesPage() {
       setSavingAttributes(false);
       setSavingLabel('Отправляем...');
     }
-  }, [currentProfile, selectedOfferId, sanitizeItemsForUpdate, isNewProduct, editableProduct]);
+  }, [currentProfile, selectedOfferId, sanitizeItemsForUpdate, isNewProduct, editableProduct, offer_id, user]);
 
   const handleRefreshClick = useCallback(() => {
     if (!selectedOfferId) {
@@ -1616,7 +1817,12 @@ export default function ProductAttributesPage() {
       <main ref={containerRef} style={{ flex: 1, padding: 24, overflowY: 'auto' }}>
         <div style={{ marginBottom: 12 }}>
           <Link href="/products" legacyBehavior>
-            <a style={{ color: '#0d6efd', textDecoration: 'none' }}>← Вернуться к списку товаров</a>
+            <a
+              style={{ color: '#0d6efd', textDecoration: 'none' }}
+              onClick={handleBackToProducts}
+            >
+              ← Вернуться к списку товаров
+            </a>
           </Link>
         </div>
         <header
@@ -1658,9 +1864,10 @@ export default function ProductAttributesPage() {
                 <input
                   type="text"
                   value={editableProduct?.name || ''}
-                  onChange={(event) =>
-                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', event.target.value)
-                  }
+                  onChange={(event) => {
+                    userChangePendingRef.current = true;
+                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'name', event.target.value);
+                  }}
                   style={{
                     ...inputStyle,
                     marginTop: 6,
@@ -1698,9 +1905,10 @@ export default function ProductAttributesPage() {
                 <input
                   type="text"
                   value={editableProduct?.offer_id || ''}
-                  onChange={(event) =>
-                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'offer_id', event.target.value)
-                  }
+                  onChange={(event) => {
+                    userChangePendingRef.current = true;
+                    handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'offer_id', event.target.value);
+                  }}
                   disabled={!isNewProduct}
                   style={{
                     ...inputStyle,
@@ -1881,6 +2089,74 @@ export default function ProductAttributesPage() {
             </div>
           </div>
         </header>
+
+        {draftInfo && (
+          <div
+            style={{
+              margin: '16px 24px 0',
+              padding: '10px 14px',
+              borderRadius: 10,
+              border: '1px solid #bfdbfe',
+              backgroundColor: '#eff6ff',
+              fontSize: 13,
+              display: 'flex',
+              justifyContent: 'space-between',
+              alignItems: 'center',
+              gap: 12
+            }}
+          >
+            <div>
+              <div style={{ fontWeight: 500, color: '#1d4ed8' }}>
+                Найден черновик атрибутов для этого товара
+              </div>
+              <div style={{ fontSize: 12, color: '#4b5563' }}>
+                Последнее авто‑сохранение:{' '}
+                {new Date(draftInfo.updatedAt).toLocaleString()}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                type="button"
+                className="oz-btn oz-btn-secondary"
+                style={{ fontSize: 12 }}
+                onClick={() => {
+                  const offerIdKey = typeof offer_id === 'string' ? offer_id : '';
+                  const profileId = currentProfile?.id || null;
+                  const userId = user?.id || null;
+                  const draft = loadAttributesDraft({
+                    userId,
+                    profileId,
+                    offerId: offerIdKey
+                  });
+                  if (draft && Array.isArray(draft.editableAttributes)) {
+                    // eslint-disable-next-line no-console
+                    console.log('[draft] manual restore clicked, applying draft editableAttributes');
+                    setEditableAttributes(draft.editableAttributes);
+                    setHasUnsavedChanges(true);
+                  }
+                  setDraftInfo(null);
+                }}
+              >
+                Восстановить
+              </button>
+              <button
+                type="button"
+                className="oz-btn oz-btn-secondary"
+                style={{ fontSize: 12 }}
+                onClick={() => {
+                  const offerIdKey = typeof offer_id === 'string' ? offer_id : '';
+                  const profileId = currentProfile?.id || null;
+                  const userId = user?.id || null;
+                  clearAttributesDraft({ userId, profileId, offerId: offerIdKey });
+                  setDraftInfo(null);
+                }}
+              >
+                Игнорировать
+              </button>
+            </div>
+          </div>
+        )}
+
         {!isNewProduct && (
           <PriceInfoPanel
             priceInfo={priceInfo}
@@ -2066,8 +2342,14 @@ export default function ProductAttributesPage() {
               title="Изображения товара"
               images={currentImages}
               primaryImage={primaryImage}
-              onImagesChange={(next) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'images', next)}
-              onPrimaryChange={(value) => handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'primary_image', value)}
+              onImagesChange={(next) => {
+                userChangePendingRef.current = true;
+                handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'images', next);
+              }}
+              onPrimaryChange={(value) => {
+                userChangePendingRef.current = true;
+                handleProductMetaChange(PRIMARY_PRODUCT_INDEX, 'primary_image', value);
+              }}
               disabled={!editableProduct || savingAttributes || loadingAttributes}
             />
             {!currentImages.length && (
