@@ -36,7 +36,11 @@ export function canUseAi(user) {
 }
 
 export function canManagePrompts(user) {
-  return isRootAdmin(user) || hasRole(user, ROLE_MANAGER);
+  return (
+    isRootAdmin(user) ||
+    hasRole(user, ROLE_MANAGER) ||
+    hasRole(user, ROLE_CONTENT)
+  );
 }
 
 export function canManagePrices(user) {
@@ -53,4 +57,83 @@ export function canManageOrders(user) {
     hasRole(user, ROLE_MANAGER) ||
     hasRole(user, ROLE_ORDER)
   );
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// AI‑доступ с учётом Enterprise‑настроек
+// ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Нормализованные AI‑настройки Enterprise.
+ * Пока минимально: включена ли текстовая / картинная генерация.
+ *
+ * @param {import('../entities/enterprise').Enterprise|null} enterprise
+ */
+export function getEnterpriseAiSettings(enterprise) {
+  const ai = (enterprise && enterprise.settings && enterprise.settings.ai) || {};
+
+  return {
+    // По умолчанию всё включено; можно отключить, задав false.
+    textEnabled: ai.textEnabled !== false,
+    imageEnabled: ai.imageEnabled !== false,
+    allowedTextModels: Array.isArray(ai.allowedTextModels)
+      ? ai.allowedTextModels
+      : null,
+    allowedImageModels: Array.isArray(ai.allowedImageModels)
+      ? ai.allowedImageModels
+      : null
+  };
+}
+
+/**
+ * Можно ли пользователю использовать текстовые AI‑функции
+ * (SEO‑названия, описания, хештеги, Rich‑контент, структура слайдов)
+ * в рамках конкретного Enterprise.
+ */
+export function canUseAiText(user, enterprise) {
+  if (!canUseAi(user)) return false;
+  const settings = getEnterpriseAiSettings(enterprise);
+  return settings.textEnabled;
+}
+
+/**
+ * Можно ли пользователю использовать генерацию картинок (слайды и т.п.)
+ * в рамках конкретного Enterprise.
+ */
+export function canUseAiImage(user, enterprise) {
+  if (!canUseAi(user)) return false;
+  const settings = getEnterpriseAiSettings(enterprise);
+  return settings.imageEnabled;
+}
+
+// ────────────────────────────────────────────────────────────────────────────────
+// Enterprise / Seller админка
+// ────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * Только root‑уровень (root_admin / admin) может создавать и редактировать Enterprise.
+ */
+export function canManageEnterprises(user) {
+  return isRootAdmin(user);
+}
+
+/**
+ * Управление Seller внутри Enterprise:
+ *  - root‑админ может управлять любыми Seller;
+ *  - manager может управлять Seller только в своём Enterprise.
+ */
+export function canManageSellers(user, enterprise) {
+  if (!user || !enterprise) return false;
+  if (isRootAdmin(user)) return true;
+  return hasRole(user, ROLE_MANAGER) && user.enterpriseId === enterprise.id;
+}
+
+/**
+ * Просмотр списка Enterprise:
+ *  - root/admin видит все;
+ *  - manager может видеть только свои Enterprise (фильтрация делается на уровне API).
+ */
+export function canViewEnterprises(user) {
+  if (!user) return false;
+  return isRootAdmin(user) || hasRole(user, ROLE_MANAGER);
 }

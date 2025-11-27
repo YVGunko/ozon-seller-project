@@ -24,7 +24,7 @@ import {
 
 import { getAiPrompts, AiPromptMode } from '../../../src/modules/ai-prompts';
 import { resolveServerContext } from '../../../src/server/serverContext';
-import { canUseAi } from '../../../src/domain/services/accessControl';
+import { canUseAiText } from '../../../src/domain/services/accessControl';
 
 function renderTemplate(template, variables) {
   if (!template || typeof template !== 'string') return '';
@@ -56,7 +56,7 @@ export default async function handler(req, res) {
       requireProfile: false
     });
 
-    if (!serverContext.user || !canUseAi(serverContext.user)) {
+    if (!serverContext.user || !canUseAiText(serverContext.user, serverContext.enterprise)) {
       return res.status(403).json({ error: 'AI functions are not allowed for this user' });
     }
 

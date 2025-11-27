@@ -27,19 +27,21 @@ import { createUser } from '../entities/user';
  * Это чистая функция без побочных эффектов — только формирование структур.
  *
  * @param {ProfileLike} profile
+ * @param {import('../entities/enterprise').Enterprise} [enterpriseOverride]
  * @returns {{ root: import('../entities/root').Root, enterprise: import('../entities/enterprise').Enterprise, seller: import('../entities/seller').Seller }}
  */
-export function mapProfileToEnterpriseAndSeller(profile) {
+export function mapProfileToEnterpriseAndSeller(profile, enterpriseOverride) {
   const root = createRoot();
 
-  const enterpriseId = `ent-${profile.id}`;
-  const enterprise = createEnterprise({
-    id: enterpriseId,
-    rootId: root.id,
-    name: profile.name || `Enterprise ${profile.id}`,
-    slug: null,
-    settings: {}
-  });
+  const enterprise =
+    enterpriseOverride ||
+    createEnterprise({
+      id: `ent-${profile.id}`,
+      rootId: root.id,
+      name: profile.name || `Enterprise ${profile.id}`,
+      slug: null,
+      settings: {}
+    });
 
   const sellerId = `sell-${profile.id}`;
   const seller = createSeller({

@@ -1,0 +1,26 @@
+[
+  {
+    "id": "disol",
+    "name": "Nakito / LED AUTO",
+    "slug": "nakito-led-auto",
+    "profileIds": ["76251", "3497256"],
+    "settings": {
+      "ai": {
+        "textEnabled": true,
+        "imageEnabled": true
+      }
+    }
+  },
+  { "id": "nikes-united",
+    "name": "Объединенные магазины Николая",
+    "slug": "nike's-united",
+    "profileIds": [],
+    "settings": {
+      "ai": {
+        "textEnabled": true,
+        "imageEnabled": true
+      }
+    }
+  }
+]
+

@@ -10,7 +10,8 @@ import {
   canUseAi,
   canManagePrompts,
   canManagePrices,
-  canManageOrders
+  canManageOrders,
+  canManageEnterprises
 } from '../domain/services/accessControl';
 
 export function useAccess() {
@@ -23,7 +24,7 @@ export function useAccess() {
     canUseAi: canUseAi(user),
     canManagePrompts: canManagePrompts(user),
     canManagePrices: canManagePrices(user),
-    canManageOrders: canManageOrders(user)
+    canManageOrders: canManageOrders(user),
+    canManageEnterprises: canManageEnterprises(user)
   };
 }
-

@@ -15,7 +15,12 @@ export default function Home() {
   const isActionsActive = router.pathname.startsWith('/actions');
 
   const { profile: contextProfile } = useCurrentContext();
-  const { canManageUsers, canManageOrders, canManagePrices } = useAccess();
+  const {
+    canManageUsers,
+    canManageOrders,
+    canManagePrices,
+    canManageEnterprises
+  } = useAccess();
   const [currentProfile, setCurrentProfile] = useState(contextProfile || null);
   const [showProfilesModal, setShowProfilesModal] = useState(false);
 
@@ -293,6 +298,14 @@ export default function Home() {
               <Link href="/admin/users">
                 <div style={sidebarSubItemStyle}>
                   <span>Пользователи (admin)</span>
+                  <span>›</span>
+                </div>
+              </Link>
+            )}
+            {canManageEnterprises && (
+              <Link href="/admin/enterprises">
+                <div style={sidebarSubItemStyle}>
+                  <span>Организации (Enterprise)</span>
                   <span>›</span>
                 </div>
               </Link>

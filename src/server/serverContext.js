@@ -7,6 +7,7 @@
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from './authOptions';
 import { getProfileById, ensureProfilesLoaded } from './profileStore';
+import { findEnterpriseByProfileId } from './enterpriseStore';
 import {
   mapProfileToEnterpriseAndSeller,
   mapAuthToUser
@@ -84,7 +85,16 @@ export async function resolveServerContext(req, res, options = {}) {
     }
     profile = found;
     profileId = found.id;
-    const mapped = mapProfileToEnterpriseAndSeller(found);
+
+    let enterpriseOverride = null;
+    try {
+      enterpriseOverride = await findEnterpriseByProfileId(profileId);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error('[serverContext] enterprise lookup failed', e);
+    }
+
+    const mapped = mapProfileToEnterpriseAndSeller(found, enterpriseOverride || undefined);
     enterprise = mapped.enterprise;
     seller = mapped.seller;
   } else if (requireProfile) {

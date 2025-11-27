@@ -271,7 +271,7 @@ UI в `/attributes` использует эти данные для:
   - `src/domain/services/identityMapping.test.js`;
   - `src/domain/services/AttributesService.test.js`.
 - Общая идея:
-  - тестировать доменные сервисы и модули (ai-storage, ai-prompts, attributes, identity);
+ - тестировать доменные сервисы и модули (ai-storage, ai-prompts, attributes, identity);
   - API‑роуты и UI полагаются на стабильное поведение этих сервисов.
 
 ---
@@ -285,12 +285,25 @@ UI в `/attributes` использует эти данные для:
    - Ролевые проверки для AI‑функций и управления промптами.
 
 2. **Расширение доменных сервисов**
-   - `ProductsService` (работа с товарами и ценами);
-   - история цен/нетто‑цен с привязкой к `enterpriseId`/`sellerId`.
+  - `ProductsService` (работа с товарами и ценами);
+  - история цен/нетто‑цен с привязкой к `enterpriseId`/`sellerId`.
 
 3. **Поддержка новых маркетплейсов**
    - Добавление новых адаптеров, реализующих интерфейс `MarketplaceAdapter`.
    - Переиспользование существующих доменных сервисов и UI‑слоя.
+
+4. **TODO: Billing / тарифы Enterprise**
+   - Ввести явное поле тарифа Enterprise (например, `billingPlan: "free" | "pro" | "enterprise"`).
+   - Расширить `enterprise.settings.ai` лимитами и разрешёнными моделями:
+     - `settings.ai.textEnabled / imageEnabled`;
+     - `settings.ai.allowedTextModels / allowedImageModels`;
+     - простые квоты по количеству запросов.
+   - Связать это с access‑helper’ами (`canUseAiText`, `canUseAiImage`) и, при необходимости, логикой биллинга.
+
+5. **TODO: Разграничение доступа по ролям к товарам**
+   - Ввести helpers `canAccessProducts`, `canEditProducts`, `canEditAttributes`.
+   - Ограничить роли `order` и `finance` только зонами заказов/отправлений/финансов, без доступа к редактированию товаров и атрибутов (возможен read‑only режим, обсуждается отдельно).
+   - Использовать эти helpers в страницах `/products`, `/products/[offer_id]/attributes` и связанных API‑роутах.
 
 Этот документ должен помогать ориентироваться в структуре проекта и принимать решения о дальнейшем рефакторинге и развитии без ломки уже работающих частей.
 
@@ -363,4 +376,3 @@ UI в `/attributes` использует эти данные для:
 - отображается на странице `/admin/users` (как `Пользователи (admin)`);
 - имеет роль `admin` по умолчанию;
 - имеет доступ только к тем профилям OZON, которые перечислены в `ADMIN_PROFILES`.
-

@@ -1,6 +1,6 @@
 import { put } from '@vercel/blob';
-import { getServerSession } from 'next-auth';
-import { authOptions } from '../../../src/server/authOptions';
+import { resolveServerContext } from '../../../src/server/serverContext';
+import { canUseAiImage } from '../../../src/domain/services/accessControl';
 import { runReplicate } from '../../../src/utils/replicateClient';
 
 export const config = {
@@ -18,9 +18,17 @@ export default async function handler(req, res) {
   }
 
   try {
-    const session = await getServerSession(req, res, authOptions);
-    if (!session) {
-      return res.status(401).json({ error: 'Unauthorized' });
+    const serverContext = await resolveServerContext(req, res, {
+      requireProfile: false
+    });
+
+    if (
+      !serverContext.user ||
+      !canUseAiImage(serverContext.user, serverContext.enterprise)
+    ) {
+      return res
+        .status(403)
+        .json({ error: 'AI image functions are not allowed for this user' });
     }
     if (!process.env.BLOB_READ_WRITE_TOKEN) {
       return res
