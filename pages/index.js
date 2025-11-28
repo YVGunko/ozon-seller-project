@@ -302,6 +302,14 @@ export default function Home() {
                 </div>
               </Link>
             )}
+            {canManageUsers && (
+              <Link href="/admin/sellers">
+                <div style={sidebarSubItemStyle}>
+                  <span>Магазины</span>
+                  <span>›</span>
+                </div>
+              </Link>
+            )}
             {canManageEnterprises && (
               <Link href="/admin/enterprises">
                 <div style={sidebarSubItemStyle}>

@@ -32,13 +32,12 @@ export default async function handler(req, res) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-  if (!process.env.BLOB_READ_WRITE_TOKEN) {
-    return res
-      .status(500)
-      .json({ error: 'BLOB_READ_WRITE_TOKEN is not configured on the server' });
-  }
+    if (!process.env.BLOB_READ_WRITE_TOKEN) {
+      return res
+        .status(500)
+        .json({ error: 'BLOB_READ_WRITE_TOKEN is not configured on the server' });
+    }
 
-  try {
     const { searchParams } = new URL(req.url, 'http://localhost');
     const rawFilename = searchParams.get('filename') || 'image';
     const safeFilename = rawFilename.replace(/[^a-zA-Z0-9._-]/g, '');
@@ -91,17 +90,17 @@ export default async function handler(req, res) {
       addRandomSuffix: false
     });
 
-      return res.status(200).json({
-        url: blob.url,
-        pathname: blob.pathname,
-        size: blob.size,
-        reused: false
-      });
-    } catch (error) {
-      console.error('Blob upload error', error);
-      const status = error.statusCode || 500;
-      return res
-        .status(status)
-        .json({ error: error?.message || 'Не удалось загрузить изображение' });
-    }
+    return res.status(200).json({
+      url: blob.url,
+      pathname: blob.pathname,
+      size: blob.size,
+      reused: false
+    });
+  } catch (error) {
+    console.error('Blob upload error', error);
+    const status = error.statusCode || 500;
+    return res
+      .status(status)
+      .json({ error: error?.message || 'Не удалось загрузить изображение' });
+  }
 }

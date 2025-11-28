@@ -964,58 +964,9 @@ export async function generateRichJSON({ products, baseProductData }) {
 }
 
 /**
- * Генерация "слайдов" (структуры для слайдов/изображений) с произвольным промптом.
- * withWatermark: boolean — добавлять ли watermark
- * watermarkText: string — текст водяного знака (если слайдам требуется watermark)
+ * Построение промпта для структуры слайдов
  */
-export async function generateSlidesWithPrompt({
-  products,
-  baseProductData,
-  withWatermark = false,
-  watermarkText = '',
-  prompt
-}) {
-  if (!Array.isArray(products) || products.length === 0) {
-    throw new Error('Не переданы товары для генерации слайдов');
-  }
-
-  if (!prompt || !prompt.system || !prompt.user) {
-    throw new Error(
-      'generateSlidesWithPrompt: prompt.system и prompt.user обязательны'
-    );
-  }
-
-  const content = await callGroqChat({
-    system: prompt.system,
-    user: prompt.user,
-    temperature: 0.7,
-    maxTokens: 3000
-  });
-
-  const parsed = parseJsonFromModel(content);
-  const slidesArr = Array.isArray(parsed?.slides) ? parsed.slides : parsed;
-
-  if (!Array.isArray(slidesArr)) {
-    throw new Error('Ответ модели не содержит массива slides');
-  }
-
-  return slidesArr.map((item) => ({
-    index: item.index,
-    slides: Array.isArray(item.slides) ? item.slides : []
-  }));
-}
-
-/**
- * Генерация "слайдов" (структуры для слайдов/изображений) с опциональным водяным знаком
- * withWatermark: boolean — добавлять ли watermark
- * watermarkText: string — текст водяного знака (если withWatermark = true)
- */
-export async function generateSlides({
-  products,
-  baseProductData,
-  withWatermark = false,
-  watermarkText = ''
-}) {
+export function buildSlidesPrompt({ products, baseProductData }) {
   if (!Array.isArray(products) || products.length === 0) {
     throw new Error('Не переданы товары для генерации слайдов');
   }
@@ -1027,7 +978,7 @@ export async function generateSlides({
 Ты команда профессионального дизайнерского агентства MaryCo.
 Ты проектируешь промо-слайды для карточек товаров на маркетплейсе Ozon.
 Отвечай строго в формате JSON-структуры слайдов.
-`;
+`.trim();
 
   const user = [
     'Для КАЖДОГО товара создай РОВНО 5 отдельных промо-слайдов для карточки Ozon.',
@@ -1087,12 +1038,68 @@ export async function generateSlides({
     .filter(Boolean)
     .join('\n');
 
-  const prompt = {
+  return {
     system,
     user,
     temperature: 0.7,
     maxTokens: 3000
   };
+}
+
+/**
+ * Генерация "слайдов" (структуры для слайдов/изображений) с произвольным промптом.
+ * withWatermark: boolean — добавлять ли watermark
+ * watermarkText: string — текст водяного знака (если слайдам требуется watermark)
+ */
+export async function generateSlidesWithPrompt({
+  products,
+  baseProductData,
+  withWatermark = false,
+  watermarkText = '',
+  prompt
+}) {
+  if (!Array.isArray(products) || products.length === 0) {
+    throw new Error('Не переданы товары для генерации слайдов');
+  }
+
+  if (!prompt || !prompt.system || !prompt.user) {
+    throw new Error(
+      'generateSlidesWithPrompt: prompt.system и prompt.user обязательны'
+    );
+  }
+
+  const content = await callGroqChat({
+    system: prompt.system,
+    user: prompt.user,
+    temperature: 0.7,
+    maxTokens: 3000
+  });
+
+  const parsed = parseJsonFromModel(content);
+  const slidesArr = Array.isArray(parsed?.slides) ? parsed.slides : parsed;
+
+  if (!Array.isArray(slidesArr)) {
+    throw new Error('Ответ модели не содержит массива slides');
+  }
+
+  return slidesArr.map((item) => ({
+    index: item.index,
+    slides: Array.isArray(item.slides) ? item.slides : []
+  }));
+}
+
+/**
+ * Генерация "слайдов" (структуры для слайдов/изображений) с опциональным водяным знаком
+ * withWatermark: boolean — добавлять ли watermark
+ * watermarkText: string — текст водяного знака (если withWatermark = true)
+ */
+export async function generateSlides({
+  products,
+  baseProductData,
+  withWatermark = false,
+  watermarkText = ''
+}) {
+  const prompt = buildSlidesPrompt({ products, baseProductData });
 
   return generateSlidesWithPrompt({
     products,

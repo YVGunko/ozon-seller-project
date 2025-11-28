@@ -9,6 +9,7 @@ import {
   generateHashtags,
   generateRichJSON,
   generateSlides,
+  buildSlidesPrompt,
   generateSEONameWithPrompt,
   generateSEODescriptionWithPrompt,
   generateHashtagsWithPrompt,
@@ -352,8 +353,11 @@ export default async function handler(req, res) {
         });
       }
     } else if (normalizedMode === 'slides') {
-      // Для слайдов пока оставляем прежнюю схему: базовый промпт внутри generateSlides,
-      // AiPrompt может полностью переопределять структуру, если нужен другой подход.
+      const basePrompt = buildSlidesPrompt({
+        products,
+        baseProductData
+      });
+
       let activePrompt = null;
       try {
         const promptsService = getAiPrompts();
@@ -378,14 +382,27 @@ export default async function handler(req, res) {
           withWatermark,
           watermarkText
         };
-        const system = renderTemplate(activePrompt.systemTemplate, templateVars);
-        const userPrompt = renderTemplate(activePrompt.userTemplate, templateVars);
+        const extraSystem = renderTemplate(
+          activePrompt.systemTemplate || '',
+          templateVars
+        ).trim();
+        const extraUser = renderTemplate(
+          activePrompt.userTemplate || '',
+          templateVars
+        ).trim();
+
+        const finalSystem = extraSystem
+          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
+          : basePrompt.system;
+        const finalUser = extraUser
+          ? `${extraUser}\n\n${basePrompt.user.trim()}`
+          : basePrompt.user;
 
         promptMeta = {
-          system,
-          user: userPrompt,
-          temperature: 0.7,
-          maxTokens: 3000
+          system: finalSystem,
+          user: finalUser,
+          temperature: basePrompt.temperature,
+          maxTokens: basePrompt.maxTokens
         };
         usedPromptId = activePrompt.id;
 
@@ -397,6 +414,7 @@ export default async function handler(req, res) {
           prompt: promptMeta
         });
       } else {
+        promptMeta = basePrompt;
         items = await generateSlides({
           products,
           baseProductData,

@@ -60,6 +60,81 @@
 
 ---
 
+## 0. Конфигурация пользователей / профилей (Blob vs .env)
+
+### 0.1 Общая политика
+
+- **Основной источник конфигурации** — JSON‑файлы в Vercel Blob:
+  - `config/users.json` — внутренние пользователи и их профили/роли;
+  - `config/profiles.json` — магазины (Seller) и их OZON‑ключи;
+  - `config/enterprises.json` — организации (Enterprise) и привязка профилей.
+- Переменные окружения (`AUTH_USERS`, `ADMIN_*`, `OZON_PROFILES`) используются **только как fallback**:
+  - если соответствующий Blob‑файл отсутствует — можно bootstrap’нуть конфиг из ENV;
+  - после появления JSON в Blob все чтения/записи должны идти только через Blob.
+
+### 0.2 Users (`config/users.json`, `userStore`, `/api/admin/users`)
+
+- Загрузка пользователей:
+  - `userStore.getAuthUsers()`:
+    1. Пытается прочитать `config/users.json` из Blob (префикс `CONFIG_USERS_BLOB_PREFIX` или по умолчанию `config/users.json`).
+    2. Если Blob не найден — использует `AUTH_USERS` / `ADMIN_*` из `.env` (только чтение).
+  - При успешной загрузке из Blob логирует источник и количество записей.
+- Сохранение пользователей:
+  - `/api/admin/users` (метод `POST`):
+    - вызывает `loadUsersConfig()`:
+      - `list({ prefix: USERS_BLOB_PREFIX })`;
+      - если список пуст — считает, что конфига нет, и использует путь `'config/users.json'`;
+      - если файл есть — читает JSON именно из этого `pathname`.
+    - обновляет/добавляет запись пользователя (без экспорта пароля наружу);
+    - сериализует массив в JSON и делает `put(pathname, json, { access: 'public', contentType: 'application/json' })`;
+      - если файл существует, он перезаписывается;
+      - если нет — создаётся `config/users.json`.
+    - вызывает `reloadAuthUsersFromBlob()`, чтобы `userStore` немедленно увидел изменения.
+- UI `/admin/users`:
+  - работает только с `/api/admin/users` и `/api/profiles`;
+  - показывает `*****` вместо пароля и кнопку «Изменить пароль»;
+  - пароль отправляется в API только при создании пользователя или явной смене.
+
+### 0.3 Profiles / Sellers (`config/profiles.json`, `profileStore`, `/api/admin/sellers`)
+
+- Загрузка профилей:
+  - `profileStore.ensureProfilesLoaded()`:
+    1. Пытается прочитать `config/profiles.json` из Blob.
+    2. Если Blob ещё нет — может собрать профили из `OZON_PROFILES` в `.env` (bootstrap режим) и залогировать предупреждение.
+- Сохранение профилей:
+  - `/api/admin/sellers`:
+    - читает `config/profiles.json` и `config/enterprises.json` через Blob;
+    - обновляет/создаёт профиль магазина (привязка `ozon_client_id`, `ozon_api_key`, `client_hint`, `description`);
+      - при редактировании существующего Seller пустое поле `ozon_api_key` не трогает старый ключ;
+      - факт наличия ключа на фронт отдаётся отдельным флагом `ozon_has_api_key`, а сам ключ никогда не возвращается.
+    - обновляет `profileIds` в Enterprise:
+      - добавляет Seller в выбранный Enterprise;
+      - удаляет из остальных Enterprise, если продавец был привязан ранее;
+    - перезаписывает оба файла в Blob;
+    - вызывает `reloadProfilesFromBlob()` и `reloadEnterprisesFromBlob()`.
+- UI `/admin/sellers`:
+  - отображает магазины и их привязку к Enterprise;
+  - показывает звёздочки `*****` вместо `ozon_api_key` и красное предупреждение, если ключ уже сохранён;
+  - для root/admin позволяет менять Enterprise через `<select>`, для manager показывает только текст (без права менять организацию).
+
+### 0.4 Enterprises (`config/enterprises.json`, `enterpriseStore`)
+
+- `enterpriseStore`:
+  - читает `config/enterprises.json` из Blob;
+  - если файл отсутствует — может создать in‑memory дефолтный Enterprise (`ent-main`) и логировать, что конфиг не сохранён.
+- API `/api/admin/enterprises` (просмотр/управление организациями):
+  - использует Blob как источник истины;
+  - операции создания/обновления Enterprise должны перезаписывать `config/enterprises.json` и вызывать `reloadEnterprisesFromBlob()`.
+
+### 0.5 TODO по конфигурации
+
+- Явно показывать в админке (users / sellers / enterprises), из какого источника взята конфигурация:
+  - Blob (OK) vs ENV (режим bootstrap/предупреждение).
+- Добавить административный endpoint `/api/admin/config-status` для диагностики:
+  - наличие `config/users.json`, `config/profiles.json`, `config/enterprises.json`;
+  - использование ENV‑fallback’ов.
+‑‑‑
+
 ## 2. Доменные сущности
 
 ### 2.1 Root / Enterprise / Seller / User
@@ -258,6 +333,64 @@ UI в `/attributes` использует эти данные для:
     - `AI хештеги` → прямое заполнение атрибута `#Хештеги` (id 23171) с валидацией;
     - `AI Rich JSON` → заполнение атрибута 11254 структурой Rich‑контента;
     - `AI слайды` → генерация структуры слайдов + кнопка «Сделать изображения слайдов» (через отдельный API).
+
+---
+
+## 6. Контроль доступа: какие API что проверяют
+
+Ниже таблица основных API‑роутов и guard‑функций из `src/domain/services/accessControl.js`, которые ограничивают доступ по ролям.
+
+### 6.1 Товары / атрибуты / копирование
+
+| Endpoint                                 | Метод(ы)       | Guard              | Кто имеет доступ                               |
+|------------------------------------------|----------------|--------------------|------------------------------------------------|
+| `/api/products/attributes`              | `GET`          | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/products/attributes`              | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/products/import`                  | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/products/copy`                    | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/products/update-offer-id`         | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/products/barcodes`                | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/products/description-tree`        | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/products/description-attributes`  | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+| `/api/attention-products`               | `POST`         | `canManageProducts`| admin, manager, content‑creator                |
+
+### 6.2 Цены и акции
+
+| Endpoint                                   | Метод(ы)       | Guard               | Кто имеет доступ                               |
+|--------------------------------------------|----------------|---------------------|------------------------------------------------|
+| `/api/products/import-prices`             | `POST`         | `canManagePrices`   | admin, manager, finance                        |
+| `/api/products/info-prices`               | `GET`, `POST`  | `canManagePrices`   | admin, manager, finance                        |
+| `/api/products/net-price-latest`          | `POST`         | `canManagePrices`   | admin, manager, finance                        |
+| `/api/actions/products`                   | `POST`         | `canManagePrices`   | admin, manager, finance                        |
+| `/api/actions/candidates`                 | `POST`         | `canManagePrices`   | admin, manager, finance                        |
+| `/api/actions/pricing-settings`           | `GET`, `POST`  | `canManagePrices`   | admin, manager, finance                        |
+| `/api/products/rating-by-sku`             | `POST`         | `canManageProducts` **или** `canManagePrices` | admin, manager, content‑creator, finance |
+
+### 6.3 Заказы / отправления
+
+| Endpoint                         | Метод(ы) | Guard              | Кто имеет доступ                   |
+|----------------------------------|----------|--------------------|------------------------------------|
+| `/api/orders/postings`          | `POST`   | `canManageOrders`  | admin, manager, order             |
+
+### 6.4 AI‑функции
+
+| Endpoint                             | Метод(ы) | Guard                          | Описание                               |
+|--------------------------------------|----------|--------------------------------|----------------------------------------|
+| `/api/ai/product-seo`               | `POST`   | `canUseAiText(user, enterprise)` | SEO‑названия, описание, хештеги, rich, структура слайдов |
+| `/api/ai/slide-images`              | `POST`   | `canUseAiImage(user, enterprise)`| Генерация изображений слайдов (Replicate / Flux) |
+
+### 6.5 Админка и справочные данные
+
+| Endpoint                               | Метод(ы)       | Guard                    | Кто имеет доступ                         |
+|----------------------------------------|----------------|--------------------------|------------------------------------------|
+| `/api/admin/users`                    | `GET`          | `canManageUsers`         | admin, manager                           |
+| `/api/admin/enterprises`              | `GET`          | `canViewEnterprises`     | admin, manager                           |
+| `/api/admin/enterprises`              | `POST`,`PATCH` | `canManageEnterprises`   | только admin (root‑уровень)              |
+| `/api/logs`                           | `GET`          | `canViewLogs`            | admin, manager, finance                  |
+| `/api/profiles`                       | `GET`          | авторизованный пользователь | возвращает только доступные профили |
+| `/api/uploads/blob`                   | `POST`         | авторизованный пользователь | загрузка файлов/изображений в Blob   |
+
+Эта таблица помогает быстро понять, почему конкретный пользователь получает `403 Forbidden` при обращении к тому или иному API и какие роли нужны для доступа.
   - Навигационные кнопки к ключевым AI‑атрибутам и кнопка «Наверх».
 
 ---

@@ -4,56 +4,95 @@
     "username": "hereYouGo",
     "password": "H38T8+actVae9dv",
     "name": "Админ",
-    "profiles": ["76251", "3497256"],
-    "roles": ["admin", "manager", "content-creator", "finance", "order"]
+    "profiles": [
+      "76251",
+      "3497256"
+    ],
+    "roles": [
+      "admin",
+      "manager",
+      "content-creator",
+      "finance",
+      "order"
+    ]
   },
   {
     "id": "DiSol",
     "username": "DiSol",
     "password": "ZnX-amG-8e3-%vC",
     "name": "DiSol",
-    "profiles": ["76251", "3497256"],
-    "roles": ["manager", "content-creator", "finance", "order"]
+    "profiles": [
+      "76251",
+      "3497256"
+    ],
+    "roles": [
+      "manager",
+      "content-creator",
+      "finance",
+      "order"
+    ]
   },
   {
     "id": "manager-nakito",
     "username": "manager-nakito",
     "password": "pas5",
     "name": "Менеджер Nakito",
-    "profiles": ["76251"],
-    "roles": ["manager", "content-creator"]
+    "profiles": [
+      "76251"
+    ],
+    "roles": [
+      "manager",
+      "content-creator"
+    ]
   },
   {
     "id": "content-nakito",
     "username": "content-nakito",
     "password": "pas5",
     "name": "Контент Nakito",
-    "profiles": ["76251"],
-    "roles": ["content-creator"]
+    "profiles": [
+      "76251"
+    ],
+    "roles": [
+      "content-creator"
+    ]
   },
   {
     "id": "content-led",
     "username": "content-led",
     "password": "pas5",
     "name": "Контент LED AUTO",
-    "profiles": ["3497256"],
-    "roles": ["content-creator"]
+    "profiles": [
+      "3497256"
+    ],
+    "roles": [
+      "content-creator"
+    ]
   },
   {
     "id": "finance-nakito",
-    "username": "finance-nakito",
+    "username": "finance",
     "password": "pas5",
-    "name": "Финансы Nakito",
-    "profiles": ["76251", "3497256"],
-    "roles": ["finance"]
+    "name": "Финансист",
+    "profiles": [
+      "76251",
+      "3497256"
+    ],
+    "roles": [
+      "finance"
+    ],
+    "email": ""
   },
   {
     "id": "orders-nakito",
     "username": "orders-nakito",
     "password": "pas5",
     "name": "Заказы Nakito",
-    "profiles": ["76251"],
-    "roles": ["order"]
+    "profiles": [
+      "76251"
+    ],
+    "roles": [
+      "order"
+    ]
   }
 ]
-

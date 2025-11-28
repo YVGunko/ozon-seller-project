@@ -190,10 +190,9 @@ export default async function handler(req, res) {
           return;
         }
 
-        const canManage =
-          mode === 'import'
-            ? canManagePrices(serverContext.user)
-            : canManageProducts(serverContext.user);
+        // Обновление атрибутов и создание/обновление товаров считаем частью управления товарами,
+        // даже если под капотом используется /v3/product/import.
+        const canManage = canManageProducts(serverContext.user);
         if (!canManage) {
           statusCode = 403;
           responseBody = { error: 'Forbidden' };

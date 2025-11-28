@@ -131,6 +131,13 @@ export const ensureProfilesLoaded = async () => {
   return cachedProfiles;
 };
 
+// Принудительно перезагрузить профили из Blob-конфига.
+// Используется админскими API после изменения config/profiles.json.
+export const reloadProfilesFromBlob = async () => {
+  cachedProfiles = null;
+  return ensureProfilesLoaded();
+};
+
 export const getAllProfiles = () => cachedProfiles || loadProfilesFromEnv();
 
 export const getProfileById = (profileId) => {

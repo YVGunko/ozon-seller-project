@@ -143,6 +143,15 @@ export const getAuthUsers = async () => {
   return cachedUsers;
 };
 
+/**
+ * Сбросить кэш и принудительно перечитать пользователей из Blob/ENV.
+ * Используется admin‑эндпоинтами после обновления config/users.json.
+ */
+export const reloadAuthUsersFromBlob = async () => {
+  cachedUsers = null;
+  await getAuthUsers();
+};
+
 export const findUserByCredentials = async (username, password) => {
   if (!username || !password) return null;
   const users = await getAuthUsers();

@@ -117,6 +117,18 @@ export async function getAllEnterprises() {
 }
 
 /**
+ * Найти Enterprise по id.
+ * @param {string} id
+ * @returns {Promise<import('../domain/entities/enterprise').Enterprise|null>}
+ */
+export async function getEnterpriseById(id) {
+  if (!id) return null;
+  const entries = await ensureEnterprisesLoaded();
+  const found = entries.find((e) => e.enterprise.id === id);
+  return found ? found.enterprise : null;
+}
+
+/**
  * Найти Enterprise по OZON profileId (если настроен в конфиге).
  * Если ничего не найдено — возвращает null, и вызывающий код может
  * использовать fallback (`ent-<profileId>`), как сейчас.
@@ -159,3 +171,9 @@ export async function getEnterprisesForProfileIds(profileIds) {
   return result;
 }
 
+// Принудительно перезагрузить Enterprise-конфиг из Blob.
+// Используется админскими API после изменения config/enterprises.json.
+export async function reloadEnterprisesFromBlob() {
+  cachedEntries = null;
+  return ensureEnterprisesLoaded();
+}
