@@ -21,6 +21,7 @@ import {
   addPendingNetPriceRecords,
   popPendingNetPricesByOffers
 } from '../../../src/server/pendingNetPriceStore';
+import { withServerContext } from '../../../src/server/apiUtils';
 
 const STATUS_CHECK_DELAY_MS = 5000;
 
@@ -126,7 +127,7 @@ const applyPendingResolutions = async ({ offerSkuPairs = [], profileId = null } 
   }
 };
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   try {
               console.log('attributes.js handler');
     let serverContext = null;
@@ -420,3 +421,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

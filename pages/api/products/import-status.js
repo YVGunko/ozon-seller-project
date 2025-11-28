@@ -1,5 +1,6 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { resolveServerContext } from '../../../src/server/serverContext';
+import { withServerContext } from '../../../src/server/apiUtils';
 import { extractImportStatusItems } from '../../../src/utils/importStatus';
 import { appendPriceHistory } from '../../../src/server/priceHistoryStore';
 import { appendNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
@@ -16,7 +17,7 @@ const extractOfferSkuPairs = (items = []) =>
     })
     .filter(Boolean);
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -77,3 +78,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

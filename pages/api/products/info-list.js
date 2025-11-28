@@ -4,6 +4,7 @@ import { appendPriceHistory } from '../../../src/server/priceHistoryStore';
 import { appendNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
 import { popPendingPricesByOffers } from '../../../src/server/pendingPriceStore';
 import { popPendingNetPricesByOffers } from '../../../src/server/pendingNetPriceStore';
+import { withServerContext } from '../../../src/server/apiUtils';
 
 const extractOfferSkuPairs = (items = []) =>
   items
@@ -15,7 +16,7 @@ const extractOfferSkuPairs = (items = []) =>
     })
     .filter(Boolean);
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   if (req.method !== 'GET') {
     res.status(405).json({ error: 'Method not allowed' });
     return;
@@ -74,14 +75,16 @@ export default async function handler(req, res) {
       console.error('[info-list] Failed to resolve pending prices', applyError);
     }
 
-    res.status(200).json({
+    return res.status(200).json({
       items,
       raw: response
     });
   } catch (error) {
     console.error('❌ /api/products/info-list error:', error);
-    res.status(error.status || 500).json({
+    return res.status(error.status || 500).json({
       error: error.message || 'Failed to fetch product info list'
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

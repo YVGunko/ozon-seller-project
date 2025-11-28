@@ -28,10 +28,26 @@ let bootstrapDone = false;
 export async function ensureEnterprisesAndSellersSeeded() {
   if (bootstrapDone) return;
 
-  const [storedEnterprises, storedSellers] = await Promise.all([
-    configStorage.getEnterprises().catch(() => []),
-    configStorage.getSellers().catch(() => [])
-  ]);
+  let storedEnterprises = [];
+  let storedSellers = [];
+
+  try {
+    const value = await configStorage.getEnterprises();
+    if (Array.isArray(value)) {
+      storedEnterprises = value;
+    }
+  } catch {
+    storedEnterprises = [];
+  }
+
+  try {
+    const value = await configStorage.getSellers();
+    if (Array.isArray(value)) {
+      storedSellers = value;
+    }
+  } catch {
+    storedSellers = [];
+  }
 
   const hasEnterprises =
     Array.isArray(storedEnterprises) && storedEnterprises.length > 0;
@@ -52,13 +68,20 @@ export async function ensureEnterprisesAndSellersSeeded() {
       settings: ent.settings || {}
     }));
 
-    try {
-      await configStorage.saveEnterprises(enterprisesToUse);
-    } catch (e) {
+    if (typeof configStorage.saveEnterprises === 'function') {
+      try {
+        await configStorage.saveEnterprises(enterprisesToUse);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error(
+          '[configBootstrap] failed to seed enterprises into configStorage',
+          e
+        );
+      }
+    } else {
       // eslint-disable-next-line no-console
-      console.error(
-        '[configBootstrap] failed to seed enterprises into configStorage',
-        e
+      console.warn(
+        '[configBootstrap] configStorage.saveEnterprises is not a function, skip seeding'
       );
     }
   }
@@ -98,17 +121,23 @@ export async function ensureEnterprisesAndSellersSeeded() {
 
     sellersToUse = sellers;
 
-    try {
-      await configStorage.saveSellers(sellersToUse);
-    } catch (e) {
+    if (typeof configStorage.saveSellers === 'function') {
+      try {
+        await configStorage.saveSellers(sellersToUse);
+      } catch (e) {
+        // eslint-disable-next-line no-console
+        console.error(
+          '[configBootstrap] failed to seed sellers into configStorage',
+          e
+        );
+      }
+    } else {
       // eslint-disable-next-line no-console
-      console.error(
-        '[configBootstrap] failed to seed sellers into configStorage',
-        e
+      console.warn(
+        '[configBootstrap] configStorage.saveSellers is not a function, skip seeding'
       );
     }
   }
 
   bootstrapDone = true;
 }
-

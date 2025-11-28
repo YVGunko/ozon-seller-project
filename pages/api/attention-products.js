@@ -1,6 +1,7 @@
 import { OzonApiService } from '../../src/services/ozon-api';
 import { resolveServerContext } from '../../src/server/serverContext';
 import { canManageProducts } from '../../src/domain/services/accessControl';
+import { withServerContext } from '../../src/server/apiUtils';
 
 const DEFAULT_LIMIT = 1000;
 const MAX_LIMIT = 1000;
@@ -99,7 +100,7 @@ const enrichItemsWithProductInfo = async ({ items = [], ozon, chunkSize = INFO_C
   return { items: enrichedItems, infoChunks };
 };
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -188,3 +189,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

@@ -1,6 +1,7 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { resolveServerContext } from '../../../src/server/serverContext';
 import { canManageProducts } from '../../../src/domain/services/accessControl';
+import { withServerContext } from '../../../src/server/apiUtils';
 import {
   appendPriceHistory,
   getPriceHistory
@@ -64,7 +65,7 @@ const buildOfferSkuMap = (infoItems = []) => {
   return map;
 };
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -184,3 +185,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

@@ -1,8 +1,9 @@
 import { resolveServerContext } from '../../../src/server/serverContext';
 import { getNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
 import { canManagePrices } from '../../../src/domain/services/accessControl';
+import { withServerContext } from '../../../src/server/apiUtils';
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -38,6 +39,10 @@ export default async function handler(req, res) {
     return res.status(200).json({ items: entries });
   } catch (error) {
     console.error('[net-price-latest] error', error);
-    return res.status(error.statusCode || 500).json({ error: error.message || 'Failed to fetch net price' });
+    return res
+      .status(error.statusCode || 500)
+      .json({ error: error.message || 'Failed to fetch net price' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

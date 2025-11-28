@@ -2,8 +2,9 @@ import { resolveServerContext } from '../../../src/server/serverContext';
 import { OzonMarketplaceAdapter } from '../../../src/modules/marketplaces/ozonAdapter';
 import { AttributesService } from '../../../src/domain/services/AttributesService';
 import { canManageProducts } from '../../../src/domain/services/accessControl';
+import { withServerContext } from '../../../src/server/apiUtils';
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -49,3 +50,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

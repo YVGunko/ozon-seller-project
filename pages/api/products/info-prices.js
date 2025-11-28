@@ -1,6 +1,7 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
 import { resolveServerContext } from '../../../src/server/serverContext';
 import { canManagePrices } from '../../../src/domain/services/accessControl';
+import { withServerContext } from '../../../src/server/apiUtils';
 
 const parseArray = (value) => {
   if (!value) return [];
@@ -14,7 +15,7 @@ const parseArray = (value) => {
   return [];
 };
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -53,3 +54,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });
