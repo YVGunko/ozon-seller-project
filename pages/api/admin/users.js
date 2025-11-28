@@ -7,7 +7,6 @@
 //   GET  /api/admin/users   — список пользователей (без паролей)
 //   POST /api/admin/users   — создать или обновить пользователя
 
-import { list, put } from '@vercel/blob';
 import { withServerContext } from '../../../src/server/apiUtils';
 import {
   getAuthUsers,
@@ -17,34 +16,7 @@ import {
   canManageUsers,
   isRootAdmin
 } from '../../../src/domain/services/accessControl';
-
-const { CONFIG_USERS_BLOB_PREFIX } = process.env;
-const USERS_BLOB_PREFIX = CONFIG_USERS_BLOB_PREFIX || 'config/users.json';
-
-async function loadUsersConfig() {
-  const { blobs } = await list({ prefix: USERS_BLOB_PREFIX });
-  if (!blobs || blobs.length === 0) {
-    // Конфига ещё нет — возвращаем пустой массив и путь по умолчанию.
-    return { users: [], pathname: USERS_BLOB_PREFIX };
-  }
-  const blob = blobs[0];
-  const downloadUrl = blob.downloadUrl || blob.url;
-  const res = await fetch(downloadUrl);
-  const text = await res.text();
-  const json = text ? JSON.parse(text) : [];
-  return {
-    users: Array.isArray(json) ? json : [],
-    pathname: blob.pathname
-  };
-}
-
-async function saveUsersConfig(pathname, users) {
-  const json = JSON.stringify(users, null, 2);
-  await put(pathname, json, {
-    access: 'public',
-    contentType: 'application/json'
-  });
-}
+import { configStorage } from '../../../src/services/configStorage';
 
 async function handler(req, res, ctx) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -131,8 +103,25 @@ async function handler(req, res, ctx) {
     }
   }
 
-  const { users: rawUsers, pathname } = await loadUsersConfig();
-  const users = Array.isArray(rawUsers) ? [...rawUsers] : [];
+  // Загружаем текущую конфигурацию пользователей из configStorage.
+  let users = [];
+  try {
+    const rawUsers = await configStorage.getUsers();
+    if (Array.isArray(rawUsers)) {
+      users = [...rawUsers];
+    }
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[admin/users] failed to read users from configStorage', e);
+    users = [];
+  }
+
+  // Если хранилище пока пустое (первый запуск), инициализируем его
+  // через userStore (env / Blob) и повторно читаем.
+  if (users.length === 0) {
+    const authUsers = await getAuthUsers();
+    users = Array.isArray(authUsers) ? [...authUsers] : [];
+  }
 
   const userId = id ? String(id) : String(username);
   const existingIndex = users.findIndex(
@@ -172,7 +161,15 @@ async function handler(req, res, ctx) {
     users.push(updatedUser);
   }
 
-  await saveUsersConfig(pathname, users);
+  try {
+    await configStorage.saveUsers(users);
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[admin/users] failed to save users to configStorage', e);
+    return res
+      .status(500)
+      .json({ error: 'Не удалось сохранить конфигурацию пользователей' });
+  }
   await reloadAuthUsersFromBlob();
 
   return res.status(200).json({

@@ -1,7 +1,15 @@
+import fs from 'fs';
+import path from 'path';
 import { list } from '@vercel/blob';
+import { configStorage } from '../services/configStorage';
 
-const { AUTH_USERS, ADMIN_USER, ADMIN_PASS, ADMIN_PROFILES, CONFIG_USERS_BLOB_PREFIX } =
-  process.env;
+const {
+  AUTH_USERS,
+  ADMIN_USER,
+  ADMIN_PASS,
+  ADMIN_PROFILES,
+  CONFIG_USERS_BLOB_PREFIX
+} = process.env;
 
 const USERS_BLOB_PREFIX = CONFIG_USERS_BLOB_PREFIX || 'config/users.json';
 
@@ -76,6 +84,63 @@ const buildFallbackUsers = () => {
 
 let cachedUsers = null;
 
+// Попытка загрузить пользователей из основного хранилища (configStorage / Redis).
+async function loadUsersFromConfigStorage() {
+  try {
+    const rawUsers = await configStorage.getUsers();
+    if (Array.isArray(rawUsers) && rawUsers.length > 0) {
+      console.log(
+        '[userStore] loaded users from configStorage',
+        JSON.stringify({ count: rawUsers.length })
+      );
+      return normalizeUsers(rawUsers);
+    }
+    return null;
+  } catch (error) {
+    console.error(
+      '[userStore] failed to load users from configStorage, will fallback',
+      error
+    );
+    return null;
+  }
+}
+
+async function saveUsersToConfigStorage(users) {
+  if (!Array.isArray(users)) return;
+  try {
+    await configStorage.saveUsers(users);
+    console.log(
+      '[userStore] saved users to configStorage',
+      JSON.stringify({ count: users.length })
+    );
+  } catch (error) {
+    console.error('[userStore] failed to save users to configStorage', error);
+  }
+}
+
+// Попытка загрузить пользователей из локального файла config/users.json.
+// Удобно для начальной миграции в Redis без использования Blob/ENV.
+async function loadUsersFromFile() {
+  try {
+    const filePath = path.join(process.cwd(), 'config', 'users.json');
+    const text = await fs.promises.readFile(filePath, 'utf8');
+    const json = JSON.parse(text);
+    if (!Array.isArray(json) || json.length === 0) {
+      return null;
+    }
+    console.log(
+      '[userStore] loaded users from config/users.json',
+      JSON.stringify({ count: json.length, filePath })
+    );
+    return normalizeUsers(json);
+  } catch (error) {
+    if (error.code !== 'ENOENT') {
+      console.error('[userStore] failed to load users from file', error);
+    }
+    return null;
+  }
+}
+
 const loadUsersFromEnv = () => {
   const configured = normalizeUsers(parseJsonEnv(AUTH_USERS, []));
   if (configured.length > 0) {
@@ -131,15 +196,34 @@ async function loadUsersFromBlob() {
 export const getAuthUsers = async () => {
   if (cachedUsers) return cachedUsers;
 
-  // Пытаемся сначала загрузить конфиг из Blob.
-  const fromBlob = await loadUsersFromBlob();
-  if (fromBlob && fromBlob.length > 0) {
-    cachedUsers = fromBlob;
+  // 1) Пытаемся сначала загрузить конфиг из основного хранилища (Redis).
+  const fromConfig = await loadUsersFromConfigStorage();
+  if (fromConfig && fromConfig.length > 0) {
+    cachedUsers = fromConfig;
     return cachedUsers;
   }
 
-  // Фолбэк — env.
-  cachedUsers = loadUsersFromEnv();
+  // 2) Фолбэк — локальный файл config/users.json (для удобной миграции).
+  const fromFile = await loadUsersFromFile();
+  if (fromFile && fromFile.length > 0) {
+    cachedUsers = fromFile;
+    await saveUsersToConfigStorage(fromFile);
+    return cachedUsers;
+  }
+
+  // 3) Фолбэк — Blob.
+  const fromBlob = await loadUsersFromBlob();
+  if (fromBlob && fromBlob.length > 0) {
+    cachedUsers = fromBlob;
+    // сохраняем в основное хранилище для последующих запросов
+    await saveUsersToConfigStorage(fromBlob);
+    return cachedUsers;
+  }
+
+  // 4) Фолбэк — env.
+  const fromEnv = loadUsersFromEnv();
+  cachedUsers = fromEnv;
+  await saveUsersToConfigStorage(fromEnv);
   return cachedUsers;
 };
 

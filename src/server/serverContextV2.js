@@ -11,6 +11,7 @@ import { getAuthContext } from './authContext';
 import { ensureAuth } from './ensureAuth';
 import { configStorage } from '../services/configStorage';
 import { DomainResolver } from '../domain/services/domainResolver';
+import { ensureEnterprisesAndSellersSeeded } from './configBootstrap';
 
 /**
  * serverContextV2(req, res, options?)
@@ -55,6 +56,10 @@ export async function serverContextV2(req, res, options = {}) {
   }
 
   const user = auth.isAuthenticated ? auth.user : null;
+
+  // Перед тем как строить доменный контекст, убеждаемся,
+  // что в configStorage инициализированы enterprises / sellers.
+  await ensureEnterprisesAndSellersSeeded();
 
   // 2. DomainResolver на базе configStorage
   const resolver = new DomainResolver({ configStorage });
