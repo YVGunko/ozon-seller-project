@@ -1,8 +1,9 @@
 import { getAiPrompts, AiPromptMode } from '../../../src/modules/ai-prompts';
-import { resolveServerContext } from '../../../src/server/serverContext';
+import { withServerContext } from '../../../src/server/apiUtils';
 import { canManagePrompts } from '../../../src/domain/services/accessControl';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
   const promptsService = getAiPrompts();
 
   if (req.method === 'GET') {
@@ -16,16 +17,14 @@ export default async function handler(req, res) {
 
       let userId = null;
       if (scope === 'user') {
-        const serverContext = await resolveServerContext(req, res, {
-          requireProfile: false
-        });
-        if (!serverContext.user) {
+        const user = domain.user || auth.user || null;
+        if (!user) {
           return res.status(401).json({ error: 'Unauthorized' });
         }
-        if (!canManagePrompts(serverContext.user)) {
+        if (!canManagePrompts(user)) {
           return res.status(403).json({ error: 'Forbidden' });
         }
-        userId = serverContext.user.id;
+        userId = user.id;
       }
 
       const prompts = await promptsService.listPromptsByUser(
@@ -74,20 +73,18 @@ export default async function handler(req, res) {
         normalizedMode = AiPromptMode.SEO_NAME;
       }
 
-      const serverContext = await resolveServerContext(req, res, {
-        requireProfile: false
-      });
-      if (!serverContext.user) {
+      const user = domain.user || auth.user || null;
+      if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
 
-      if (!canManagePrompts(serverContext.user)) {
+      if (!canManagePrompts(user)) {
         return res.status(403).json({ error: 'Forbidden' });
       }
 
       let userId = null;
       if (scope === 'user') {
-        userId = serverContext.user.id;
+        userId = user.id;
       }
 
       const prompt = await promptsService.createPrompt({
@@ -114,3 +111,5 @@ export default async function handler(req, res) {
   res.setHeader('Allow', ['GET', 'POST']);
   return res.status(405).json({ error: 'Method not allowed' });
 }
+
+export default withServerContext(handler, { requireAuth: true });

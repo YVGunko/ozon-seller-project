@@ -22,19 +22,30 @@
 
 3. **Server context / инфраструктура сервера**
    - Каталог: `src/server/*`.
-   - Главный элемент: `resolveServerContext(req, res, { requireProfile })`.
-     - На основе `next-auth` сессии и параметров запроса возвращает:
-       ```js
-       {
-         session,     // сессия next-auth
-         user,        // доменный пользователь (см. ниже)
-         profile,     // текущий профиль OZON (или null)
-         profileId,   // строковый id профиля
-         enterprise,  // доменный Enterprise
-         seller       // доменный Seller (привязка к marketplace)
-       }
-       ```
-   - Используется во всех ключевых API‑роутах вместо старого `profileResolver`.
+   - Уровень авторизации:
+     - `getAuthContext(req, res)` → `{ isAuthenticated, user }` — мягкий режим (не бросает ошибок).
+     - `ensureAuth(req, res)` → тот же объект, но бросает `Error("Unauthorized")` с `statusCode = 401`, если пользователь не авторизован.
+   - Новый «тонкий» контекст: `serverContextV2(req, res, options)`
+     - используется через обёртку `withServerContext(handler, { requireAuth })` во всех новых API‑роутах;
+     - выполняет:
+       1. получение `auth` (через `ensureAuth` или `getAuthContext`);
+       2. инициализацию конфигурации Enterprise/Seller (`ensureEnterprisesAndSellersSeeded`);
+       3. создание `DomainResolver` и возврат доменного контекста:
+          ```js
+          {
+            auth,                 // isAuthenticated + user
+            domain: {
+              user,
+              enterprises,
+              sellers,
+              activeEnterprise,
+              activeSellerIds
+            },
+            storage,              // configStorage (Redis)
+            resolver              // экземпляр DomainResolver
+          }
+          ```
+   - Старый `resolveServerContext(req, res, { requireProfile })` остаётся как слой совместимости для OZON‑профилей и пока используется в продуктовых/атрибутных API, но постепенно будет вытесняться доменным слоем.
    - Здесь же находятся хранилища логов запросов и прочая серверная инфраструктура.
 
 4. **Доменный слой (`src/domain`)**
@@ -60,79 +71,91 @@
 
 ---
 
-## 0. Конфигурация пользователей / профилей (Blob vs .env)
+## 0. Конфигурация пользователей / профилей (Redis + Blob + .env)
 
 ### 0.1 Общая политика
 
-- **Основной источник конфигурации** — JSON‑файлы в Vercel Blob:
-  - `config/users.json` — внутренние пользователи и их профили/роли;
-  - `config/profiles.json` — магазины (Seller) и их OZON‑ключи;
-  - `config/enterprises.json` — организации (Enterprise) и привязка профилей.
-- Переменные окружения (`AUTH_USERS`, `ADMIN_*`, `OZON_PROFILES`) используются **только как fallback**:
-  - если соответствующий Blob‑файл отсутствует — можно bootstrap’нуть конфиг из ENV;
-  - после появления JSON в Blob все чтения/записи должны идти только через Blob.
+- **Основной runtime‑источник конфигурации** — Redis‑хранилище через `configStorage`:
+  - ключи:
+    - `config:users` — пользователи, их роли и доступные продавцы;
+    - `config:enterprises` — организации (Enterprise);
+    - `config:sellers` — магазины (Seller) и привязка к Enterprise.
+- JSON‑файлы и Blob используются как исходные данные для миграции и резервного хранения:
+  - `config/users.json`, `config/profiles.json`, `config/enterprises.json`;
+  - admin‑эндпоинты могут читать/писать эти файлы и синхронизировать их с Redis.
+- Переменные окружения (`AUTH_USERS`, `ADMIN_*`, `OZON_PROFILES`, `OZON_*`) — **последний fallback**:
+  - используются, если нет данных ни в Redis, ни в конфигурационных файлах/Blob;
+  - после успешной записи в Redis дальнейшая работа идёт только через `configStorage`.
 
-### 0.2 Users (`config/users.json`, `userStore`, `/api/admin/users`)
+### 0.2 Users (`config:users`, `userStore`, `/api/admin/users`)
 
-- Загрузка пользователей:
-  - `userStore.getAuthUsers()`:
-    1. Пытается прочитать `config/users.json` из Blob (префикс `CONFIG_USERS_BLOB_PREFIX` или по умолчанию `config/users.json`).
-    2. Если Blob не найден — использует `AUTH_USERS` / `ADMIN_*` из `.env` (только чтение).
-  - При успешной загрузке из Blob логирует источник и количество записей.
+- Основное хранилище:
+  - `configStorage.getUsers()/saveUsers()` поверх Redis (`config:users`).
+- Загрузка пользователей (`userStore.getAuthUsers()`):
+  1. Пытается прочитать пользователей из Redis через `configStorage.getUsers()`.
+  2. Если данных нет — пытается прочитать `config/users.json` из локального файла (для удобной миграции).
+  3. Если файла нет или он пуст — пробует прочитать конфиг из Blob `config/users.json`.
+  4. Если и Blob отсутствует — использует `AUTH_USERS` / `ADMIN_*` из `.env`.
+  - После любой успешной загрузки сохраняет нормализованный список обратно в Redis (`saveUsers`) и кэширует в памяти.
 - Сохранение пользователей:
-  - `/api/admin/users` (метод `POST`):
-    - вызывает `loadUsersConfig()`:
-      - `list({ prefix: USERS_BLOB_PREFIX })`;
-      - если список пуст — считает, что конфига нет, и использует путь `'config/users.json'`;
-      - если файл есть — читает JSON именно из этого `pathname`.
-    - обновляет/добавляет запись пользователя (без экспорта пароля наружу);
-    - сериализует массив в JSON и делает `put(pathname, json, { access: 'public', contentType: 'application/json' })`;
-      - если файл существует, он перезаписывается;
-      - если нет — создаётся `config/users.json`.
-    - вызывает `reloadAuthUsersFromBlob()`, чтобы `userStore` немедленно увидел изменения.
+  - `/api/admin/users` работает поверх `configStorage`:
+    - читает текущий список пользователей;
+    - добавляет/обновляет запись (без возврата пароля наружу);
+    - зовёт `configStorage.saveUsers(updatedUsers)`;
+    - при необходимости может экспортировать JSON в Blob, но это вспомогательная операция.
 - UI `/admin/users`:
   - работает только с `/api/admin/users` и `/api/profiles`;
   - показывает `*****` вместо пароля и кнопку «Изменить пароль»;
   - пароль отправляется в API только при создании пользователя или явной смене.
 
-### 0.3 Profiles / Sellers (`config/profiles.json`, `profileStore`, `/api/admin/sellers`)
+### 0.3 Profiles / Sellers (`config:sellers`, `profileStore`, `/api/admin/sellers`)
 
-- Загрузка профилей:
+- Основное хранилище магазинов:
+  - Redis (`configStorage.getSellers/saveSellers`), ключ `config:sellers`.
+- Bootstrap и связь с файлами:
   - `profileStore.ensureProfilesLoaded()`:
-    1. Пытается прочитать `config/profiles.json` из Blob.
-    2. Если Blob ещё нет — может собрать профили из `OZON_PROFILES` в `.env` (bootstrap режим) и залогировать предупреждение.
-- Сохранение профилей:
+    - пытается прочитать `config/profiles.json` из Blob или из репозитория;
+    - при отсутствии файлов может собрать профили из `OZON_PROFILES` в `.env` и залогировать предупреждение;
+    - эти данные затем используются `configBootstrap` для инициализации `config:sellers`.
+- Сохранение профилей магазинов:
   - `/api/admin/sellers`:
-    - читает `config/profiles.json` и `config/enterprises.json` через Blob;
-    - обновляет/создаёт профиль магазина (привязка `ozon_client_id`, `ozon_api_key`, `client_hint`, `description`);
-      - при редактировании существующего Seller пустое поле `ozon_api_key` не трогает старый ключ;
-      - факт наличия ключа на фронт отдаётся отдельным флагом `ozon_has_api_key`, а сам ключ никогда не возвращается.
-    - обновляет `profileIds` в Enterprise:
-      - добавляет Seller в выбранный Enterprise;
-      - удаляет из остальных Enterprise, если продавец был привязан ранее;
-    - перезаписывает оба файла в Blob;
-    - вызывает `reloadProfilesFromBlob()` и `reloadEnterprisesFromBlob()`.
+    - отображает магазины и их привязку к Enterprise (по данным Redis);
+    - root/admin может создавать/обновлять Seller:
+      - `ozon_client_id`, `ozon_api_key`, `client_hint`, `description`;
+      - при редактировании пустое `ozon_api_key` не затирает существующий ключ;
+      - на фронт отдаётся только флаг `ozon_has_api_key`, сам ключ не возвращается.
+    - обновляет привязку Seller к Enterprise (через `enterpriseId` и список `profileIds`);
+    - сохраняет результат в Redis через `configStorage.saveSellers` и, при необходимости, экспортирует JSON в Blob.
 - UI `/admin/sellers`:
   - отображает магазины и их привязку к Enterprise;
-  - показывает звёздочки `*****` вместо `ozon_api_key` и красное предупреждение, если ключ уже сохранён;
-  - для root/admin позволяет менять Enterprise через `<select>`, для manager показывает только текст (без права менять организацию).
+  - показывает звёздочки `*****` и красную подпись, если ключ уже сохранён;
+  - для root/admin позволяет менять Enterprise через `<select>`, для manager поле Enterprise только для чтения.
 
-### 0.4 Enterprises (`config/enterprises.json`, `enterpriseStore`)
+### 0.4 Enterprises (`config:enterprises`, `enterpriseStore`, `/api/admin/enterprises`)
 
+- Основное хранилище организаций:
+  - Redis (`config:enterprises`), инициализируемый через `configBootstrap` из `config/enterprises.json` / Blob / env.
 - `enterpriseStore`:
-  - читает `config/enterprises.json` из Blob;
-  - если файл отсутствует — может создать in‑memory дефолтный Enterprise (`ent-main`) и логировать, что конфиг не сохранён.
-- API `/api/admin/enterprises` (просмотр/управление организациями):
-  - использует Blob как источник истины;
-  - операции создания/обновления Enterprise должны перезаписывать `config/enterprises.json` и вызывать `reloadEnterprisesFromBlob()`.
+  - по‑прежнему умеет читать `config/enterprises.json` из Blob или репозитория;
+  - используется как источник для начального заполнения Redis и для диагностики.
+- API `/api/admin/enterprises`:
+  - отдаёт список Enterprise с учётом прав:
+    - root/admin — все;
+    - manager — только те, к которым у него есть профили;
+  - работа с изменениями Enterprise постепенно переносится на Redis через `configStorage.saveEnterprises`.
 
 ### 0.5 TODO по конфигурации
 
-- Явно показывать в админке (users / sellers / enterprises), из какого источника взята конфигурация:
-  - Blob (OK) vs ENV (режим bootstrap/предупреждение).
+- Явно показывать в админке (users / sellers / enterprises), из какого слоя пришли данные:
+  - Redis (основной), Blob / файл (bootstrap), ENV (аварийный режим).
 - Добавить административный endpoint `/api/admin/config-status` для диагностики:
-  - наличие `config/users.json`, `config/profiles.json`, `config/enterprises.json`;
+  - наличие и размеры `config:users`, `config:enterprises`, `config:sellers` в Redis;
+  - состояние файлов/Blob‑конфигов;
   - использование ENV‑fallback’ов.
+- Перенести хранение AI‑промптов с Blob‑файлов на Redis:
+  - ввести отдельные ключи `config:ai-prompts:*` с доменной структурой;
+  - оставить Blob как резервное хранилище/экспорт;
+  - адаптировать `AiPromptsService` и API `/api/ai/prompts`, `/api/ai/prompts/[id]` к новому источнику.
 ‑‑‑
 
 ## 2. Доменные сущности
@@ -163,14 +186,30 @@
     (`src/domain/entities/user.js`).
   - Может иметь роли (admin / manager / content‑creator и т.п.) и доступ к одному или нескольким Seller.
 
-### 2.2 Identity / serverContext
+### 2.2 Identity / DomainResolver
 
 - Сервис `src/domain/services/identityMapping.js`:
-  - `mapProfileToEnterpriseAndSeller(profile)` → `{ root, enterprise, seller }`.
-  - `mapAuthToUser({ userId, email, name, enterpriseId, roles, sellerIds })` → доменный `User`.
+  - по‑прежнему содержит вспомогательные мапперы для случаев, когда нужен явный объект Enterprise/Seller на основе профиля.
 
-- `src/server/serverContext.js`:
-  - Использует `next-auth` и identity‑сервисы, чтобы преобразовать HTTP‑запрос в понятный доменный контекст (см. выше).
+- Новый доменный резолвер: `src/domain/services/domainResolver.js`:
+  - принимает `configStorage` и auth.user;
+  - загружает пользователей, Enterprise и Seller из Redis;
+  - строит `DomainContext`:
+    ```js
+    {
+      user,
+      enterprises,       // Enterprise, доступные пользователю
+      sellers,           // Seller, доступные пользователю
+      activeEnterprise,  // выбранный Enterprise (по id или по умолчанию)
+      activeSellerIds    // один или несколько активных магазинов
+    }
+    ```
+  - выполняет строгую проверку доступа:
+    - нельзя выбрать `activeEnterpriseId` или `sellerId`, которые не принадлежат пользователю.
+
+- `src/server/serverContextV2.js`:
+  - склеивает `auth` + `configStorage` + `DomainResolver`;
+  - используется во всех новых API‑роутах через `withServerContext`.
 
 ---
 
@@ -204,10 +243,41 @@
 
 Роут `pages/api/products/description-attributes.js`:
 
-- Получает `profileId` через `resolveServerContext`;
+- Получает OZON‑профиль через `resolveServerContext` (слой совместимости);
 - Создаёт `OzonMarketplaceAdapter` для текущего Seller;
 - Вызывает `AttributesService.fetchDescriptionAttributesForCombo`;
 - Возвращает JSON, совместимый с текущим UI `/attributes`.
+
+### 3.5 Продуктовые/атрибутные API через withServerContext
+
+Ключевые продуктовые роуты переведены на единый шаблон:
+
+```js
+import { withServerContext } from '@/server/apiUtils';
+
+async function handler(req, res, ctx) {
+  const { auth, domain, storage } = ctx;
+  // Текущая логика товаров/атрибутов пока использует resolveServerContext
+  // для получения OZON‑профиля, но авторизация и доступ к Enterprise/Seller
+  // уже проходят через serverContextV2.
+}
+
+export default withServerContext(handler, { requireAuth: true });
+```
+
+Сюда входят:
+
+- продуктовые и атрибутные роуты:
+  - `pages/api/products.js`, `pages/api/attention-products.js`;
+  - `pages/api/products/attributes.js` и все вспомогательные файлы:
+    - `barcodes.js`, `copy.js`, `description-attributes.js`, `description-tree.js`,
+    - `import.js`, `import-prices.js`, `import-status.js`,
+    - `info-list.js`, `info-prices.js`,
+    - `net-price-latest.js`, `rating-by-sku.js`, `update-offer-id.js`;
+- административные и служебные роуты (`/api/admin/*`, `/api/profiles`, `/api/logs`);
+- AI‑роуты (`/api/ai/*`);
+- загрузка файлов в Vercel Blob: `pages/api/uploads/blob.js`
+  (обязательна авторизация, `withServerContext(handler, { requireAuth: true })`).
 
 ---
 
@@ -303,6 +373,26 @@ UI в `/attributes` использует эти данные для:
     - форма редактирования выбранного промпта;
     - отметка `isDefault` и soft‑delete.
 
+### 4.5 TODO по AI‑подсистеме
+
+- Ограничить размер входных данных для AI‑запросов (особенно режима `hashtags`):
+  - сейчас в промпт попадает полное текстовое описание + все атрибуты товара, что иногда приводит к ошибке Groq `Request Entity Too Large`;
+  - нужно:
+    - либо обрезать/сжимать вход (краткая сводка товара + ключевые атрибуты),
+    - либо разбивать генерацию на несколько запросов по группам товаров.
+  - Этот TODO не блокирует текущую работу, но важен для стабильности массовой генерации хештегов.
+- Для режима `hashtags` добиться стабильного формата хештегов:
+  - разделение слов символом подчёркивания (`#яркий_белый_свет`, а не `#яркийБелыйСвет` и не слова через пробел);
+  - запрет смешения разных форматов внутри одного ответа;
+  - при необходимости — дополнительная пост‑валидация и переработка списка на стороне сервера.
+  - В `/attributes` явно показывать пользователю ошибку AI‑запроса (SEO‑название, описание, хештеги, Rich, слайды):
+  - сейчас при ошибке `AI хештеги` сообщение видно только в серверных логах;
+  - нужно добавить обработку ошибок на фронте и ненавязчивую подсказку/alert рядом с кнопкой AI.
+- Улучшить UX страницы `/ai/prompts`:
+  - добавить явный индикатор загрузки и блокировку формы на время запроса к `/api/ai/prompts`;
+  - более наглядно отображать, какой промпт сейчас `isDefault` (по mode и scope);
+  - визуально группировать промпты по режимам (`seo-name`, `description`, `hashtags`, `rich`, `slides`), чтобы избежать путаницы.
+
 ---
 
 ## 5. UI‑слой и основные экраны
@@ -333,6 +423,8 @@ UI в `/attributes` использует эти данные для:
     - `AI хештеги` → прямое заполнение атрибута `#Хештеги` (id 23171) с валидацией;
     - `AI Rich JSON` → заполнение атрибута 11254 структурой Rich‑контента;
     - `AI слайды` → генерация структуры слайдов + кнопка «Сделать изображения слайдов» (через отдельный API).
+  - TODO по UX атрибутов:
+    - атрибуты с `type: Boolean` (например, «Признак 18+», id 9070) должны отображаться как явный выбор «Да/Нет» (toggle / radio), а не как свободное текстовое поле.
 
 ---
 
@@ -444,10 +536,14 @@ UI в `/attributes` использует эти данные для:
 
 ## 8. Конфигурация пользователей (AUTH_USERS / ADMIN_*)
 
-Список пользователей для авторизации сейчас берётся из переменных окружения:
+Первичный источник пользователей — Redis (`config:users`), к которому доступ осуществляется через `configStorage` и `userStore` (см. раздел 0.2).
 
-- `AUTH_USERS` — JSON‑массив описаний пользователей;
-- либо (fallback) `ADMIN_USER`, `ADMIN_PASS`, `ADMIN_PROFILES`.
+Переменные окружения `AUTH_USERS` / `ADMIN_*` используются **только как fallback‑слой**, когда:
+
+- в Redis ещё нет ни одного пользователя;
+- нет актуального `config/users.json` и Blob‑конфига.
+
+Этот раздел фиксирует формат именно ENV‑конфигурации, которая может понадобиться для первоначального развёртывания или аварийного восстановления.
 
 ### 8.1 Формат AUTH_USERS
 

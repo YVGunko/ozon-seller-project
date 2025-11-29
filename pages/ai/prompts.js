@@ -43,7 +43,28 @@ export default function AiPromptsPage() {
         if (!res.ok) {
           throw new Error(data?.error || 'Не удалось загрузить промпты');
         }
-        const list = Array.isArray(data.prompts) ? data.prompts : [];
+        const rawList = Array.isArray(data.prompts) ? data.prompts : [];
+
+        // У некоторых промптов в Blob могут быть дубликаты с одним и тем же id.
+        // На UI это приводит к одновременному выделению нескольких строк.
+        // Здесь оставляем только самую "свежую" версию по каждому id.
+        const byId = new Map();
+        for (const p of rawList) {
+          const key = p.id;
+          if (!key) continue;
+          const existing = byId.get(key);
+          if (!existing) {
+            byId.set(key, p);
+          } else {
+            const existingTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+            const currentTs = new Date(p.updatedAt || p.createdAt || 0).getTime();
+            if (currentTs > existingTs) {
+              byId.set(key, p);
+            }
+          }
+        }
+        const list = Array.from(byId.values());
+
         setPrompts(list);
         if (list.length && !selectedId) {
           setSelectedId(list[0].id);
@@ -186,6 +207,19 @@ export default function AiPromptsPage() {
 
   return (
     <div style={{ padding: 24, fontFamily: 'system-ui, -apple-system, sans-serif' }}>
+      {/* Навигация / заголовок */}
+      <div style={{ marginBottom: 12, fontSize: 13, color: '#6b7280' }}>
+        <span
+          style={{ cursor: 'pointer', color: '#2563eb' }}
+          onClick={() => {
+            window.location.href = '/';
+          }}
+        >
+          На главную
+        </span>
+        <span> / </span>
+        <span style={{ color: '#111827' }}>AI промпты</span>
+      </div>
       <h1 style={{ marginBottom: 16 }}>AI промпты</h1>
 
       <div style={{ marginBottom: 16, display: 'flex', gap: 12, alignItems: 'center' }}>

@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
-import { resolveServerContext } from '../../../src/server/serverContext';
+import { withServerContext } from '../../../src/server/apiUtils';
 import { appendPriceHistory } from '../../../src/server/priceHistoryStore';
 import { appendNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
 import { addPendingNetPriceRecords } from '../../../src/server/pendingNetPriceStore';
@@ -26,7 +26,7 @@ const extractItems = (response = {}) => {
   return [];
 };
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -53,7 +53,11 @@ export default async function handler(req, res) {
     const overrideNetValue = Number(overrideNetPrice);
     const hasOverrideNet = mode === 'net_price' && Number.isFinite(overrideNetValue) && overrideNetValue > 0;
 
-    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
+    const { profile } = await (await import('../../../src/server/serverContext')).resolveServerContext(
+      req,
+      res,
+      { requireProfile: true }
+    );
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const ts = startOfTodayLocal().toISOString();
 
@@ -197,3 +201,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error?.message || 'Failed to log prices' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

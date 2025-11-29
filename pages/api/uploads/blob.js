@@ -1,6 +1,6 @@
 import { put, list } from '@vercel/blob';
-import { resolveServerContext } from '../../../src/server/serverContext';
 import crypto from 'crypto';
+import { withServerContext } from '../../../src/server/apiUtils';
 
 export const config = {
   api: {
@@ -21,14 +21,17 @@ const readRequestBody = (req) =>
     req.on('error', reject);
   });
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth } = ctx;
+
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { session } = await resolveServerContext(req, res);
-    if (!session) {
+    // Авторизация уже прошла через withServerContext/ensureAuth,
+    // но на всякий случай проверим наличие пользователя.
+    if (!auth?.isAuthenticated || !auth.user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
@@ -104,3 +107,5 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'Не удалось загрузить изображение' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

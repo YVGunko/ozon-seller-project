@@ -1,5 +1,5 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
-import { resolveServerContext } from '../../../src/server/serverContext';
+import { withServerContext } from '../../../src/server/apiUtils';
 import { canManageOrders } from '../../../src/domain/services/accessControl';
 
 const normalizeFilterPayload = (payload = {}) => {
@@ -32,20 +32,23 @@ const normalizeFilterPayload = (payload = {}) => {
   return normalized;
 };
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
     const body = req.body || {};
-    const { profile, user } = await resolveServerContext(req, res, {
-      requireProfile: true
-    });
-
+    const user = domain.user || auth.user || null;
     if (!user || !canManageOrders(user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
+    const { profile } = await (await import('../../../src/server/serverContext')).resolveServerContext(
+      req,
+      res,
+      { requireProfile: true }
+    );
     const service = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
     const filter = normalizeFilterPayload(body);
@@ -66,3 +69,5 @@ export default async function handler(req, res) {
     return res.status(status).json({ error: message, details: error.data || null });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

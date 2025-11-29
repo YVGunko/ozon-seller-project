@@ -1,7 +1,7 @@
 import { OzonApiService } from '../../src/services/ozon-api';
-import { resolveServerContext } from '../../src/server/serverContext';
+import { withServerContext } from '../../src/server/apiUtils';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -12,7 +12,11 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Stocks payload is required' });
     }
 
-    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
+    const { profile } = await (await import('../../src/server/serverContext')).resolveServerContext(
+      req,
+      res,
+      { requireProfile: true }
+    );
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const response = await ozon.updateProductStocks(stocks);
     return res.status(200).json(response);
@@ -25,3 +29,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

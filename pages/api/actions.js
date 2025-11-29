@@ -1,13 +1,17 @@
 import { OzonApiService } from '../../src/services/ozon-api';
-import { resolveServerContext } from '../../src/server/serverContext';
+import { withServerContext } from '../../src/server/apiUtils';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
+    const { profile } = await (await import('../../src/server/serverContext')).resolveServerContext(
+      req,
+      res,
+      { requireProfile: true }
+    );
     const service = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const data = await service.getActions(req.query || {});
     return res.status(200).json(data);
@@ -25,3 +29,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

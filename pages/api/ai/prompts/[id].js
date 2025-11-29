@@ -1,8 +1,9 @@
 import { getAiPrompts } from '../../../../src/modules/ai-prompts';
-import { resolveServerContext } from '../../../../src/server/serverContext';
+import { withServerContext } from '../../../../src/server/apiUtils';
 import { canManagePrompts } from '../../../../src/domain/services/accessControl';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
   const {
     query: { id }
   } = req;
@@ -19,13 +20,11 @@ export default async function handler(req, res) {
   try {
     // На будущее: при необходимости можно ограничить
     // редактирование только владельцем промпта.
-    const serverContext = await resolveServerContext(req, res, {
-      requireProfile: false
-    });
-    if (!serverContext.user) {
+    const user = domain.user || auth.user || null;
+    if (!user) {
       return res.status(401).json({ error: 'Unauthorized' });
     }
-    if (!canManagePrompts(serverContext.user)) {
+    if (!canManagePrompts(user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
 
@@ -70,3 +69,5 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'Internal server error' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

@@ -17,6 +17,7 @@ import {
   generateSlidesWithPrompt,
   GROQ_MODEL_IN_USE
 } from '../../../src/utils/aiHelpers';
+import { withServerContext } from '../../../src/server/apiUtils';
 import {
   AiGenerationType,
   AiGenerationSubType,
@@ -24,7 +25,6 @@ import {
 } from '../../../src/modules/ai-storage';
 
 import { getAiPrompts, AiPromptMode } from '../../../src/modules/ai-prompts';
-import { resolveServerContext } from '../../../src/server/serverContext';
 import { canUseAiText } from '../../../src/domain/services/accessControl';
 
 function renderTemplate(template, variables) {
@@ -46,18 +46,19 @@ function renderTemplate(template, variables) {
   });
 }
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const serverContext = await resolveServerContext(req, res, {
-      requireProfile: false
-    });
+    const user = domain.user || auth.user || null;
+    const enterprise = domain.activeEnterprise || null;
 
-    if (!serverContext.user || !canUseAiText(serverContext.user, serverContext.enterprise)) {
+    if (!user || !canUseAiText(user, enterprise)) {
       return res.status(403).json({ error: 'AI functions are not allowed for this user' });
     }
 
@@ -428,7 +429,7 @@ export default async function handler(req, res) {
 
     // Побочно сохраняем результат генерации в ai-storage (если есть авторизованный пользователь)
     try {
-      const userId = serverContext.user?.id || null;
+      const userId = user?.id || null;
 
       if (userId) {
         const aiStorage = getAiStorage();
@@ -465,8 +466,11 @@ export default async function handler(req, res) {
           subType,
           mode: normalizedMode,
           promptId: usedPromptId || null,
-          enterpriseId: serverContext.enterprise?.id || null,
-          sellerId: serverContext.seller?.id || null,
+          enterpriseId: enterprise?.id || null,
+          sellerId:
+            Array.isArray(domain.activeSellerIds) && domain.activeSellerIds.length > 0
+              ? domain.activeSellerIds[0]
+              : null,
           model: modelName,
           input: {
             mode: normalizedMode,
@@ -499,3 +503,5 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'AI error' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

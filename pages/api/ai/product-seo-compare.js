@@ -7,14 +7,25 @@ import {
   debugGroqCall,
   debugReplicateSeoCall
 } from '../../../src/utils/aiHelpers';
+import { withServerContext } from '../../../src/server/apiUtils';
+import { canUseAiText } from '../../../src/domain/services/accessControl';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
+    const user = domain.user || auth.user || null;
+    const enterprise = domain.activeEnterprise || null;
+
+    if (!user || !canUseAiText(user, enterprise)) {
+      return res.status(403).json({ error: 'AI functions are not allowed for this user' });
+    }
+
     const { product, mode } = req.body || {};
 
     if (!product || typeof product !== 'object') {
@@ -46,25 +57,25 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: `Режим сравнения не поддерживается: ${mode}` });
     }
 
-    const ctx = {
+    const promptContext = {
       products,
       baseProductData,
       keywords
     };
 
-    const { system, user, maxTokens } = promptBuilder(ctx);
+    const { system, user: userPrompt, maxTokens } = promptBuilder(promptContext);
 
     // Параллельно вызываем Groq и Replicate с одинаковыми промптами
     const [groqRaw, replicateRaw] = await Promise.all([
       debugGroqCall({
         system,
-        user,
+        user: userPrompt,
         temperature: 0.7,
         maxTokens
       }).catch((err) => `Groq error: ${err.message || String(err)}`),
       debugReplicateSeoCall({
         system,
-        user,
+        user: userPrompt,
         maxTokens
       }).catch((err) => `Replicate error: ${err.message || String(err)}`)
     ]);
@@ -73,7 +84,7 @@ export default async function handler(req, res) {
       mode: normalizedMode,
       prompts: {
         system,
-        user,
+        user: userPrompt,
         maxTokens
       },
       providers: {
@@ -93,3 +104,5 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'AI compare error' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

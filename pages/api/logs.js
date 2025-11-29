@@ -1,11 +1,12 @@
 import { addRequestLog, getRequestLogs } from '../../src/server/requestLogStore';
-import { resolveServerContext } from '../../src/server/serverContext';
+import { withServerContext } from '../../src/server/apiUtils';
 import { canViewLogs } from '../../src/domain/services/accessControl';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
   if (req.method === 'GET') {
     try {
-      const { user } = await resolveServerContext(req, res, { requireProfile: false });
+      const user = domain.user || auth.user || null;
       if (!user) {
         return res.status(401).json({ error: 'Unauthorized' });
       }
@@ -52,3 +53,5 @@ export default async function handler(req, res) {
 
   return res.status(405).json({ error: 'Method not allowed' });
 }
+
+export default withServerContext(handler, { requireAuth: true });

@@ -1,20 +1,23 @@
 import { OzonApiService } from '../../src/services/ozon-api';
-import { resolveServerContext } from '../../src/server/serverContext';
+import { withServerContext } from '../../src/server/apiUtils';
 import { canManageOrders } from '../../src/domain/services/accessControl';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const { profile, user } = await resolveServerContext(req, res, {
-      requireProfile: true
-    });
-
+    const user = domain.user || auth.user || null;
     if (!user || !canManageOrders(user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
+    const { profile } = await (await import('../../src/server/serverContext')).resolveServerContext(
+      req,
+      res,
+      { requireProfile: true }
+    );
     const service = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const orders = await service.getOrders();
     res.status(200).json(orders);
@@ -26,3 +29,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

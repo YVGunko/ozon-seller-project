@@ -19,7 +19,8 @@ export default function Home() {
     canManageUsers,
     canManageOrders,
     canManagePrices,
-    canManageEnterprises
+    canManageEnterprises,
+    canManagePrompts
   } = useAccess();
   const [currentProfile, setCurrentProfile] = useState(contextProfile || null);
   const [showProfilesModal, setShowProfilesModal] = useState(false);
@@ -255,6 +256,14 @@ export default function Home() {
                       <span>›</span>
                     </div>
                   </Link>
+                  {canManagePrompts && (
+                    <Link href="/ai/prompts">
+                      <div style={sidebarSubItemStyle}>
+                        <span>AI промпты</span>
+                        <span>›</span>
+                      </div>
+                    </Link>
+                  )}
                 </div>
               )}
             </div>

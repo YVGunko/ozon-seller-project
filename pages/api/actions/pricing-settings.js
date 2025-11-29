@@ -1,13 +1,19 @@
-import { resolveServerContext } from '../../../src/server/serverContext';
+import { withServerContext } from '../../../src/server/apiUtils';
 import { readActionPricing, writeActionPricing } from '../../../src/server/actionPricingStore';
 import { canManagePrices } from '../../../src/domain/services/accessControl';
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
   try {
-    const { profile, user } = await resolveServerContext(req, res, { requireProfile: true });
+    const user = domain.user || auth.user || null;
     if (!user || !canManagePrices(user)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
+    const { profile } = await (await import('../../../src/server/serverContext')).resolveServerContext(
+      req,
+      res,
+      { requireProfile: true }
+    );
     if (req.method === 'GET') {
       const data = await readActionPricing(profile.id);
       return res.status(200).json(data || {});
@@ -23,3 +29,5 @@ export default async function handler(req, res) {
     return res.status(status).json({ error: error?.message || 'Failed to process request' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

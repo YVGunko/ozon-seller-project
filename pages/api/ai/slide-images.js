@@ -1,5 +1,5 @@
 import { put } from '@vercel/blob';
-import { resolveServerContext } from '../../../src/server/serverContext';
+import { withServerContext } from '../../../src/server/apiUtils';
 import { canUseAiImage } from '../../../src/domain/services/accessControl';
 import { runReplicate } from '../../../src/utils/replicateClient';
 
@@ -11,21 +11,19 @@ export const config = {
   }
 };
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
-    const serverContext = await resolveServerContext(req, res, {
-      requireProfile: false
-    });
+    const user = domain.user || auth.user || null;
+    const enterprise = domain.activeEnterprise || null;
 
-    if (
-      !serverContext.user ||
-      !canUseAiImage(serverContext.user, serverContext.enterprise)
-    ) {
+    if (!user || !canUseAiImage(user, enterprise)) {
       return res
         .status(403)
         .json({ error: 'AI image functions are not allowed for this user' });
@@ -182,3 +180,5 @@ export default async function handler(req, res) {
       .json({ error: error?.message || 'Failed to generate slide images' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });
