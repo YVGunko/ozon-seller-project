@@ -1,55 +1,19 @@
 // pages/api/admin/sellers.js
 //
 // Админ-эндпоинт для управления Seller-подобными сущностями,
-// которые сейчас хранятся в config/profiles.json и привязаны
-// к Enterprise через config/enterprises.json.
+// которые теперь хранятся в Redis (config:sellers) и привязаны
+// к Enterprise через config:enterprises.
 //
 // Поддерживает:
 //   GET  /api/admin/sellers      — список продавцов с привязкой к Enterprise
 //   POST /api/admin/sellers      — создать или обновить продавца
 
-import { list, put } from '@vercel/blob';
 import { withServerContext } from '../../../src/server/apiUtils';
 import {
   canManageEnterprises,
   canManageSellers
 } from '../../../src/domain/services/accessControl';
-import {
-  reloadProfilesFromBlob,
-  ensureProfilesLoaded,
-  getProfilesForUser
-} from '../../../src/server/profileStore';
-import {
-  reloadEnterprisesFromBlob,
-  getEnterpriseById
-} from '../../../src/server/enterpriseStore';
-
-const { CONFIG_PROFILES_BLOB_PREFIX, CONFIG_ENTERPRISES_BLOB_PREFIX } = process.env;
-
-const PROFILES_BLOB_PREFIX = CONFIG_PROFILES_BLOB_PREFIX || 'config/profiles.json';
-const ENTERPRISES_BLOB_PREFIX =
-  CONFIG_ENTERPRISES_BLOB_PREFIX || 'config/enterprises.json';
-
-async function loadJsonConfig(prefix) {
-  const { blobs } = await list({ prefix });
-  if (!blobs || blobs.length === 0) {
-    return { data: [], pathname: prefix };
-  }
-  const blob = blobs[0];
-  const downloadUrl = blob.downloadUrl || blob.url;
-  const res = await fetch(downloadUrl);
-  const text = await res.text();
-  const json = JSON.parse(text || '[]');
-  return { data: Array.isArray(json) ? json : [], pathname: blob.pathname };
-}
-
-async function saveJsonConfig(pathname, data) {
-  const json = JSON.stringify(data, null, 2);
-  await put(pathname, json, {
-    access: 'public',
-    contentType: 'application/json'
-  });
-}
+import { configStorage } from '../../../src/services/configStorage';
 
 async function handler(req, res, ctx) {
   if (req.method !== 'GET' && req.method !== 'POST') {
@@ -66,48 +30,55 @@ async function handler(req, res, ctx) {
   const isRoot = canManageEnterprises(user);
 
   if (req.method === 'GET') {
-    const allowedProfiles = Array.isArray(user.allowedProfiles)
-      ? user.allowedProfiles
-      : [];
+    // Основной источник правды — Redis через configStorage.
+    const [rawSellers] = await Promise.all([
+      configStorage.getSellers()
+    ]);
 
-    const { data: rawEnterprises } = await loadJsonConfig(ENTERPRISES_BLOB_PREFIX);
-    let enterpriseConfigs = Array.isArray(rawEnterprises) ? rawEnterprises : [];
+    const allSellers = Array.isArray(rawSellers) ? rawSellers : [];
+
+    let visibleSellers = allSellers;
 
     if (!isRoot) {
-      // Менеджер видит только Enterprise, связанные с его профилями
-      const allowedSet = new Set(allowedProfiles.map(String));
-      enterpriseConfigs = enterpriseConfigs.filter((ent) =>
-        Array.isArray(ent.profileIds)
-          ? ent.profileIds.some((pid) => allowedSet.has(String(pid)))
-          : false
-      );
+      // Менеджер видит только магазины внутри своего Enterprise.
+      // Берём enterpriseId из auth/user или из доменного контекста.
+      const activeEnterpriseId =
+        ctx.domain?.activeEnterprise?.id ||
+        user.enterpriseId ||
+        null;
+
+      if (!activeEnterpriseId) {
+        visibleSellers = [];
+      } else {
+        const entId = String(activeEnterpriseId);
+        visibleSellers = allSellers.filter(
+          (s) => String(s.enterpriseId || '') === entId
+        );
+      }
     }
 
-    const profiles = isRoot
-      ? await ensureProfilesLoaded()
-      : getProfilesForUser(allowedProfiles);
+    const items = visibleSellers.map((s) => {
+      const ozonClientId =
+        s.ozon_client_id != null
+          ? s.ozon_client_id
+          : s.ozonClientId != null
+          ? s.ozonClientId
+          : null;
 
-    // Строим мапу profileId -> enterpriseId (по первому попаданию среди доступных enterprise)
-    const profileToEnterprise = {};
-    for (const ent of enterpriseConfigs) {
-      const profileIds = Array.isArray(ent.profileIds) ? ent.profileIds : [];
-      profileIds.forEach((pid) => {
-        const id = String(pid);
-        if (!profileToEnterprise[id]) {
-          profileToEnterprise[id] = ent.id;
-        }
-      });
-    }
+      const hasApiKey = Boolean(s.ozon_api_key);
 
-    const items = profiles.map((p) => ({
-      id: p.id,
-      name: p.name,
-      ozon_client_id: p.ozon_client_id,
-      ozon_has_api_key: Boolean(p.ozon_api_key),
-      client_hint: p.client_hint,
-      description: p.description || '',
-      enterpriseId: profileToEnterprise[p.id] || null
-    }));
+      return {
+        id: String(s.id),
+        name: s.name || `Seller ${s.id}`,
+        ozon_client_id: ozonClientId,
+        ozon_has_api_key: hasApiKey,
+        client_hint:
+          s.client_hint ||
+          (ozonClientId ? String(ozonClientId).slice(0, 8) : ''),
+        description: s.description || '',
+        enterpriseId: s.enterpriseId || null
+      };
+    });
 
     return res.status(200).json({ items });
   }
@@ -123,8 +94,12 @@ async function handler(req, res, ctx) {
     enterpriseId
   } = req.body || {};
 
+  // Загружаем enterprises из Redis, чтобы проверить наличие и права.
+  const enterprises = await configStorage.getEnterprises();
+  const enterprisesArr = Array.isArray(enterprises) ? enterprises : [];
+
   const targetEnterprise = enterpriseId
-    ? await getEnterpriseById(String(enterpriseId))
+    ? enterprisesArr.find((ent) => String(ent.id) === String(enterpriseId)) || null
     : null;
 
   if (enterpriseId && !targetEnterprise) {
@@ -136,34 +111,28 @@ async function handler(req, res, ctx) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { data: rawProfiles, pathname: profilesPath } = await loadJsonConfig(
-    PROFILES_BLOB_PREFIX
-  );
-  const { data: rawEnterprises, pathname: enterprisesPath } = await loadJsonConfig(
-    ENTERPRISES_BLOB_PREFIX
-  );
+  // Работаем только с Redis‑хранилищем продавцов.
+  const rawSellers = await configStorage.getSellers();
+  let sellers = Array.isArray(rawSellers) ? [...rawSellers] : [];
 
-  let profiles = Array.isArray(rawProfiles) ? [...rawProfiles] : [];
-  let enterprises = Array.isArray(rawEnterprises) ? [...rawEnterprises] : [];
-
-  const profileId = id ? String(id) : String(ozon_client_id);
+  const sellerId = id ? String(id) : String(ozon_client_id);
 
   // Для нового Seller ozon_client_id и ozon_api_key обязательны.
   // Для существующего — можно не передавать ozon_api_key, тогда он не изменяется.
-  if (!profileId || !ozon_client_id) {
+  if (!sellerId || !ozon_client_id) {
     return res
       .status(400)
       .json({ error: 'ozon_client_id обязателен для продавца' });
   }
 
-  // Обновляем или создаём профиль
-  const existingIndex = profiles.findIndex((p) => String(p.id) === profileId);
-  const baseProfile = existingIndex >= 0 ? profiles[existingIndex] : {};
+  // Обновляем или создаём Seller
+  const existingIndex = sellers.findIndex((s) => String(s.id) === sellerId);
+  const baseSeller = existingIndex >= 0 ? sellers[existingIndex] : {};
 
   const nextApiKey =
     typeof ozon_api_key === 'string' && ozon_api_key.trim().length > 0
       ? ozon_api_key.trim()
-      : baseProfile.ozon_api_key;
+      : baseSeller.ozon_api_key;
 
   if (!nextApiKey) {
     // Нет старого ключа и не передан новый — это создание/редактирование без ключа.
@@ -172,35 +141,40 @@ async function handler(req, res, ctx) {
       .json({ error: 'ozon_api_key обязателен для нового продавца' });
   }
 
-  const updatedProfile = {
-    ...baseProfile,
-    id: profileId,
-    name: name || baseProfile.name || `Seller ${profileId}`,
+  const normalizedEnterpriseId = enterpriseId
+    ? String(enterpriseId)
+    : baseSeller.enterpriseId || null;
+
+  const updatedSeller = {
+    ...baseSeller,
+    id: sellerId,
+    name: name || baseSeller.name || `Seller ${sellerId}`,
     ozon_client_id,
     ozon_api_key: nextApiKey,
     client_hint:
       client_hint ||
-      baseProfile.client_hint ||
+      baseSeller.client_hint ||
       String(ozon_client_id).slice(0, 8),
-    description: description || baseProfile.description || ''
+    description: description || baseSeller.description || '',
+    enterpriseId: normalizedEnterpriseId
   };
 
   if (existingIndex >= 0) {
-    profiles[existingIndex] = updatedProfile;
+    sellers[existingIndex] = updatedSeller;
   } else {
-    profiles.push(updatedProfile);
+    sellers.push(updatedSeller);
   }
 
-  // Обновляем привязку к Enterprise через profileIds
-  if (enterpriseId) {
-    const entId = String(enterpriseId);
+  // Обновляем привязку к Enterprise через profileIds в config:enterprises
+  if (normalizedEnterpriseId) {
+    const entId = String(normalizedEnterpriseId);
 
-    enterprises = enterprises.map((ent) => {
+    const nextEnterprises = enterprisesArr.map((ent) => {
       const profileIds = Array.isArray(ent.profileIds) ? [...ent.profileIds] : [];
-      const hasId = profileIds.map(String).includes(profileId);
+      const hasId = profileIds.map(String).includes(sellerId);
 
-      if (ent.id === entId) {
-        if (!hasId) profileIds.push(profileId);
+      if (String(ent.id) === entId) {
+        if (!hasId) profileIds.push(sellerId);
         return {
           ...ent,
           profileIds
@@ -211,29 +185,27 @@ async function handler(req, res, ctx) {
       if (hasId) {
         return {
           ...ent,
-          profileIds: profileIds.filter((pid) => String(pid) !== profileId)
+          profileIds: profileIds.filter((pid) => String(pid) !== sellerId)
         };
       }
 
       return ent;
     });
+
+    await configStorage.saveEnterprises(nextEnterprises);
   }
 
-  await saveJsonConfig(profilesPath, profiles);
-  await saveJsonConfig(enterprisesPath, enterprises);
-
-  // Обновляем кэши
-  await reloadProfilesFromBlob();
-  await reloadEnterprisesFromBlob();
+  await configStorage.saveSellers(sellers);
 
   return res.status(200).json({
     seller: {
-      id: profileId,
-      name: updatedProfile.name,
-      ozon_client_id: updatedProfile.ozon_client_id,
-      client_hint: updatedProfile.client_hint,
-      description: updatedProfile.description,
-      enterpriseId: enterpriseId || null
+      id: sellerId,
+      name: updatedSeller.name,
+      ozon_client_id: updatedSeller.ozon_client_id,
+      ozon_has_api_key: Boolean(updatedSeller.ozon_api_key),
+      client_hint: updatedSeller.client_hint,
+      description: updatedSeller.description,
+      enterpriseId: updatedSeller.enterpriseId || null
     }
   });
 }

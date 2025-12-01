@@ -4,8 +4,16 @@
 // Объединяет user (из AuthContext) + данные (из configStorage),
 // проверяет доступы и возвращает DomainContext.
 //
+// Модель прав:
+//  - root_admin/admin → видит все Enterprise и Sellers;
+//  - обычный пользователь:
+//      enterprises: [enterpriseId] (обычно 1);
+//      profiles:    [sellerId]     (список доступных Seller внутри Enterprise).
+//
 // НЕ использует Next.js, req/res, Redis напрямую — только данные.
 // Легко тестируется и расширяется.
+
+import { isRootAdmin } from './accessControl';
 
 export class DomainResolver {
   constructor({ configStorage }) {
@@ -28,8 +36,8 @@ export class DomainResolver {
    * Возвращает DomainContext:
    * {
    *   user,
-   *   enterprises: [],
-   *   sellers: [],
+   *   enterprises: [],   // Enterprise, доступные пользователю
+   *   sellers: [],       // Seller (магазины), доступные пользователю
    *   activeEnterprise,
    *   activeSellerIds: []
    * }
@@ -52,6 +60,8 @@ export class DomainResolver {
       };
     }
 
+    const isRoot = isRootAdmin(user);
+
     // --------- 1. Загружаем данные из хранилища ---------
     const [users, enterprises, sellers] = await Promise.all([
       this.configStorage.getUsers(),
@@ -66,21 +76,76 @@ export class DomainResolver {
     }
 
     // --------- 2. Нормализация массивов ---------
-    const userEnterpriseIds = Array.isArray(dbUser.enterprises)
-      ? dbUser.enterprises
+    const rawEnterpriseIds = Array.isArray(dbUser.enterprises)
+      ? dbUser.enterprises.map((id) => String(id))
       : [];
 
-    const userSellerIds = Array.isArray(dbUser.sellers)
-      ? dbUser.sellers
+    // Для совместимости: если когда-то появится поле enterpriseId.
+    if (
+      rawEnterpriseIds.length === 0 &&
+      typeof dbUser.enterpriseId === 'string' &&
+      dbUser.enterpriseId
+    ) {
+      rawEnterpriseIds.push(String(dbUser.enterpriseId));
+    }
+
+    // Новый источник seller‑доступов — profiles (sellerId).
+    const rawProfileIds = Array.isArray(dbUser.profiles)
+      ? dbUser.profiles.map((id) => String(id))
       : [];
 
-    // --------- 3. Фильтрация доступных enterprise ---------
-    const userEnterprises = enterprises.filter((ent) =>
-      userEnterpriseIds.includes(ent.id)
+    // Старое поле sellers поддерживаем как fallback.
+    const legacySellerIds = Array.isArray(dbUser.sellers)
+      ? dbUser.sellers.map((id) => String(id))
+      : [];
+
+    // --------- 3. Определяем списки доступных id с учётом роли ---------
+    let userEnterpriseIds;
+    let userSellerIds;
+
+    if (isRoot) {
+      // root/admin видит все Enterprise и всех Seller.
+      userEnterpriseIds = (enterprises || []).map((ent) => String(ent.id));
+      userSellerIds = (sellers || []).map((sel) => String(sel.id));
+    } else {
+      userEnterpriseIds = rawEnterpriseIds;
+
+      // Если enterpriseIds ещё не выставлены, пробуем вывести их из профилей.
+      if (userEnterpriseIds.length === 0 && rawProfileIds.length > 0) {
+        const bySellerId = new Map();
+        (sellers || []).forEach((sel) => {
+          if (sel && sel.id && sel.enterpriseId) {
+            bySellerId.set(String(sel.id), String(sel.enterpriseId));
+          }
+        });
+
+        const derived = new Set();
+        rawProfileIds.forEach((sid) => {
+          const entId = bySellerId.get(sid);
+          if (entId) derived.add(entId);
+        });
+
+        userEnterpriseIds = Array.from(derived);
+      }
+
+      // Новый источник seller‑доступов — profiles; при их отсутствии падаем
+      // обратно на legacy sellers (если они есть).
+      if (rawProfileIds.length > 0) {
+        userSellerIds = rawProfileIds;
+      } else {
+        userSellerIds = legacySellerIds;
+      }
+    }
+
+    // --------- 4. Фильтрация доступных enterprise ---------
+    const userEnterprises = (enterprises || []).filter((ent) =>
+      userEnterpriseIds.includes(String(ent.id))
     );
 
-    // --------- 4. Фильтрация доступных seller ---------
-    const userSellers = sellers.filter((sel) => userSellerIds.includes(sel.id));
+    // --------- 5. Фильтрация доступных seller ---------
+    const userSellers = (sellers || []).filter((sel) =>
+      userSellerIds.includes(String(sel.id))
+    );
 
     // --------- 5. Определяем activeEnterprise ---------
     let activeEnterprise = null;

@@ -115,7 +115,17 @@ export async function ensureEnterprisesAndSellersSeeded() {
         id: profileId,
         name: profile.name || profileId,
         enterpriseId,
-        ozonClientId: profile.ozon_client_id || null
+        // целевая схема хранения Seller в Redis:
+        //  - ozon_client_id / ozon_api_key — учётные данные OZON;
+        //  - client_hint / description    — метаданные для UI;
+        ozon_client_id: profile.ozon_client_id || null,
+        ozon_api_key: profile.ozon_api_key || null,
+        client_hint:
+          profile.client_hint ||
+          (profile.ozon_client_id
+            ? String(profile.ozon_client_id).slice(0, 8)
+            : null),
+        description: profile.description || ''
       });
     }
 

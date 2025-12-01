@@ -44,7 +44,7 @@ describe("DomainResolver (multi-seller version)", () => {
 
   test("нормализация массивов: если enterprises или sellers не массив → пустые", async () => {
     const resolver = createResolverWith({
-      users: [{ id: "u1", enterprises: null, sellers: "sel1" }],
+      users: [{ id: "u1", enterprises: null, profiles: "sel1" }],
       enterprises: [{ id: "ent1" }],
       sellers: [{ id: "sel1" }],
     });
@@ -62,7 +62,7 @@ describe("DomainResolver (multi-seller version)", () => {
         {
           id: "u1",
           enterprises: ["ent1"],
-          sellers: ["sel1"],
+          profiles: ["sel1"],
         },
       ],
       enterprises: [
@@ -90,7 +90,7 @@ describe("DomainResolver (multi-seller version)", () => {
         {
           id: "u1",
           enterprises: ["ent1", "ent2"],
-          sellers: ["sel1", "sel2"],
+          profiles: ["sel1", "sel2"],
         },
       ],
       enterprises: [
@@ -113,7 +113,7 @@ describe("DomainResolver (multi-seller version)", () => {
 
   test("AccessDenied если enterpriseId не принадлежит пользователю", async () => {
     const resolver = createResolverWith({
-      users: [{ id: "u1", enterprises: ["ent1"], sellers: [] }],
+      users: [{ id: "u1", enterprises: ["ent1"], profiles: [] }],
       enterprises: [{ id: "ent1" }, { id: "ent2" }],
     });
 
@@ -130,7 +130,7 @@ describe("DomainResolver (multi-seller version)", () => {
         {
           id: "u1",
           enterprises: ["ent1"],
-          sellers: ["sel1", "sel2", "sel3"],
+          profiles: ["sel1", "sel2", "sel3"],
         },
       ],
       enterprises: [{ id: "ent1" }],
@@ -150,7 +150,7 @@ describe("DomainResolver (multi-seller version)", () => {
 
   test("single seller работает так же (backward compatibility)", async () => {
     const resolver = createResolverWith({
-      users: [{ id: "u1", enterprises: ["ent1"], sellers: ["sel1"] }],
+      users: [{ id: "u1", enterprises: ["ent1"], profiles: ["sel1"] }],
       enterprises: [{ id: "ent1" }],
       sellers: [{ id: "sel1", enterpriseId: "ent1" }],
     });
@@ -164,7 +164,7 @@ describe("DomainResolver (multi-seller version)", () => {
 
   test("fallback: enterprise выбран → выбираем всех seller enterprise", async () => {
     const resolver = createResolverWith({
-      users: [{ id: "u1", enterprises: ["ent1"], sellers: ["sel1", "sel2"] }],
+      users: [{ id: "u1", enterprises: ["ent1"], profiles: ["sel1", "sel2"] }],
       enterprises: [{ id: "ent1" }],
       sellers: [
         { id: "sel1", enterpriseId: "ent1" },
@@ -179,7 +179,7 @@ describe("DomainResolver (multi-seller version)", () => {
 
   test("fallback: если enterprise нет, но есть sellers → берём всех sellers", async () => {
     const resolver = createResolverWith({
-      users: [{ id: "u1", enterprises: [], sellers: ["sel1", "sel2"] }],
+      users: [{ id: "u1", enterprises: [], profiles: ["sel1", "sel2"] }],
       enterprises: [],
       sellers: [
         { id: "sel1", enterpriseId: null },
@@ -194,7 +194,7 @@ describe("DomainResolver (multi-seller version)", () => {
 
   test("AccessDenied если user выбирает sellerId, которого у него нет", async () => {
     const resolver = createResolverWith({
-      users: [{ id: "u1", enterprises: ["ent1"], sellers: ["sel1"] }],
+      users: [{ id: "u1", enterprises: ["ent1"], profiles: ["sel1"] }],
       enterprises: [{ id: "ent1" }],
       sellers: [
         { id: "sel1", enterpriseId: "ent1" },
@@ -207,4 +207,3 @@ describe("DomainResolver (multi-seller version)", () => {
     ).rejects.toThrow("AccessDenied");
   });
 });
-

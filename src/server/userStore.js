@@ -32,6 +32,9 @@ const normalizeUsers = (rawUsers = []) => {
       const password = entry.password || entry.pass || '';
       const id = entry.id || username || `user-${index + 1}`;
       if (!username || !password) return null;
+      const enterprises = Array.isArray(entry.enterprises)
+        ? entry.enterprises.map((enterpriseId) => String(enterpriseId))
+        : [];
       const profiles = Array.isArray(entry.profiles)
         ? entry.profiles.map((profileId) => String(profileId))
         : [];
@@ -49,6 +52,7 @@ const normalizeUsers = (rawUsers = []) => {
         username: String(username),
         password: String(password),
         name: entry.name || username,
+        enterprises,
         profiles,
         roles,
         email
@@ -243,10 +247,17 @@ export const findUserByCredentials = async (username, password) => {
     (entry) => entry.username === username && entry.password === password
   );
   if (!user) return null;
+  const enterpriseIds = Array.isArray(user.enterprises)
+    ? user.enterprises.map((id) => String(id))
+    : [];
+  const primaryEnterpriseId =
+    enterpriseIds.length > 0 ? enterpriseIds[0] : null;
   return {
     id: user.id,
     name: user.name,
     username: user.username,
+    enterpriseIds,
+    enterpriseId: primaryEnterpriseId,
     allowedProfiles: user.profiles || [],
     roles: user.roles || []
   };

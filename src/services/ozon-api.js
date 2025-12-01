@@ -558,7 +558,19 @@ export class OzonApiService {
     if (last_id !== undefined && last_id !== null && last_id !== '') {
       payload.last_id = last_id;
     }
-    return this.request('/v1/actions/candidates', payload);
+    const data = await this.request('/v1/actions/candidates', payload);
+    try {
+      // Отладочный вывод полного ответа OZON по кандидатам акции
+      // (может быть большим, оставлять включённым только при необходимости).
+      // eslint-disable-next-line no-console
+      console.log(
+        '[OzonApiService] /v1/actions/candidates response:',
+        JSON.stringify(data, null, 2)
+      );
+    } catch {
+      // игнорируем ошибки сериализации JSON
+    }
+    return data;
   }
 
   async getActionProducts({ action_id, limit = 100, last_id = null } = {}) {

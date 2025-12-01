@@ -30,6 +30,13 @@ export async function getAuthContext(req, res) {
     const allowedProfiles = Array.isArray(raw.allowedProfiles)
       ? raw.allowedProfiles.map((p) => String(p))
       : [];
+    const enterpriseIds = Array.isArray(raw.enterpriseIds)
+      ? raw.enterpriseIds.map((id) => String(id))
+      : [];
+    const enterpriseId =
+      typeof raw.enterpriseId === 'string' && raw.enterpriseId
+        ? raw.enterpriseId
+        : enterpriseIds[0] || null;
 
     return {
       isAuthenticated: true,
@@ -39,7 +46,9 @@ export async function getAuthContext(req, res) {
         username: raw.username || raw.email,
         name: raw.name || null,
         roles,
-        allowedProfiles
+        allowedProfiles,
+        enterpriseIds,
+        enterpriseId
       }
     };
   } catch (err) {
