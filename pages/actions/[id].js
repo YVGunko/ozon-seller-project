@@ -1,6 +1,6 @@
 import { useRouter } from 'next/router';
 import Link from 'next/link';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCurrentContext } from '../../src/hooks/useCurrentContext';
 
 const formatNumber = (value) => {
@@ -48,6 +48,8 @@ export default function ActionItemsPage() {
   const [elasticLoading, setElasticLoading] = useState(false);
   const [savedSettings, setSavedSettings] = useState(null);
   const [activeTab, setActiveTab] = useState('candidates');
+  const lastLoadedKeyRef = useRef(null);
+  const pricingLoadedProfileIdRef = useRef(null);
 
   const extractTitle = (data) => {
     if (!data) return '';
@@ -82,10 +84,16 @@ export default function ActionItemsPage() {
 
   useEffect(() => {
     const loadSavedPricing = async () => {
-      if (!currentProfile) return;
+      const profileId = currentProfile?.id;
+      if (!profileId) return;
+
+      if (pricingLoadedProfileIdRef.current === profileId) {
+        return;
+      }
+
       try {
         const res = await fetch(
-          `/api/actions/pricing-settings?profileId=${encodeURIComponent(currentProfile.id)}`,
+          `/api/actions/pricing-settings?profileId=${encodeURIComponent(profileId)}`,
           {
             method: 'GET',
             headers: { 'Content-Type': 'application/json' }
@@ -99,11 +107,13 @@ export default function ActionItemsPage() {
             commissionPercent: Number.isFinite(data.commissionPercent) ? data.commissionPercent : 0,
             discountPercent: Number.isFinite(data.discountPercent) ? data.discountPercent : 0
           };
+          console.log('[pricing-settings]', next);
           setMinMarkup(next.minMarkup);
           setTaxPercent(next.taxPercent);
           setCommissionPercent(next.commissionPercent);
           setDiscountPercent(next.discountPercent);
           setSavedSettings(next);
+          pricingLoadedProfileIdRef.current = profileId;
         }
       } catch (err) {
         console.error('[ActionItems] failed to load pricing settings', err);
@@ -112,8 +122,22 @@ export default function ActionItemsPage() {
     loadSavedPricing();
   }, [currentProfile]);
 
-  const refreshData = async () => {
-    if (!actionId || !currentProfile) return;
+  const refreshData = async (options = {}) => {
+    const { force = false } = options;
+    const normalizedActionId = Array.isArray(actionId) ? actionId[0] : actionId;
+    const profileId = currentProfile?.id;
+
+    if (!normalizedActionId || !profileId) return;
+
+    const currentKey = `${normalizedActionId}:${profileId}`;
+    console.log('[refreshData] ', {
+      currentKey,
+      force
+    });
+    if (!force && lastLoadedKeyRef.current === currentKey) {
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -273,6 +297,7 @@ export default function ActionItemsPage() {
 
       setCandidates(withNetFallback(candidateItems));
       setParticipants(withNetFallback(participantItems));
+      lastLoadedKeyRef.current = currentKey;
     } catch (err) {
       console.error(err);
       setError(err.message || 'Ошибка загрузки товаров акции');
@@ -291,11 +316,17 @@ export default function ActionItemsPage() {
     if (num > 99) return 99;
     return num;
   };
+  const sanitizedMarkupPercent = (value) => {
+    const num = Number(value);
+    if (!Number.isFinite(num)) return 0;
+    if (num > 99) return 99;
+    return num;
+  };
 
   const persistPricingSettings = async () => {
     if (!currentProfile) return;
     const current = {
-      minMarkup: sanitizedPercent(minMarkup),
+      minMarkup: sanitizedMarkupPercent(minMarkup),
       taxPercent: sanitizedPercent(taxPercent),
       commissionPercent: sanitizedPercent(commissionPercent),
       discountPercent: sanitizedPercent(discountPercent)
@@ -328,7 +359,7 @@ export default function ActionItemsPage() {
     const tax = sanitizedPercent(taxPercent);
     const commission = sanitizedPercent(commissionPercent);
     const discount = sanitizedPercent(discountPercent);
-    const minMarkupVal = sanitizedPercent(minMarkup);
+    const minMarkupVal = sanitizedMarkupPercent(minMarkup);
     return { tax, commission, discount, minMarkup: minMarkupVal };
   }, [taxPercent, commissionPercent, discountPercent, minMarkup]);
 
@@ -382,7 +413,8 @@ export default function ActionItemsPage() {
     };
   };
 
-  const handleImportPrices = async () => {
+  const handleImportPrices = async (options = {}) => {
+    const { useOzonPrice = false } = options;
     setImportError('');
     setImportStatus('');
     if (!candidates.length) {
@@ -407,7 +439,8 @@ export default function ActionItemsPage() {
 
     const pricesPayload = eligible
       .map((item) => {
-        const priceValue = Number(item?.my_action_price);
+        const sourcePrice = useOzonPrice ? item?.max_action_price : item?.my_action_price;
+        const priceValue = Number(sourcePrice);
         if (!Number.isFinite(priceValue) || priceValue <= 0) {
           return null;
         }
@@ -451,7 +484,7 @@ export default function ActionItemsPage() {
       await persistPricingSettings();
       setImportStatus(`Отправлено в OZON: ${pricesPayload.length}`);
       setTimeout(() => {
-        refreshData();
+        refreshData({ force: true });
       }, 3000);
     } catch (err) {
       console.error('[ActionItems] import prices error', err);
@@ -469,6 +502,171 @@ export default function ActionItemsPage() {
     setElasticLoading(true);
     await handleImportPrices();
     setElasticLoading(false);
+  };
+
+  const handleActivateInOzon = async () => {
+    setImportError('');
+    setImportStatus('');
+    const normalizedActionId = Array.isArray(actionId) ? actionId[0] : actionId;
+    const profileId = currentProfile?.id;
+    if (!normalizedActionId || !profileId) {
+      setImportError('Нет данных акции или профиля для активации');
+      return;
+    }
+
+    const rows = activeTab === 'participants' ? participants : candidates;
+    if (!rows.length) {
+      setImportError('Нет товаров для активации в акции');
+      return;
+    }
+
+    const processed = rows.map((raw) => calcRow(raw));
+
+    const eligible = processed.filter((item) => {
+      const marginVal = Number(item?.margin_cost);
+      return Number.isFinite(marginVal) && marginVal >= calculations.minMarkup;
+    });
+
+    const prepared = eligible
+      .map((item) => {
+        const productId = Number(item?.product_id ?? item?.id);
+        const actionPrice = Number(
+          item?.max_action_price ?? item?.my_action_price ?? item?.action_price
+        );
+        const stock = Number(item?.stock);
+
+        if (!Number.isFinite(productId) || productId <= 0) {
+          return null;
+        }
+        if (!Number.isFinite(actionPrice) || actionPrice <= 0) {
+          return null;
+        }
+
+        return {
+          product_id: productId,
+          action_price: actionPrice,
+          stock: Number.isFinite(stock) && stock > 0 ? stock : undefined
+        };
+      })
+      .filter(Boolean);
+
+    if (!prepared.length) {
+      setImportError('Нет валидных товаров для активации в акции');
+      return;
+    }
+
+    setImportLoading(true);
+    try {
+      const response = await fetch('/api/actions/activate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action_id: Number(normalizedActionId),
+          products: prepared,
+          profileId
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || 'Не удалось активировать товары в акции');
+      }
+
+      const successCount = Array.isArray(data?.result?.product_ids)
+        ? data.result.product_ids.length
+        : 0;
+      const rejectedCount = Array.isArray(data?.result?.rejected)
+        ? data.result.rejected.length
+        : 0;
+
+      setImportStatus(
+        `Активировано в акции: ${successCount}${
+          rejectedCount ? `, отклонено: ${rejectedCount}` : ''
+        }`
+      );
+      setTimeout(() => {
+        refreshData({ force: true });
+      }, 3000);
+    } catch (err) {
+      console.error('[ActionItems] activate in action error', err);
+      setImportError(err.message || 'Не удалось активировать товары в акции');
+    } finally {
+      setImportLoading(false);
+    }
+  };
+
+  const handleDeactivateInOzon = async () => {
+    setImportError('');
+    setImportStatus('');
+    const normalizedActionId = Array.isArray(actionId) ? actionId[0] : actionId;
+    const profileId = currentProfile?.id;
+    if (!normalizedActionId || !profileId) {
+      setImportError('Нет данных акции или профиля для удаления');
+      return;
+    }
+
+    if (activeTab !== 'participants') {
+      setImportError('Удалять товары из акции можно только на вкладке «Участвуют»');
+      return;
+    }
+
+    if (!participants.length) {
+      setImportError('Нет товаров для удаления из акции');
+      return;
+    }
+
+    const processed = participants.map((raw) => calcRow(raw));
+
+    const eligible = processed.filter((item) => {
+      const marginVal = Number(item?.margin_cost);
+      return Number.isFinite(marginVal) && marginVal < calculations.minMarkup;
+    });
+
+    const productIds = eligible
+      .map((item) => Number(item?.product_id ?? item?.id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+
+    if (!productIds.length) {
+      setImportError('Нет валидных товаров для удаления из акции');
+      return;
+    }
+
+    setImportLoading(true);
+    try {
+      const response = await fetch('/api/actions/deactivate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action_id: Number(normalizedActionId),
+          product_ids: productIds,
+          profileId
+        })
+      });
+      const data = await response.json();
+      if (!response.ok || data?.error) {
+        throw new Error(data?.error || 'Не удалось удалить товары из акции');
+      }
+
+      const successCount = Array.isArray(data?.result?.product_ids)
+        ? data.result.product_ids.length
+        : 0;
+      const rejectedCount = Array.isArray(data?.result?.rejected)
+        ? data.result.rejected.length
+        : 0;
+
+      setImportStatus(
+        `Удалено из акции: ${successCount}${
+          rejectedCount ? `, не удалось удалить: ${rejectedCount}` : ''
+        }`
+      );
+      setTimeout(() => {
+        refreshData({ force: true });
+      }, 3000);
+    } catch (err) {
+      console.error('[ActionItems] deactivate from action error', err);
+      setImportError(err.message || 'Не удалось удалить товары из акции');
+    } finally {
+      setImportLoading(false);
+    }
   };
 
   const renderTable = (title, items, hideKeys = []) => {
@@ -610,95 +808,139 @@ export default function ActionItemsPage() {
       {!loading && !error && (
         <>
           <div className="oz-actions">
-              <button
-                className={`oz-btn ${
-                  importLoading ||
-                  elasticLoading ||
-                  (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
-                    ? 'oz-btn-disabled'
-                    : 'oz-btn-success'
-                }`}
-                type="button"
-                onClick={handleImportPrices}
-                disabled={
-                  importLoading ||
-                  elasticLoading ||
-                  (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
-                }
-              >
-                {importLoading ? 'Отправляем…' : 'В акцию (установить цены)'}
-              </button>
-              <button
-                className={`oz-btn ${
-                  importLoading ||
-                  elasticLoading ||
-                  !actionTitle?.toLowerCase().includes('эластичный')
-                    ? 'oz-btn-disabled'
-                    : ''
-                }`}
-                type="button"
-                onClick={handleImportPricesElastic}
-                disabled={
-                  importLoading ||
-                  elasticLoading ||
-                  !actionTitle?.toLowerCase().includes('эластичный')
-                }
-                style={{
-                  backgroundColor:
+            {activeTab === 'candidates' && (
+              <>
+                <button
+                  className={`oz-btn ${
+                    importLoading ||
+                    elasticLoading ||
+                    (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
+                      ? 'oz-btn-disabled'
+                      : 'oz-btn-success'
+                  }`}
+                  type="button"
+                  onClick={() => handleImportPrices({ useOzonPrice: false })}
+                  disabled={
+                    importLoading ||
+                    elasticLoading ||
+                    (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
+                  }
+                >
+                  {importLoading ? 'Отправляем…' : 'В акцию (установить цены)'}
+                </button>
+                <button
+                  className={`oz-btn ${
+                    importLoading ||
+                    elasticLoading ||
+                    (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
+                      ? 'oz-btn-disabled'
+                      : 'oz-btn-primary'
+                  }`}
+                  type="button"
+                  onClick={() => handleImportPrices({ useOzonPrice: true })}
+                  disabled={
+                    importLoading ||
+                    elasticLoading ||
+                    (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
+                  }
+                >
+                  {importLoading ? 'Отправляем…' : 'В акцию по цене Озон'}
+                </button>
+                <button
+                  className={`oz-btn ${
                     importLoading ||
                     elasticLoading ||
                     !actionTitle?.toLowerCase().includes('эластичный')
-                      ? undefined
-                      : '#7c3aed',
-                  color: '#fff'
-                }}
-              >
-                {elasticLoading ? 'Отправляем…' : 'В акцию (Эластичный бустинг)'}
-              </button>
-              {importStatus && <span style={{ color: '#047857' }}>{importStatus}</span>}
-              {importError && <span style={{ color: '#b91c1c' }}>{importError}</span>}
+                      ? 'oz-btn-disabled'
+                      : ''
+                  }`}
+                  type="button"
+                  onClick={handleImportPricesElastic}
+                  disabled={
+                    importLoading ||
+                    elasticLoading ||
+                    !actionTitle?.toLowerCase().includes('эластичный')
+                  }
+                  style={{
+                    backgroundColor:
+                      importLoading ||
+                      elasticLoading ||
+                      !actionTitle?.toLowerCase().includes('эластичный')
+                        ? undefined
+                        : '#7c3aed',
+                    color: '#fff'
+                  }}
+                >
+                  {elasticLoading ? 'Отправляем…' : 'В акцию (Эластичный бустинг)'}
+                </button>
+                <button
+                  className={`oz-btn ${
+                    importLoading || elasticLoading ? 'oz-btn-disabled' : 'oz-btn-primary'
+                  }`}
+                  type="button"
+                  onClick={handleActivateInOzon}
+                  disabled={importLoading || elasticLoading}
+                >
+                  {importLoading ? 'Отправляем…' : 'Отправить в акцию (activate)'}
+                </button>
+              </>
+            )}
+            {activeTab === 'participants' && (
               <button
-                className={`oz-btn ${loading ? 'oz-btn-disabled' : ''}`}
-                type="button"
-                onClick={refreshData}
-                disabled={loading}
-                style={{
-                  backgroundColor: loading ? undefined : '#0ea5e9',
-                  color: '#fff'
-                }}
-              >
-                {loading ? 'Обновляем…' : 'Обновить данные'}
-              </button>
-            </div>
-
-            <div className="oz-segmented-control">
-              <button
-                className={`oz-segmented-item ${
-                  activeTab === 'candidates' ? 'oz-segmented-item--active' : ''
+                className={`oz-btn ${
+                  importLoading || elasticLoading ? 'oz-btn-disabled' : 'oz-btn-danger'
                 }`}
                 type="button"
-                onClick={() => setActiveTab('candidates')}
+                onClick={handleDeactivateInOzon}
+                disabled={importLoading || elasticLoading}
               >
-                Кандидаты ({candidates.length})
+                {importLoading ? 'Отправляем…' : 'Удалить товары из акции'}
               </button>
-              <button
-                className={`oz-segmented-item ${
-                  activeTab === 'participants' ? 'oz-segmented-item--active' : ''
-                }`}
-                type="button"
-                onClick={() => setActiveTab('participants')}
-              >
-                Участвуют ({participants.length})
-              </button>
-            </div>
+            )}
+            {importStatus && <span style={{ color: '#047857' }}>{importStatus}</span>}
+            {importError && <span style={{ color: '#b91c1c' }}>{importError}</span>}
+            <button
+              className={`oz-btn ${loading ? 'oz-btn-disabled' : ''}`}
+              type="button"
+              onClick={() => refreshData({ force: true })}
+              disabled={loading}
+              style={{
+                backgroundColor: loading ? undefined : '#0ea5e9',
+                color: '#fff'
+              }}
+            >
+              {loading ? 'Обновляем…' : 'Обновить данные'}
+            </button>
+          </div>
 
-            <div className="oz-card">
-              <div className="oz-card-body">
-                {activeTab === 'candidates' &&
-                  renderTable('Кандидаты', candidates, ['action_price', 'add_mode'])}
-                {activeTab === 'participants' && renderTable('Участвуют', participants)}
-              </div>
+          <div className="oz-segmented-control">
+            <button
+              className={`oz-segmented-item ${
+                activeTab === 'candidates' ? 'oz-segmented-item--active' : ''
+              }`}
+              type="button"
+              onClick={() => setActiveTab('candidates')}
+            >
+              Кандидаты ({candidates.length})
+            </button>
+            <button
+              className={`oz-segmented-item ${
+                activeTab === 'participants' ? 'oz-segmented-item--active' : ''
+              }`}
+              type="button"
+              onClick={() => setActiveTab('participants')}
+            >
+              Участвуют ({participants.length})
+            </button>
+          </div>
+
+          <div className="oz-card">
+            <div className="oz-card-body">
+              {activeTab === 'candidates' &&
+                renderTable('Кандидаты', candidates, ['action_price', 'add_mode'])}
+              {activeTab === 'participants' && renderTable('Участвуют', participants)}
             </div>
+          </div>
         </>
       )}
     </div></div>

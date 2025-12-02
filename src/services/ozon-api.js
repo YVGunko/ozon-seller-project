@@ -558,19 +558,7 @@ export class OzonApiService {
     if (last_id !== undefined && last_id !== null && last_id !== '') {
       payload.last_id = last_id;
     }
-    const data = await this.request('/v1/actions/candidates', payload);
-    try {
-      // Отладочный вывод полного ответа OZON по кандидатам акции
-      // (может быть большим, оставлять включённым только при необходимости).
-      // eslint-disable-next-line no-console
-      console.log(
-        '[OzonApiService] /v1/actions/candidates response:',
-        JSON.stringify(data, null, 2)
-      );
-    } catch {
-      // игнорируем ошибки сериализации JSON
-    }
-    return data;
+    return this.request('/v1/actions/candidates', payload);
   }
 
   async getActionProducts({ action_id, limit = 100, last_id = null } = {}) {
@@ -585,6 +573,74 @@ export class OzonApiService {
       payload.last_id = last_id;
     }
     return this.request('/v1/actions/products', payload);
+  }
+
+  async activateActionProducts({ action_id, products = [] } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для активации товаров в акции');
+    }
+    if (!Array.isArray(products) || !products.length) {
+      throw new Error('Не переданы товары для активации в акции');
+    }
+    const payload = {
+      action_id,
+      products: products.map((p) => ({
+        product_id: Number(p.product_id),
+        action_price: Number(p.action_price),
+        stock:
+          p.stock === undefined || p.stock === null || p.stock === ''
+            ? undefined
+            : Number(p.stock)
+      }))
+    };
+
+    const result = await this.request('/v1/actions/products/activate', payload);
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[OzonApiService] /v1/actions/products/activate result:',
+        JSON.stringify(result, null, 2)
+      );
+    } catch {
+      // ignore logging issues
+    }
+
+    return result;
+  }
+
+  async deactivateActionProducts({ action_id, product_ids = [] } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для удаления товаров из акции');
+    }
+    if (!Array.isArray(product_ids) || !product_ids.length) {
+      throw new Error('Не переданы product_ids для удаления из акции');
+    }
+
+    const payload = {
+      action_id,
+      product_ids: product_ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    };
+
+    if (!payload.product_ids.length) {
+      throw new Error('После нормализации не осталось валидных product_ids');
+    }
+
+    const result = await this.request('/v1/actions/products/deactivate', payload);
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[OzonApiService] /v1/actions/products/deactivate result:',
+        JSON.stringify(result, null, 2)
+      );
+    } catch {
+      // ignore logging issues
+    }
+
+    return result;
   }
 
   async getProductImportStatus(taskId) {
