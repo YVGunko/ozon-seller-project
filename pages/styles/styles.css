@@ -13,7 +13,7 @@
 }
 
 .oz-breadcrumb {
-  margin-bottom: 4px;
+  margin-right: 8px;
 }
 
 .oz-breadcrumb-link {
@@ -43,7 +43,7 @@
 }
 
 .oz-main {
-  max-width: 1200px;
+  max-width: 1800px;
   margin: 0 auto;
 }
 
@@ -259,6 +259,15 @@
   overflow-x: auto;
 }
 
+/* Обёртка с фиксированным заголовком: скролл только по tbody.
+   Высота зависит от окна браузера, а не жёсткого значения. */
+.oz-table-wrapper--sticky {
+  max-height: calc(100vh - 320px); /* учёт отступов/хедера страницы */
+  overflow-y: auto;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
 .oz-table {
   width: 100%;
   border-collapse: collapse;
@@ -268,6 +277,13 @@
 
 .oz-table thead {
   background-color: #f3f4f6;
+}
+
+/* Фиксация заголовка при вертикальном скролле */
+.oz-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
 }
 
 .oz-table th,

@@ -14,18 +14,19 @@ const columns = [
   { key: 'product_id', label: 'Product ID', hidden: true },
   { key: 'offer_id', label: 'Артикул' },
   { key: 'sku', label: 'SKU' },
-  { key: 'price', label: 'Цена' },
-  { key: 'action_price', label: 'Цена по акции' },
-  { key: 'alert_max_action_price_failed', label: 'Выше рекомендуемой', format: (v) => (v ? 'Да' : 'Нет') },
-  { key: 'alert_max_action_price', label: 'Реком. цена' },
-  { key: 'max_action_price', label: 'Макс. цена' },
+  { key: 'price', label: 'Моя цена' },
+  { key: 'min_price', label: 'Моя мин.цена' },
+  { key: 'net_price', label: 'Моя прих.цена' },
+  { key: 'max_action_price', label: 'Макс.цена акции Озон' },
+  { key: 'action_price', label: 'Акц.цена' },
+  { key: 'alert_max_action_price_failed', label: 'Выше реком.', format: (v) => (v ? 'Да' : 'Нет') },
+  { key: 'alert_max_action_price', label: 'Реком.цена' },
+  { key: 'my_action_price', label: 'Моя акц.цена' },
+  { key: 'profit', label: 'Наценка' },
+  { key: 'margin_cost', label: 'Наценка %' },
   { key: 'add_mode', label: 'Добавление' },
   { key: 'min_stock', label: 'Мин. сток' },
-  { key: 'stock', label: 'Сток в акции' },
-  { key: 'net_price', label: 'net_price' },
-  { key: 'my_action_price', label: 'my_action_price' },
-  { key: 'profit', label: 'profit' },
-  { key: 'margin_cost', label: 'margin_cost %' }
+  { key: 'stock', label: 'Сток в акции' }
 ];
 
 export default function ActionItemsPage() {
@@ -46,6 +47,7 @@ export default function ActionItemsPage() {
   const [importLoading, setImportLoading] = useState(false);
   const [elasticLoading, setElasticLoading] = useState(false);
   const [savedSettings, setSavedSettings] = useState(null);
+  const [activeTab, setActiveTab] = useState('candidates');
 
   const extractTitle = (data) => {
     if (!data) return '';
@@ -141,12 +143,12 @@ export default function ActionItemsPage() {
       const candidateItems = Array.isArray(candData?.result?.items)
         ? candData.result.items
         : Array.isArray(candData?.result?.products)
-        ? candData.result.products
-        : Array.isArray(candData?.items)
-        ? candData.items
-        : Array.isArray(candData?.result)
-        ? candData.result
-        : [];
+          ? candData.result.products
+          : Array.isArray(candData?.items)
+            ? candData.items
+            : Array.isArray(candData?.result)
+              ? candData.result
+              : [];
       const participantItems = Array.isArray(prodData?.result?.products)
         ? prodData.result.products
         : [];
@@ -193,8 +195,8 @@ export default function ActionItemsPage() {
             const items = Array.isArray(priceData?.items)
               ? priceData.items
               : Array.isArray(priceData?.result?.items)
-              ? priceData.result.items
-              : [];
+                ? priceData.result.items
+                : [];
             priceMap = new Map(
               items.map((it) => [
                 String(it.product_id ?? it.id),
@@ -204,7 +206,15 @@ export default function ActionItemsPage() {
                     it?.price?.net_price ??
                     it?.net_price ??
                     it?.price?.netPrice ??
-                    null
+                    null,
+                  // min_price возвращается в корне элемента ответа /v5/product/info/prices
+                  // (но на всякий случай учитываем и вложенный вариант).
+                  min_price:
+                    typeof it?.min_price === 'number'
+                      ? it.min_price
+                      : typeof it?.price?.min_price === 'number'
+                        ? it.price.min_price
+                        : null
                 }
               ])
             );
@@ -245,6 +255,7 @@ export default function ActionItemsPage() {
             return null;
           };
           const net = pickNet();
+          const minPrice = priceInfo?.min_price ?? null;
           return {
             ...item,
             product_id: productId,
@@ -255,7 +266,8 @@ export default function ActionItemsPage() {
               priceInfo?.offer_id ??
               priceInfo?.offerId ??
               null,
-            net_price: net
+            net_price: net,
+            min_price: minPrice
           };
         });
 
@@ -322,24 +334,29 @@ export default function ActionItemsPage() {
 
   const calcRow = (item) => {
     const price = Number(item?.price);
-    const actionPrice = Number(item?.action_price);
+    const actionPrice = Number(item?.action_price); // установлена для товаров уже в акции
+    const maxActionPrice = Number(item?.max_action_price); // предложенна Озон
     const net = Number(item?.net_price);
+    const min = Number(item?.min_price);
 
     // базой для расчёта my_action_price берём price; если его нет, используем action_price как запасной вариант
     const basePrice = Number.isFinite(price) ? price : Number.isFinite(actionPrice) ? actionPrice : null;
+    //const maxActionPrice = Number.isFinite(max_action_price) ? max_action_price : Number.isFinite(max_action_price) ? max_action_price : null;
     const validActionPrice = Number.isFinite(actionPrice) ? actionPrice : null;
     const validNet = Number.isFinite(net) && net > 0 ? net : null;
-
+    const validMin = Number.isFinite(min) && min > 0 ? min : null;
     console.log('[ActionRow] values', {
       offer_id: item?.offer_id ?? item?.offerId,
       price,
       actionPrice,
       basePrice,
       validActionPrice,
+      validMin,
+      maxActionPrice,
     });
-
+    //ActionPrice - цена по акции предлагаемая Озон
     const myActionPrice =
-      (validActionPrice !== null & validActionPrice !== 0) ? validActionPrice : Math.round(basePrice * (1 - calculations.discount / 100)) ;
+      (validActionPrice !== null & validActionPrice !== 0) ? validActionPrice : Math.round(basePrice * (1 - calculations.discount / 100));
 
     console.log('[myActionPrice] values', {
       offer_id: item?.offer_id ?? item?.offerId,
@@ -347,16 +364,16 @@ export default function ActionItemsPage() {
     });
 
     const profit =
-      myActionPrice !== null && validNet !== null
+      (myActionPrice !== null && validNet !== null && validNet !== 0)
         ? myActionPrice * (1 - calculations.tax / 100 - calculations.commission / 100) -
-          validNet
-        : null;
+        validNet
+        : (maxActionPrice !== null && maxActionPrice !== 0 && validMin !== 0) ? maxActionPrice - validMin : 0;
 
     const marginCost =
-      profit !== null && validNet
+      (profit !== null && validNet)
         ? (profit / validNet) * 100
-        : null;
-
+        : (profit !== null && validMin) ? (profit / validMin) * 100 : 0;
+    
     return {
       ...item,
       my_action_price: myActionPrice,
@@ -454,211 +471,236 @@ export default function ActionItemsPage() {
     setElasticLoading(false);
   };
 
-  const renderTable = (title, items, hideKeys = []) => (
-    <div style={{ marginTop: 16 }}>
-      <h3 style={{ marginBottom: 8 }}>{title} ({items.length})</h3>
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead>
-            <tr style={{ backgroundColor: '#f8f9fa' }}>
-              {columns
-                .filter((col) => !col.hidden && !hideKeys.includes(col.key))
-                .map((col) => (
-                  <th key={col.key} style={{ padding: 10, border: '1px solid #dee2e6', textAlign: 'left' }}>
+  const renderTable = (title, items, hideKeys = []) => {
+    const visibleColumns = columns.filter((col) => !col.hidden && !hideKeys.includes(col.key));
+    return (
+      <div>
+        <h3 className="oz-card-title">
+          {title} ({items.length})
+        </h3>
+        <div className="oz-table-wrapper oz-table-wrapper--sticky">
+          <table className="oz-table">
+            <thead>
+              <tr>
+                {visibleColumns.map((col) => (
+                  <th key={col.key} style={{ position: 'sticky', top: 0, backgroundColor: '#f3f4f6' }}>
                     {col.label}
                   </th>
                 ))}
-            </tr>
-          </thead>
-          <tbody>
-            {items.map((raw) => {
-              const item = calcRow(raw);
-              const marginVal = Number(item?.margin_cost);
-              const isBelowMinMarkup =
-                Number.isFinite(marginVal) &&
-                marginVal < calculations.minMarkup;
-              return (
-                <tr
-                  key={`${item.product_id || item.id || Math.random()}`}
-                  style={{
-                    borderBottom: '1px solid #f1f3f5',
-                    backgroundColor: isBelowMinMarkup ? '#fee2e2' : 'transparent',
-                    color: isBelowMinMarkup ? '#b91c1c' : 'inherit'
-                  }}
-                >
-                  {columns
-                    .filter((col) => !col.hidden && !hideKeys.includes(col.key))
-                    .map((col) => {
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((raw, index) => {
+                const item = calcRow(raw);
+                const marginVal = Number(item?.margin_cost);
+                const isBelowMinMarkup =
+                  Number.isFinite(marginVal) && marginVal < calculations.minMarkup;
+                return (
+                  <tr
+                    key={item.product_id || item.id || `row-${index}`}
+                    className={isBelowMinMarkup ? 'oz-alert-error' : ''}
+                    style={{
+                      backgroundColor: isBelowMinMarkup ? '#fee2e2' : undefined,
+                      color: isBelowMinMarkup ? '#b91c1c' : undefined
+                    }}
+                  >
+                    {visibleColumns.map((col) => {
                       const value = item[col.key];
                       const content = col.format ? col.format(value) : formatNumber(value);
                       return (
-                        <td key={col.key} style={{ padding: 10, border: '1px solid #eef1f4' }}>
+                        <td key={col.key}>
                           {content}
                         </td>
                       );
                     })}
+                  </tr>
+                );
+              })}
+              {!items.length && (
+                <tr>
+                  <td colSpan={visibleColumns.length} className="oz-empty">
+                    Нет данных
+                  </td>
                 </tr>
-              );
-            })}
-            {!items.length && (
-              <tr>
-                <td colSpan={columns.length} style={{ padding: 12, color: '#6c757d' }}>
-                  Нет данных
-                </td>
-              </tr>
-            )}
-          </tbody>
-        </table>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   return (
-    <div style={{ padding: 20, fontFamily: 'Arial, sans-serif' }}>
-      <div style={{ marginBottom: 12 }}>
-        <Link href="/" legacyBehavior>
-          <a style={{ color: '#0d6efd', textDecoration: 'none' }}>← Назад</a>
-        </Link>
-      </div>
-      <h1 style={{ marginBottom: 8 }}>
-        Товары акции {actionTitle ? `«${actionTitle}»` : `#${actionId}`}
-      </h1>
-      <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap', marginBottom: 12 }}>
-        <div>
-          <div style={{ fontSize: 13, marginBottom: 4 }}>Минимальная наценка %</div>
-          <input
-            type="number"
-            min="0"
-            max="99"
-            step="0.1"
-            value={minMarkup}
-            onChange={(e) => setMinMarkup(e.target.value)}
-            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
-          />
+    <div className="oz-page">
+      <div className="oz-main">
+        <div className="oz-breadcrumb" >
+          <Link href="/" passHref>
+              ← На главную
+          </Link>
+          <Link href="/actions" passHref>
+              ← Назад к акциям
+          </Link>
         </div>
-        <div>
-          <div style={{ fontSize: 13, marginBottom: 4 }}>Налоги %</div>
-          <input
-            type="number"
-            min="0"
-            max="99"
-            step="0.1"
-            value={taxPercent}
-            onChange={(e) => setTaxPercent(e.target.value)}
-            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
-          />
+
+        <div className="oz-page-title-block">
+          <h1 className="oz-page-title">
+            Товары акции {actionTitle ? `«${actionTitle}»` : `#${actionId}`}
+          </h1>
         </div>
-        <div>
-          <div style={{ fontSize: 13, marginBottom: 4 }}>Комиссия Озон %</div>
-          <input
-            type="number"
-            min="0"
-            max="99"
-            step="0.1"
-            value={commissionPercent}
-            onChange={(e) => setCommissionPercent(e.target.value)}
-            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
-          />
+      <div className="oz-card">
+          <div className="oz-card-body">
+            <div className="oz-filters-grid">
+              <div className="oz-form-group">
+                <label className="oz-label">Минимальная наценка %</label>
+                <input
+                  className="oz-input"
+                  type="number"
+                  min="0"
+                  max="99"
+                  step="0.1"
+                  value={minMarkup}
+                  onChange={(e) => setMinMarkup(e.target.value)}
+                  style={{ width: 140 }}
+                />
+              </div>
+              <div className="oz-form-group">
+                <label className="oz-label">Налоги %</label>
+                <input
+                  className="oz-input"
+                  type="number"
+                  min="0"
+                  max="99"
+                  step="0.1"
+                  value={taxPercent}
+                  onChange={(e) => setTaxPercent(e.target.value)}
+                  style={{ width: 140 }}
+                />
+              </div>
+              <div className="oz-form-group">
+                <label className="oz-label">Комиссия Озон %</label>
+                <input
+                  className="oz-input"
+                  type="number"
+                  min="0"
+                  max="99"
+                  step="0.1"
+                  value={commissionPercent}
+                  onChange={(e) => setCommissionPercent(e.target.value)}
+                  style={{ width: 140 }}
+                />
+              </div>
+              <div className="oz-form-group">
+                <label className="oz-label">Скидка %</label>
+                <input
+                  className="oz-input"
+                  type="number"
+                  min="0"
+                  max="99"
+                  step="0.1"
+                  value={discountPercent}
+                  onChange={(e) => setDiscountPercent(e.target.value)}
+                  style={{ width: 140 }}
+                />
+              </div>
+            </div>
+          </div>
         </div>
-        <div>
-          <div style={{ fontSize: 13, marginBottom: 4 }}>Скидка %</div>
-          <input
-            type="number"
-            min="0"
-            max="99"
-            step="0.1"
-            value={discountPercent}
-            onChange={(e) => setDiscountPercent(e.target.value)}
-            style={{ padding: 8, borderRadius: 6, border: '1px solid #d1d5db', width: 140 }}
-          />
-        </div>
-      </div>
-      {error && <div style={{ color: '#b91c1c', marginBottom: 12 }}>{error}</div>}
-      {loading && <div style={{ color: '#6c757d' }}>Загрузка…</div>}
+      {error && <div className="oz-alert oz-alert-error">{error}</div>}
+        {loading && <div className="oz-empty">Загрузка…</div>}
       {!loading && !error && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 8, flexWrap: 'wrap' }}>
-            <button
-              type="button"
-              onClick={handleImportPrices}
-              disabled={
-                importLoading ||
-                elasticLoading ||
-                (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
-              }
-              style={{
-                padding: '10px 16px',
-                backgroundColor:
+          <div className="oz-actions">
+              <button
+                className={`oz-btn ${
                   importLoading ||
                   elasticLoading ||
                   (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
-                    ? '#9ca3af'
-                    : '#16a34a',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-                cursor:
+                    ? 'oz-btn-disabled'
+                    : 'oz-btn-success'
+                }`}
+                type="button"
+                onClick={handleImportPrices}
+                disabled={
                   importLoading ||
                   elasticLoading ||
                   (actionTitle && actionTitle.toLowerCase().includes('эластичный'))
-                    ? 'not-allowed'
-                    : 'pointer'
-              }}
-            >
-              {importLoading ? 'Отправляем…' : 'В акцию (установить цены)'}
-            </button>
-            <button
-              type="button"
-              onClick={handleImportPricesElastic}
-              disabled={
-                importLoading ||
-                elasticLoading ||
-                !actionTitle?.toLowerCase().includes('эластичный')
-              }
-              style={{
-                padding: '10px 16px',
-                backgroundColor:
+                }
+              >
+                {importLoading ? 'Отправляем…' : 'В акцию (установить цены)'}
+              </button>
+              <button
+                className={`oz-btn ${
                   importLoading ||
                   elasticLoading ||
                   !actionTitle?.toLowerCase().includes('эластичный')
-                    ? '#9ca3af'
-                    : '#7c3aed',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-                cursor:
+                    ? 'oz-btn-disabled'
+                    : ''
+                }`}
+                type="button"
+                onClick={handleImportPricesElastic}
+                disabled={
                   importLoading ||
                   elasticLoading ||
                   !actionTitle?.toLowerCase().includes('эластичный')
-                    ? 'not-allowed'
-                    : 'pointer'
-              }}
-            >
-              {elasticLoading ? 'Отправляем…' : 'В акцию (Эластичный бустинг)'}
-            </button>
-            {importStatus && <span style={{ color: '#047857' }}>{importStatus}</span>}
-            {importError && <span style={{ color: '#b91c1c' }}>{importError}</span>}
-            <button
-              type="button"
-              onClick={refreshData}
-              disabled={loading}
-              style={{
-                padding: '10px 16px',
-                backgroundColor: loading ? '#9ca3af' : '#0ea5e9',
-                color: '#fff',
-                border: 'none',
-                borderRadius: 6,
-                cursor: loading ? 'not-allowed' : 'pointer'
-              }}
-            >
-              {loading ? 'Обновляем…' : 'Обновить данные'}
-            </button>
-          </div>
+                }
+                style={{
+                  backgroundColor:
+                    importLoading ||
+                    elasticLoading ||
+                    !actionTitle?.toLowerCase().includes('эластичный')
+                      ? undefined
+                      : '#7c3aed',
+                  color: '#fff'
+                }}
+              >
+                {elasticLoading ? 'Отправляем…' : 'В акцию (Эластичный бустинг)'}
+              </button>
+              {importStatus && <span style={{ color: '#047857' }}>{importStatus}</span>}
+              {importError && <span style={{ color: '#b91c1c' }}>{importError}</span>}
+              <button
+                className={`oz-btn ${loading ? 'oz-btn-disabled' : ''}`}
+                type="button"
+                onClick={refreshData}
+                disabled={loading}
+                style={{
+                  backgroundColor: loading ? undefined : '#0ea5e9',
+                  color: '#fff'
+                }}
+              >
+                {loading ? 'Обновляем…' : 'Обновить данные'}
+              </button>
+            </div>
 
-          {renderTable('Кандидаты', candidates, ['action_price', 'add_mode'])}
-          {renderTable('Участвуют', participants)}
+            <div className="oz-segmented-control">
+              <button
+                className={`oz-segmented-item ${
+                  activeTab === 'candidates' ? 'oz-segmented-item--active' : ''
+                }`}
+                type="button"
+                onClick={() => setActiveTab('candidates')}
+              >
+                Кандидаты ({candidates.length})
+              </button>
+              <button
+                className={`oz-segmented-item ${
+                  activeTab === 'participants' ? 'oz-segmented-item--active' : ''
+                }`}
+                type="button"
+                onClick={() => setActiveTab('participants')}
+              >
+                Участвуют ({participants.length})
+              </button>
+            </div>
+
+            <div className="oz-card">
+              <div className="oz-card-body">
+                {activeTab === 'candidates' &&
+                  renderTable('Кандидаты', candidates, ['action_price', 'add_mode'])}
+                {activeTab === 'participants' && renderTable('Участвуют', participants)}
+              </div>
+            </div>
         </>
       )}
-    </div>
+    </div></div>
   );
 }

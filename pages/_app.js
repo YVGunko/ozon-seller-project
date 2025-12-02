@@ -1,5 +1,5 @@
 import { SessionProvider } from 'next-auth/react';
-import './styles/ozon-ui.css';
+import './styles/styles.css';
 
 export default function MyApp({ Component, pageProps: { session, ...pageProps } }) {
   return (
