@@ -129,12 +129,8 @@ async function handler(req, res, ctx) {
           templateVars
         ).trim();
 
-        const finalSystem = extraSystem
-          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
-          : basePrompt.system;
-        const finalUser = extraUser
-          ? `${extraUser}\n\n${basePrompt.user.trim()}`
-          : basePrompt.user;
+        const finalSystem = extraSystem || basePrompt.system;
+        const finalUser = extraUser || basePrompt.user;
 
         promptMeta = {
           system: finalSystem,
@@ -196,12 +192,8 @@ async function handler(req, res, ctx) {
           templateVars
         ).trim();
 
-        const finalSystem = extraSystem
-          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
-          : basePrompt.system;
-        const finalUser = extraUser
-          ? `${extraUser}\n\n${basePrompt.user.trim()}`
-          : basePrompt.user;
+        const finalSystem = extraSystem || basePrompt.system;
+        const finalUser = extraUser || basePrompt.user;
 
         promptMeta = {
           system: finalSystem,
@@ -262,12 +254,8 @@ async function handler(req, res, ctx) {
           templateVars
         ).trim();
 
-        const finalSystem = extraSystem
-          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
-          : basePrompt.system;
-        const finalUser = extraUser
-          ? `${extraUser}\n\n${basePrompt.user.trim()}`
-          : basePrompt.user;
+        const finalSystem = extraSystem || basePrompt.system;
+        const finalUser = extraUser || basePrompt.user;
 
         promptMeta = {
           system: finalSystem,
@@ -326,12 +314,8 @@ async function handler(req, res, ctx) {
           templateVars
         ).trim();
 
-        const finalSystem = extraSystem
-          ? `${basePrompt.system.trim()}\n\n${extraSystem}`
-          : basePrompt.system;
-        const finalUser = extraUser
-          ? `${extraUser}\n\n${basePrompt.user.trim()}`
-          : basePrompt.user;
+        const finalSystem = extraSystem || basePrompt.system;
+        const finalUser = extraUser || basePrompt.user;
 
         promptMeta = {
           system: finalSystem,

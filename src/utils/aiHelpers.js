@@ -798,9 +798,10 @@ export function buildRichJsonPrompt({ products, baseProductData }) {
   const productsContext = buildProductsContext(products);
 
   const system = `
-Ты генерируешь Rich‑контент JSON для Ozon (атрибут 11254).
+Ты генерируешь Rich-контент JSON для Ozon.
 Отвечай строго JSON, без пояснений.
-Структура должна соответствовать схеме: { "content": [...], "version": 0.3 }.
+Формат верхнего уровня ответа: { "content": [...], "version": 0.3 }.
+Не добавляй комментарии, пояснения или текст вне JSON.
 `;
 
   // Пытаемся выделить основное изображение товара, чтобы подставить его в img.src
@@ -813,7 +814,7 @@ export function buildRichJsonPrompt({ products, baseProductData }) {
   }
 
   const user = [
-    'Создай Rich‑контент для карточки товара Ozon в формате JSON.',
+    'Создай Rich-контент для карточки товара Ozon в формате JSON.',
     'Строгий формат ответа (без комментариев и пояснений):',
     '',
     '{',
