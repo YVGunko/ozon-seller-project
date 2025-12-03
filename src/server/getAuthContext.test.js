@@ -32,7 +32,9 @@ describe('getAuthContext', () => {
         username: 'user',
         name: 'User Name',
         roles: ['seller'],
-        allowedProfiles: ['3497256']
+        allowedProfiles: ['3497256'],
+        enterpriseIds: ['ent-1'],
+        enterpriseId: 'ent-1'
       }
     });
 
@@ -43,6 +45,8 @@ describe('getAuthContext', () => {
     expect(ctx.user.email).toBe('user@ex.com');
     expect(ctx.user.roles).toEqual(['seller']);
     expect(ctx.user.allowedProfiles).toEqual(['3497256']);
+    expect(ctx.user.enterpriseIds).toEqual(['ent-1']);
+    expect(ctx.user.enterpriseId).toBe('ent-1');
   });
 
   test('корректно нормализует некорректные roles (не массив)', async () => {
