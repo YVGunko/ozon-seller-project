@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useAccess } from '../../src/hooks/useAccess';
 
 const ALL_ROLES = ['admin', 'manager', 'content-creator', 'finance', 'order'];
 
@@ -12,6 +13,7 @@ export default function AdminUsersPage() {
   const [selectedId, setSelectedId] = useState(null);
   const [form, setForm] = useState(null);
   const [editingPassword, setEditingPassword] = useState(false);
+  const { isRootAdmin } = useAccess();
 
   useEffect(() => {
     let cancelled = false;
@@ -416,12 +418,12 @@ export default function AdminUsersPage() {
                         <div
                           style={{
                             marginTop: 4,
-                            display: 'flex',
-                            flexWrap: 'wrap',
-                            gap: 8
-                          }}
-                        >
-                          {ALL_ROLES.map((role) => {
+                          display: 'flex',
+                          flexWrap: 'wrap',
+                          gap: 8
+                        }}
+                      >
+                          {(isRootAdmin ? ALL_ROLES : ALL_ROLES.filter((role) => role !== 'admin' && role !== 'root_admin')).map((role) => {
                             const checked =
                               Array.isArray(form.roles) && form.roles.includes(role);
                             return (
