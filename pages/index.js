@@ -54,59 +54,29 @@ export default function Home() {
     <div className="oz-page">
       {/* Sidebar */}
       {sidebarOpen && (
-        <aside
-          style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            bottom: 0,
-            width: 240,
-            background: 'linear-gradient(180deg, #0f172a, #020617)',
-            color: '#e5e7eb',
-            padding: '16px 16px 24px',
-            display: 'flex',
-            flexDirection: 'column',
-            gap: 16,
-            zIndex: 1500,
-            boxShadow: '4px 0 18px rgba(15,23,42,0.45)'
-          }}
-        >
-          <div style={{ fontSize: 18, fontWeight: 600, marginBottom: 4 }}>
-            OZON Seller
-          </div>
-          <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#9ca3af' }}>
-            Профиль
-          </div>
-          <div
-            style={{
-              borderRadius: 10,
-              border: '1px solid rgba(148,163,184,0.4)',
-              padding: 10,
-              background: 'rgba(15,23,42,0.7)'
-            }}
-          >
-            <div style={{ fontSize: 13, fontWeight: 500 }}>
-              {currentProfile ? currentProfile.name : 'Профиль не выбран'}
+        <aside className="oz-sidebar">
+          <div className="oz-sidebar-header">OZON Seller</div>
+          <div className="oz-sidebar-section-label">Профиль</div>
+          <div className="oz-sidebar-card">
+            <div>
+              Магазин: {currentProfile ? currentProfile.name : 'Профиль не выбран'}
             </div>
-            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 2 }}>
-              Client ID: {currentProfile?.client_hint || '—'}
-            </div>
+
             {user && (
-              <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 4 }}>
+              <div>
                 Пользователь: {user.name || user.username || user.id}
               </div>
             )}
             <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>
               <button
                 className="oz-btn oz-btn-secondary"
-                style={{ padding: '4px 10px', fontSize: 11 }}
                 onClick={() => setShowProfilesModal(true)}
               >
                 Профили
               </button>
               <button
                 className="oz-btn oz-btn-secondary"
-                style={{ padding: '4px 10px', fontSize: 11, opacity: user ? 1 : 0.6 }}
+                style={{ opacity: user ? 1 : 0.6 }}
                 onClick={() => {
                   // Профиль очищается внутри UserProfiles / ProfileManager,
                   // здесь достаточно выйти из сессии.
@@ -120,20 +90,8 @@ export default function Home() {
 
           {currentProfile && (
             <>
-              <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#9ca3af' }}>
-                Склад
-              </div>
-              <div
-                style={{
-                  borderRadius: 10,
-                  border: '1px solid rgba(148,163,184,0.4)',
-                  padding: 10,
-                  background: 'rgba(15,23,42,0.5)',
-                  display: 'flex',
-                  flexDirection: 'column',
-                  gap: 8
-                }}
-              >
+              <div className="oz-sidebar-section-label">Склад</div>
+              <div className="oz-sidebar-card oz-sidebar-card--secondary">
                 {warehousesLoading ? (
                   <div style={{ fontSize: 12 }}>Загрузка складов…</div>
                 ) : warehouses.length > 0 ? (
@@ -155,7 +113,7 @@ export default function Home() {
                       type="button"
                       className="oz-btn oz-btn-secondary"
                       style={{ padding: '4px 10px', fontSize: 11, alignSelf: 'flex-start' }}
-                      onClick={refreshWarehouses}
+                      onClick={() => refreshWarehouses({ force: true })}
                     >
                       Обновить склады
                     </button>
@@ -176,30 +134,17 @@ export default function Home() {
             </>
           )}
 
-          <div style={{ fontSize: 11, textTransform: 'uppercase', color: '#9ca3af' }}>
-            Разделы
-          </div>
-          <nav style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+          <div className="oz-sidebar-section-label">Разделы</div>
+          <nav className="oz-sidebar-nav">
             <div>
               <button
                 type="button"
                 onClick={() => {
                   setProductsMenuOpen((prev) => !prev);
                 }}
-                style={{
-                  border: 'none',
-                  borderRadius: 8,
-                  padding: '8px 10px',
-                  textAlign: 'left',
-                  cursor: 'pointer',
-                  fontSize: 13,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'space-between',
-                  width: '100%',
-                  backgroundColor: productsMenuOpen ? '#e5e7eb' : 'transparent',
-                  color: productsMenuOpen ? '#0f172a' : '#e5e7eb'
-                }}
+                className={`oz-sidebar-nav-button ${
+                  productsMenuOpen ? 'oz-sidebar-nav-button--active' : ''
+                }`}
               >
                 <span>Товары</span>
                 <span style={{ fontSize: 12 }}>{productsMenuOpen ? '▾' : '▸'}</span>
@@ -215,50 +160,50 @@ export default function Home() {
                   }}
                 >
                   <Link href="/products">
-                    <div style={sidebarSubItemStyle}>
+                    <div className="oz-sidebar-subitem">
                       <span>Управление товарами</span>
                       <span>›</span>
                     </div>
                   </Link>
                   <Link href="/product-copier">
-                    <div style={sidebarSubItemStyle}>
+                    <div className="oz-sidebar-subitem">
                       <span>Копирование товаров</span>
                       <span>›</span>
                     </div>
                   </Link>
                   <Link href="/product-cloner">
-                    <div style={sidebarSubItemStyle}>
+                    <div className="oz-sidebar-subitem">
                       <span>Клонирование товаров</span>
                       <span>›</span>
                     </div>
                   </Link>
                   <Link href="/ozon-prod-copier">
-                    <div style={sidebarSubItemStyle}>
+                    <div className="oz-sidebar-subitem">
                       <span>Копирование товара по ссылке OZON</span>
                       <span>›</span>
                     </div>
                   </Link>
                   <Link href="/attention">
-                    <div style={sidebarSubItemStyle}>
+                    <div className="oz-sidebar-subitem">
                       <span>Товары без внимания</span>
                       <span>›</span>
                     </div>
                   </Link>
                   <Link href="/import-excel">
-                    <div style={sidebarSubItemStyle}>
+                    <div className="oz-sidebar-subitem">
                       <span>Импорт из Excel</span>
                       <span>›</span>
                     </div>
                   </Link>
                   <Link href="/logs">
-                    <div style={sidebarSubItemStyle}>
+                    <div className="oz-sidebar-subitem">
                       <span>Логи импорта</span>
                       <span>›</span>
                     </div>
                   </Link>
                   {canManagePrompts && (
                     <Link href="/ai/prompts">
-                      <div style={sidebarSubItemStyle}>
+                      <div className="oz-sidebar-subitem">
                         <span>AI промпты</span>
                         <span>›</span>
                       </div>
@@ -270,42 +215,24 @@ export default function Home() {
             <button
               type="button"
               onClick={() => router.push('/postings')}
-              style={{
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 10px',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontSize: 13,
-                backgroundColor: isOrdersActive ? '#e5e7eb' : 'transparent',
-                color: isOrdersActive ? '#0f172a' : '#e5e7eb',
-                opacity: canManageOrders ? 1 : 0.4,
-                pointerEvents: canManageOrders ? 'auto' : 'none'
-              }}
+              className={`oz-sidebar-nav-button ${
+                isOrdersActive ? 'oz-sidebar-nav-button--active' : ''
+              } ${canManageOrders ? '' : 'oz-sidebar-nav-button--disabled'}`}
             >
               Заказы
             </button>
             <button
               type="button"
               onClick={() => router.push('/actions')}
-              style={{
-                border: 'none',
-                borderRadius: 8,
-                padding: '8px 10px',
-                textAlign: 'left',
-                cursor: 'pointer',
-                fontSize: 13,
-                backgroundColor: isActionsActive ? '#e5e7eb' : 'transparent',
-                color: isActionsActive ? '#0f172a' : '#e5e7eb',
-                opacity: canManagePrices ? 1 : 0.4,
-                pointerEvents: canManagePrices ? 'auto' : 'none'
-              }}
+              className={`oz-sidebar-nav-button ${
+                isActionsActive ? 'oz-sidebar-nav-button--active' : ''
+              } ${canManagePrices ? '' : 'oz-sidebar-nav-button--disabled'}`}
             >
               Акции и цены
             </button>
             {canManageUsers && (
               <Link href="/admin/users">
-                <div style={sidebarSubItemStyle}>
+                <div className="oz-sidebar-subitem">
                   <span>Пользователи (admin)</span>
                   <span>›</span>
                 </div>
@@ -313,7 +240,7 @@ export default function Home() {
             )}
             {canManageUsers && (
               <Link href="/admin/sellers">
-                <div style={sidebarSubItemStyle}>
+                <div className="oz-sidebar-subitem">
                   <span>Магазины</span>
                   <span>›</span>
                 </div>
@@ -321,7 +248,7 @@ export default function Home() {
             )}
             {canManageEnterprises && (
               <Link href="/admin/enterprises">
-                <div style={sidebarSubItemStyle}>
+                <div className="oz-sidebar-subitem">
                   <span>Организации (Enterprise)</span>
                   <span>›</span>
                 </div>
@@ -332,16 +259,7 @@ export default function Home() {
           <button
             type="button"
             onClick={() => setSidebarOpen(false)}
-            style={{
-              marginTop: 'auto',
-              border: 'none',
-              borderRadius: 9999,
-              padding: '6px 10px',
-              fontSize: 12,
-              backgroundColor: 'rgba(15,23,42,0.9)',
-              color: '#e5e7eb',
-              cursor: 'pointer'
-            }}
+            className="oz-sidebar-footer-button"
           >
             Скрыть панель
           </button>
@@ -351,24 +269,18 @@ export default function Home() {
       <button
         type="button"
         onClick={() => setSidebarOpen((prev) => !prev)}
-        style={{
-          position: 'fixed',
-          top: 16,
-          left: sidebarOpen ? 252 : 16,
-          zIndex: 1600,
-          borderRadius: 9999,
-          border: '1px solid #e5e7eb',
-          backgroundColor: '#f9fafb',
-          padding: '4px 10px',
-          fontSize: 13,
-          cursor: 'pointer',
-          boxShadow: '0 4px 10px rgba(15,23,42,0.15)'
-        }}
+        className={`oz-sidebar-toggle ${
+          sidebarOpen ? 'oz-sidebar-toggle--shifted' : ''
+        }`}
       >
         {sidebarOpen ? '⟨' : '☰'}
       </button>
 
-      <div style={{ marginLeft: sidebarOpen ? 260 : 0, transition: 'margin-left 0.2s ease' }}>
+      <div
+        className={`oz-content-with-sidebar ${
+          sidebarOpen ? '' : 'oz-content-with-sidebar--collapsed'
+        }`}
+      >
         {/* ───────────────────────────────────── */}
         {/* Breadcrumb + Title */}
         {/* ───────────────────────────────────── */}
@@ -388,85 +300,43 @@ export default function Home() {
           {/* ───────────────────────────────────── */}
           {/* Dashboard metrics (пока статичные)   */}
           {/* ───────────────────────────────────── */}
-          <div className="oz-card" style={{ marginBottom: 20 }}>
-            <div className="oz-card-header">
-              <h2 className="oz-card-title">Обзор магазина</h2>
-              <span className="oz-card-subtitle">
+          <div className="oz-dashboard-card">
+            <div className="oz-dashboard-card-header">
+              <h2 className="oz-dashboard-card-title">Обзор магазина</h2>
+              <span className="oz-dashboard-card-subtitle">
                 Здесь будут живые метрики по заказам, товарам и акциям
               </span>
             </div>
-            <div className="oz-card-body">
-              <div
-                style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(210px, 1fr))',
-                  gap: 16
-                }}
-              >
-                <div
-                  style={{
-                    padding: 16,
-                    borderRadius: 12,
-                    background: '#eff6ff',
-                    border: '1px solid #bfdbfe'
-                  }}
-                >
-                  <div style={{ fontSize: 12, textTransform: 'uppercase', color: '#1d4ed8' }}>
-                    Заказы сегодня
-                  </div>
-                  <div style={{ fontSize: 28, fontWeight: 600, marginTop: 6 }}>—</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+            <div className="oz-dashboard-card-body">
+              <div className="oz-dashboard-metrics-grid">
+                <div className="oz-dashboard-metric oz-dashboard-metric--blue">
+                  <div className="oz-dashboard-metric__label">Заказы сегодня</div>
+                  <div className="oz-dashboard-metric__value">—</div>
+                  <div className="oz-dashboard-metric__description">
                     Количество оформленных заказов за текущий день
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    padding: 16,
-                    borderRadius: 12,
-                    background: '#fef3c7',
-                    border: '1px solid #fde68a'
-                  }}
-                >
-                  <div style={{ fontSize: 12, textTransform: 'uppercase', color: '#b45309' }}>
-                    Низкий контент‑рейтинг
-                  </div>
-                  <div style={{ fontSize: 28, fontWeight: 600, marginTop: 6 }}>—</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                <div className="oz-dashboard-metric oz-dashboard-metric--amber">
+                  <div className="oz-dashboard-metric__label">Низкий контент‑рейтинг</div>
+                  <div className="oz-dashboard-metric__value">—</div>
+                  <div className="oz-dashboard-metric__description">
                     Товары, которые требуют доработки описаний и атрибутов
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    padding: 16,
-                    borderRadius: 12,
-                    background: '#ecfdf5',
-                    border: '1px solid #bbf7d0'
-                  }}
-                >
-                  <div style={{ fontSize: 12, textTransform: 'uppercase', color: '#15803d' }}>
-                    Без фотографий
-                  </div>
-                  <div style={{ fontSize: 28, fontWeight: 600, marginTop: 6 }}>—</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                <div className="oz-dashboard-metric oz-dashboard-metric--green">
+                  <div className="oz-dashboard-metric__label">Без фотографий</div>
+                  <div className="oz-dashboard-metric__value">—</div>
+                  <div className="oz-dashboard-metric__description">
                     Количество товаров без основных изображений
                   </div>
                 </div>
 
-                <div
-                  style={{
-                    padding: 16,
-                    borderRadius: 12,
-                    background: '#f5f3ff',
-                    border: '1px solid #ddd6fe'
-                  }}
-                >
-                  <div style={{ fontSize: 12, textTransform: 'uppercase', color: '#6d28d9' }}>
-                    Активные акции
-                  </div>
-                  <div style={{ fontSize: 28, fontWeight: 600, marginTop: 6 }}>—</div>
-                  <div style={{ fontSize: 12, color: '#6b7280', marginTop: 4 }}>
+                <div className="oz-dashboard-metric oz-dashboard-metric--purple">
+                  <div className="oz-dashboard-metric__label">Активные акции</div>
+                  <div className="oz-dashboard-metric__value">—</div>
+                  <div className="oz-dashboard-metric__description">
                     Сколько акций сейчас влияет на ваши цены
                   </div>
                 </div>
@@ -481,31 +351,12 @@ export default function Home() {
         {/* MODAL: ПРОФИЛИ     */}
         {/* ─────────────────── */}
         {showProfilesModal && (
-          <div
-            style={{
-              position: 'fixed',
-              inset: 0,
-              background: 'rgba(0,0,0,0.4)',
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              zIndex: 2000
-            }}
-          >
-            <div
-              style={{
-                background: 'white',
-                padding: '20px',
-                borderRadius: '12px',
-                maxHeight: '80vh',
-                overflowY: 'auto',
-                width: '600px'
-              }}
-            >
+          <div className="oz-modal-overlay">
+            <div className="oz-modal">
               <h2>Управление профилями</h2>
               <UserProfiles onProfileChange={handleProfileChange} />
 
-              <div style={{ marginTop: '15px', textAlign: 'right' }}>
+              <div className="oz-modal-footer">
                 <button
                   className="oz-btn oz-btn-secondary"
                   onClick={() => setShowProfilesModal(false)}
@@ -521,15 +372,3 @@ export default function Home() {
     </div>
   );
 }
-
-const sidebarSubItemStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'space-between',
-  padding: '6px 10px',
-  borderRadius: 6,
-  cursor: 'pointer',
-  fontSize: 12,
-  color: '#e5e7eb',
-  backgroundColor: 'rgba(15,23,42,0.4)'
-};
