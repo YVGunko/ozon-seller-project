@@ -165,36 +165,6 @@ async function handler(req, res, ctx) {
     sellers.push(updatedSeller);
   }
 
-  // Обновляем привязку к Enterprise через profileIds в config:enterprises
-  if (normalizedEnterpriseId) {
-    const entId = String(normalizedEnterpriseId);
-
-    const nextEnterprises = enterprisesArr.map((ent) => {
-      const profileIds = Array.isArray(ent.profileIds) ? [...ent.profileIds] : [];
-      const hasId = profileIds.map(String).includes(sellerId);
-
-      if (String(ent.id) === entId) {
-        if (!hasId) profileIds.push(sellerId);
-        return {
-          ...ent,
-          profileIds
-        };
-      }
-
-      // Удаляем профиль из других enterprise, если он там был
-      if (hasId) {
-        return {
-          ...ent,
-          profileIds: profileIds.filter((pid) => String(pid) !== sellerId)
-        };
-      }
-
-      return ent;
-    });
-
-    await configStorage.saveEnterprises(nextEnterprises);
-  }
-
   await configStorage.saveSellers(sellers);
 
   return res.status(200).json({

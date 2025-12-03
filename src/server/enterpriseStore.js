@@ -23,11 +23,10 @@ const { CONFIG_ENTERPRISES_BLOB_PREFIX } = process.env;
 const ENTERPRISES_BLOB_PREFIX = CONFIG_ENTERPRISES_BLOB_PREFIX || 'config/enterprises.json';
 
 /**
- * Внутренний кэш: массив объектов { enterprise, profileIds[] }.
- * profileIds используются только для поиска Enterprise по OZON‑профилю.
- * @type {{ enterprise: import('../domain/entities/enterprise').Enterprise, profileIds: string[] }[]|null}
+ * Внутренний кэш Enterprise (без привязки к profileIds).
+ * @type {import('../domain/entities/enterprise').Enterprise[]|null}
  */
-let cachedEntries = null;
+let cachedEnterprises = null;
 
 function normalizeEnterpriseEntries(raw = []) {
   if (!Array.isArray(raw)) return [];
@@ -40,10 +39,6 @@ function normalizeEnterpriseEntries(raw = []) {
       const name = entry.name || id;
       const slug = entry.slug || null;
       const settings = entry.settings || {};
-      const profileIds = Array.isArray(entry.profileIds)
-        ? entry.profileIds.map((p) => String(p))
-        : [];
-
       const enterprise = createEnterprise({
         id,
         rootId: entry.rootId || 'root',
@@ -52,7 +47,7 @@ function normalizeEnterpriseEntries(raw = []) {
         settings
       });
 
-      return { enterprise, profileIds };
+      return enterprise;
     })
     .filter(Boolean);
 }
@@ -84,15 +79,15 @@ async function loadEnterprisesFromBlob() {
       return null;
     }
 
-    const entries = normalizeEnterpriseEntries(json);
+    const enterprises = normalizeEnterpriseEntries(json);
 
     // eslint-disable-next-line no-console
     console.log(
       '[enterpriseStore] loaded enterprises from Blob',
-      JSON.stringify({ count: entries.length, pathname: blob.pathname })
+      JSON.stringify({ count: enterprises.length, pathname: blob.pathname })
     );
 
-    return entries;
+    return enterprises;
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('[enterpriseStore] failed to load enterprises from Blob', error);
@@ -101,10 +96,10 @@ async function loadEnterprisesFromBlob() {
 }
 
 async function ensureEnterprisesLoaded() {
-  if (cachedEntries) return cachedEntries;
+  if (cachedEnterprises) return cachedEnterprises;
   const fromBlob = await loadEnterprisesFromBlob();
-  cachedEntries = fromBlob || [];
-  return cachedEntries;
+  cachedEnterprises = fromBlob || [];
+  return cachedEnterprises;
 }
 
 /**
@@ -112,8 +107,8 @@ async function ensureEnterprisesLoaded() {
  * @returns {Promise<import('../domain/entities/enterprise').Enterprise[]>}
  */
 export async function getAllEnterprises() {
-  const entries = await ensureEnterprisesLoaded();
-  return entries.map((e) => e.enterprise);
+  const enterprises = await ensureEnterprisesLoaded();
+  return enterprises;
 }
 
 /**
@@ -123,57 +118,14 @@ export async function getAllEnterprises() {
  */
 export async function getEnterpriseById(id) {
   if (!id) return null;
-  const entries = await ensureEnterprisesLoaded();
-  const found = entries.find((e) => e.enterprise.id === id);
-  return found ? found.enterprise : null;
-}
-
-/**
- * Найти Enterprise по OZON profileId (если настроен в конфиге).
- * Если ничего не найдено — возвращает null, и вызывающий код может
- * использовать fallback (`ent-<profileId>`), как сейчас.
- *
- * @param {string} profileId
- * @returns {Promise<import('../domain/entities/enterprise').Enterprise|null>}
- */
-export async function findEnterpriseByProfileId(profileId) {
-  if (!profileId) return null;
-  const entries = await ensureEnterprisesLoaded();
-  const pid = String(profileId);
-  const found = entries.find((e) => e.profileIds.includes(pid));
-  return found ? found.enterprise : null;
-}
-
-/**
- * Получить список Enterprise, к которым привязаны указанные profileId.
- * Используется для ограничения видимости Enterprise для менеджеров.
- *
- * @param {string[]} profileIds
- * @returns {Promise<import('../domain/entities/enterprise').Enterprise[]>}
- */
-export async function getEnterprisesForProfileIds(profileIds) {
-  const ids = Array.isArray(profileIds) ? profileIds.map((p) => String(p)) : [];
-  if (!ids.length) return [];
-  const entries = await ensureEnterprisesLoaded();
-  const idSet = new Set(ids);
-  const seen = new Set();
-  const result = [];
-
-  for (const entry of entries) {
-    if (entry.profileIds.some((pid) => idSet.has(pid))) {
-      if (!seen.has(entry.enterprise.id)) {
-        seen.add(entry.enterprise.id);
-        result.push(entry.enterprise);
-      }
-    }
-  }
-
-  return result;
+  const enterprises = await ensureEnterprisesLoaded();
+  const found = enterprises.find((e) => e.id === id);
+  return found || null;
 }
 
 // Принудительно перезагрузить Enterprise-конфиг из Blob.
 // Используется админскими API после изменения config/enterprises.json.
 export async function reloadEnterprisesFromBlob() {
-  cachedEntries = null;
+  cachedEnterprises = null;
   return ensureEnterprisesLoaded();
 }

@@ -26,11 +26,8 @@ function normalizeEnterpriseInput(input = {}) {
   const settings = input.settings && typeof input.settings === 'object'
     ? input.settings
     : {};
-  const profileIds = Array.isArray(input.profileIds)
-    ? input.profileIds.map((p) => String(p))
-    : undefined; // undefined = не менять, [] = очистить
 
-  return { id, name, slug, settings, profileIds };
+  return { id, name, slug, settings };
 }
 
 async function handleGet(req, res, user) {
@@ -44,17 +41,13 @@ async function handleGet(req, res, user) {
 
   let visible = all;
   if (!canManageEnterprises(user)) {
-    // manager — только Enterprise, связанные с его профилями
-    const allowedProfiles = Array.isArray(user.allowedProfiles)
-      ? user.allowedProfiles.map(String)
+    // manager — только Enterprise, явно указанные в профиле пользователя
+    const enterpriseIds = Array.isArray(user.enterprises)
+      ? user.enterprises.map(String)
       : [];
-    if (allowedProfiles.length > 0) {
-      const allowedSet = new Set(allowedProfiles);
-      visible = all.filter((ent) =>
-        Array.isArray(ent.profileIds)
-          ? ent.profileIds.map(String).some((pid) => allowedSet.has(pid))
-          : false
-      );
+    if (enterpriseIds.length > 0) {
+      const allowedSet = new Set(enterpriseIds);
+      visible = all.filter((ent) => allowedSet.has(String(ent.id)));
     } else {
       visible = [];
     }
@@ -75,7 +68,7 @@ async function handlePost(req, res, user) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { id, name, slug, settings, profileIds } = normalizeEnterpriseInput(req.body);
+  const { id, name, slug, settings } = normalizeEnterpriseInput(req.body);
 
   if (!name) {
     return res.status(400).json({ error: 'name обязателен' });
@@ -98,8 +91,7 @@ async function handlePost(req, res, user) {
     id: newId,
     name,
     slug: slug || null,
-    settings: settings || {},
-    profileIds: Array.isArray(profileIds) ? profileIds : []
+    settings: settings || {}
   };
 
   enterprises.push(next);
@@ -116,7 +108,7 @@ async function handlePatch(req, res, user) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const { id, name, slug, settings, profileIds } = normalizeEnterpriseInput(req.body);
+  const { id, name, slug, settings } = normalizeEnterpriseInput(req.body);
   const targetId = id || String(req.query.id || req.body?.enterpriseId || '');
   if (!targetId) {
     return res.status(400).json({ error: 'id обязателен для PATCH' });
@@ -139,8 +131,7 @@ async function handlePatch(req, res, user) {
     ...base,
     ...(name ? { name } : {}),
     ...(slug !== null ? { slug } : {}),
-    ...(settings ? { settings } : {}),
-    ...(profileIds !== undefined ? { profileIds } : {})
+    ...(settings ? { settings } : {})
   };
 
   enterprises[idx] = updated;

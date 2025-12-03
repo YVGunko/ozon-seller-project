@@ -6,7 +6,7 @@
 // enterpriseStore + profileStore.
 
 import { configStorage } from '../services/configStorage';
-import { getAllEnterprises, findEnterpriseByProfileId } from './enterpriseStore';
+import { getAllEnterprises } from './enterpriseStore';
 import {
   ensureProfilesLoaded,
   getAllProfiles
@@ -91,30 +91,13 @@ export async function ensureEnterprisesAndSellersSeeded() {
     await ensureProfilesLoaded();
     const profiles = getAllProfiles() || [];
 
-    const sellers = [];
-
-    for (const profile of profiles) {
+    const sellers = profiles.map((profile) => {
       const profileId = String(profile.id);
 
-      let enterpriseId = null;
-      try {
-        const enterprise = await findEnterpriseByProfileId(profileId);
-        if (enterprise) {
-          enterpriseId = enterprise.id;
-        }
-      } catch (e) {
-        // eslint-disable-next-line no-console
-        console.error(
-          '[configBootstrap] failed to resolve enterprise for profile',
-          profileId,
-          e
-        );
-      }
-
-      sellers.push({
+      return {
         id: profileId,
         name: profile.name || profileId,
-        enterpriseId,
+        enterpriseId: null,
         // целевая схема хранения Seller в Redis:
         //  - ozon_client_id / ozon_api_key — учётные данные OZON;
         //  - client_hint / description    — метаданные для UI;
@@ -126,8 +109,8 @@ export async function ensureEnterprisesAndSellersSeeded() {
             ? String(profile.ozon_client_id).slice(0, 8)
             : null),
         description: profile.description || ''
-      });
-    }
+      };
+    });
 
     sellersToUse = sellers;
 

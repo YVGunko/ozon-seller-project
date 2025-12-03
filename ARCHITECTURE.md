@@ -125,8 +125,8 @@
       - `ozon_client_id`, `ozon_api_key`, `client_hint`, `description`;
       - при редактировании пустое `ozon_api_key` не затирает существующий ключ;
       - на фронт отдаётся только флаг `ozon_has_api_key`, сам ключ не возвращается.
-    - обновляет привязку Seller к Enterprise (через `enterpriseId` и список `profileIds`);
-    - сохраняет результат в Redis через `configStorage.saveSellers` и обновляет `config:enterprises` через `configStorage.saveEnterprises`.
+    - обновляет привязку Seller к Enterprise (через `enterpriseId`);
+    - сохраняет результат в Redis через `configStorage.saveSellers`.
   - `/api/profiles`:
     - отдаёт список доступных пользователю профилей (магазинов) на основе `config:sellers`;
     - фильтрация идёт по `auth.user.allowedProfiles`:

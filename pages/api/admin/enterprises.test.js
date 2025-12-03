@@ -71,8 +71,8 @@ describe('/api/admin/enterprises', () => {
     canManageEnterprises.mockReturnValue(true);
 
     const enterprises = [
-      { id: 'ent1', name: 'E1', slug: 'e1', settings: {}, profileIds: ['p1', 'p2'] },
-      { id: 'ent2', name: 'E2', slug: 'e2', settings: {}, profileIds: [] }
+      { id: 'ent1', name: 'E1', slug: 'e1', settings: {} },
+      { id: 'ent2', name: 'E2', slug: 'e2', settings: {} }
     ];
     configStorage.getEnterprises.mockResolvedValue(enterprises);
 
@@ -91,18 +91,21 @@ describe('/api/admin/enterprises', () => {
     expect(configStorage.getEnterprises).toHaveBeenCalledTimes(1);
   });
 
-  test('GET (manager): фильтрует enterprises по allowedProfiles', async () => {
+  test('GET (manager): фильтрует enterprises по user.enterprises', async () => {
     canViewEnterprises.mockReturnValue(true);
     canManageEnterprises.mockReturnValue(false);
 
     const enterprises = [
-      { id: 'ent1', name: 'E1', slug: 'e1', settings: {}, profileIds: ['p1', 'p2'] },
-      { id: 'ent2', name: 'E2', slug: 'e2', settings: {}, profileIds: ['p3'] },
-      { id: 'ent3', name: 'E3', slug: 'e3', settings: {}, profileIds: [] }
+      { id: 'ent1', name: 'E1', slug: 'e1', settings: {} },
+      { id: 'ent2', name: 'E2', slug: 'e2', settings: {} },
+      { id: 'ent3', name: 'E3', slug: 'e3', settings: {} }
     ];
     configStorage.getEnterprises.mockResolvedValue(enterprises);
 
-    const req = { method: 'GET', _ctx: { auth: { user: { id: 'u2', allowedProfiles: ['p2'] } } } };
+    const req = {
+      method: 'GET',
+      _ctx: { auth: { user: { id: 'u2', enterprises: ['ent1'] } } }
+    };
     const res = makeRes();
 
     await handler(req, res);
@@ -122,7 +125,7 @@ describe('/api/admin/enterprises', () => {
 
     const req = {
       method: 'POST',
-      body: { name: 'Acme', slug: 'acme', settings: { ai: { textEnabled: true } }, profileIds: ['p1'] },
+      body: { name: 'Acme', slug: 'acme', settings: { ai: { textEnabled: true } } },
       _ctx: { auth: { user: { id: 'admin' } } }
     };
     const res = makeRes();
@@ -131,7 +134,11 @@ describe('/api/admin/enterprises', () => {
 
     expect(res.statusCode).toBe(201);
     expect(res.body).toHaveProperty('enterprise');
-    expect(res.body.enterprise).toMatchObject({ name: 'Acme', slug: 'acme', settings: { ai: { textEnabled: true } }, profileIds: ['p1'] });
+    expect(res.body.enterprise).toMatchObject({
+      name: 'Acme',
+      slug: 'acme',
+      settings: { ai: { textEnabled: true } }
+    });
     // Должна быть запись в Redis с одним элементом
     expect(configStorage.saveEnterprises).toHaveBeenCalledTimes(1);
     const savedArg = configStorage.saveEnterprises.mock.calls[0][0];
@@ -162,15 +169,15 @@ describe('/api/admin/enterprises', () => {
   test('PATCH: обновляет name и profileIds', async () => {
     canManageEnterprises.mockReturnValue(true);
     const existing = [
-      { id: 'ent1', name: 'Old', slug: 'old', settings: {}, profileIds: ['p1', 'p2'] },
-      { id: 'ent2', name: 'Other', slug: 'other', settings: {}, profileIds: [] }
+      { id: 'ent1', name: 'Old', slug: 'old', settings: {} },
+      { id: 'ent2', name: 'Other', slug: 'other', settings: {} }
     ];
     configStorage.getEnterprises.mockResolvedValue(existing);
     configStorage.saveEnterprises.mockResolvedValue(undefined);
 
     const req = {
       method: 'PATCH',
-      body: { id: 'ent1', name: 'New Name', profileIds: [] },
+      body: { id: 'ent1', name: 'New Name' },
       _ctx: { auth: { user: { id: 'admin' } } }
     };
     const res = makeRes();
@@ -178,13 +185,16 @@ describe('/api/admin/enterprises', () => {
     await handler(req, res);
 
     expect(res.statusCode).toBe(200);
-    expect(res.body.enterprise).toMatchObject({ id: 'ent1', name: 'New Name', slug: 'old', profileIds: [] });
+    expect(res.body.enterprise).toMatchObject({
+      id: 'ent1',
+      name: 'New Name',
+      slug: 'old'
+    });
 
     expect(configStorage.saveEnterprises).toHaveBeenCalledTimes(1);
     const saved = configStorage.saveEnterprises.mock.calls[0][0];
     const updated = saved.find((e) => e.id === 'ent1');
     expect(updated.name).toBe('New Name');
-    expect(updated.profileIds).toEqual([]);
   });
 
   test('PATCH: enterprise не найден → 404', async () => {
