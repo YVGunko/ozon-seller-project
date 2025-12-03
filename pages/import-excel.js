@@ -1,6 +1,5 @@
 import { useState, useRef, useEffect, Fragment, useMemo } from 'react';
 import { OzonApiService } from '../src/services/ozon-api';
-import { ProfileManager } from '../src/utils/profileManager';
 import translationService from '../src/services/TranslationService';
 import { useProductAttributes } from '../src/hooks/useProductAttributes';
 import { apiClient } from '../src/services/api-client';
@@ -32,6 +31,7 @@ import {
   areImageListsEqual,
   ensureImagesPresent
 } from '../src/utils/imageHelpers';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 
 const STATUS_CHECK_DELAY_MS = 5000;
 
@@ -1158,6 +1158,15 @@ const buildImportItemFromRow = ({
     }
   });
 
+  const netPriceValue =
+    rowValues?.net_price ??
+    rowValues?.netPrice ??
+    baseProductData?.net_price ??
+    baseProductData?.netPrice;
+  if (hasValue(netPriceValue)) {
+    item.net_price = String(netPriceValue);
+  }
+
   const resolvedDescriptionCategoryId =
     rowValues?.description_category_id ??
     rowValues?.descriptionCategoryId ??
@@ -1290,7 +1299,7 @@ export default function ImportExcelPage() {
   const [sampleError, setSampleError] = useState('');
   const fileInputRef = useRef(null);
 
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
 
   // Используем хук для шаблонов
   const {
@@ -1384,13 +1393,6 @@ const [baseProductData, setBaseProductData] = useState({
       return () => clearTimeout(timer);
     }
   }, [sampleError]);
-
-  // Загружаем текущий профиль при монтировании
-  useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-    console.log('Текущий профиль:', profile);
-  }, []);
 
   // Показываем сообщение о сохранении
   useEffect(() => {

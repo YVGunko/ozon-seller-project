@@ -1,0 +1,551 @@
+/* Общий фон страницы, похожий на seller.ozon.ru */
+.oz-page {
+  min-height: 100vh;
+  background-color: #f5f7fa;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #1f2933;
+  padding: 24px 32px 40px;
+}
+
+.oz-page-header {
+  max-width: 1200px;
+  margin: 0 auto 16px;
+}
+
+.oz-breadcrumb {
+  margin-right: 8px;
+}
+
+.oz-breadcrumb-link {
+  font-size: 13px;
+  color: #1f6ad6;
+  text-decoration: none;
+}
+
+.oz-breadcrumb-link:hover {
+  text-decoration: underline;
+}
+
+.oz-page-title-block {
+  margin-top: 8px;
+}
+
+.oz-page-title {
+  font-size: 22px;
+  margin: 0 0 4px;
+  font-weight: 600;
+}
+
+.oz-page-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.oz-main {
+  max-width: 1800px;
+  margin: 0 auto;
+}
+
+/* Карточки */
+.oz-card {
+  background-color: #ffffff;
+  border-radius: 10px;
+  border: 1px solid #e5e7eb;
+  margin-bottom: 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.03);
+}
+
+.oz-card-header {
+  padding: 12px 16px 0;
+}
+
+.oz-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.oz-card-subtitle {
+  display: block;
+  margin-top: 2px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.oz-card-body {
+  padding: 8px 16px 16px;
+}
+
+/* Фильтры */
+.oz-card-filters {
+  margin-bottom: 16px;
+}
+
+.oz-filters-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  padding-top: 4px;
+}
+
+.oz-form-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.oz-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+  margin-bottom: 4px;
+}
+
+/* Inputs */
+.oz-input,
+.oz-select {
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  padding: 7px 9px;
+  font-size: 13px;
+  outline: none;
+  background-color: #ffffff;
+}
+
+.oz-input:focus,
+.oz-select:focus {
+  border-color: #1f6ad6;
+  box-shadow: 0 0 0 1px rgba(31, 106, 214, 0.15);
+}
+
+/* Segmented control */
+.oz-segmented-control {
+  display: flex;
+  border-radius: 8px;
+  background-color: #f3f4f6;
+  padding: 2px;
+  gap: 2px;
+}
+
+.oz-segmented-item {
+  flex: 1;
+  border: none;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 6px 8px;
+  background-color: transparent;
+  cursor: pointer;
+  color: #4b5563;
+}
+
+.oz-segmented-item--active {
+  background-color: #ffffff;
+  color: #1f6ad6;
+  font-weight: 600;
+  box-shadow: 0 0 0 1px rgba(31, 106, 214, 0.2);
+}
+
+/* Чекбоксы with */
+.oz-with-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 24px;
+}
+
+.oz-checkbox {
+  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: #374151;
+}
+
+/* Кнопки */
+.oz-actions {
+  margin: 12px 0 16px;
+}
+
+.oz-btn {
+  border-radius: 7px;
+  border: none;
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: background-color 0.15s ease, box-shadow 0.15s ease, transform 0.05s ease;
+}
+
+.oz-btn-primary {
+  background-color: #1f6ad6;
+  color: #ffffff;
+}
+
+.oz-btn-primary:hover {
+  background-color: #1857ad;
+}
+
+.oz-btn-secondary {
+  background-color: #e5e7eb;
+  color: #111827;
+}
+
+.oz-btn-secondary:hover {
+  background-color: #d1d5db;
+}
+
+.oz-btn-success {
+  background-color: #16a34a;
+  color: #ffffff;
+}
+
+.oz-btn-success:hover {
+  background-color: #15803d;
+}
+
+.oz-btn-disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+/* Alert */
+.oz-alert {
+  border-radius: 8px;
+  padding: 8px 12px;
+  font-size: 13px;
+  margin-bottom: 12px;
+}
+
+.oz-alert-error {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  color: #b91c1c;
+}
+
+/* Метаданные */
+.oz-card-meta {
+  margin-bottom: 16px;
+}
+
+.oz-meta-grid {
+  display: grid;
+  gap: 8px 20px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.oz-meta-label {
+  font-size: 11px;
+  color: #9ca3af;
+}
+
+.oz-meta-value {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.oz-meta-code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  font-size: 12px;
+}
+
+/* Таблица */
+.oz-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+}
+
+/* Обёртка с фиксированным заголовком: скролл только по tbody.
+   Высота зависит от окна браузера, а не жёсткого значения. */
+.oz-table-wrapper--sticky {
+  max-height: calc(100vh - 320px); /* учёт отступов/хедера страницы */
+  overflow-y: auto;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+}
+
+.oz-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.oz-table thead {
+  background-color: #f3f4f6;
+}
+
+/* Фиксация заголовка при вертикальном скролле */
+.oz-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.oz-table th,
+.oz-table td {
+  padding: 8px 10px;
+  border: 1px solid #e5e7eb;
+  text-align: left;
+  vertical-align: top;
+}
+
+.oz-table th {
+  font-weight: 500;
+  color: #4b5563;
+  white-space: nowrap;
+}
+
+.oz-table tbody tr:nth-child(even) {
+  background-color: #f9fafb;
+}
+
+.oz-table tbody tr:hover {
+  background-color: #eff6ff;
+}
+
+.oz-cell-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+}
+
+/* Пагинация */
+.oz-pagination {
+  margin-top: 14px;
+  display: flex;
+  gap: 10px;
+}
+
+/* Пустой результат */
+.oz-empty {
+  font-size: 13px;
+  color: #9ca3af;
+  padding: 8px 0;
+}
+
+/* Общие стили для layout дашборда OZON Seller */
+
+/* Боковая панель */
+.oz-sidebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 240px;
+  background: linear-gradient(180deg, #0f172a, #020617);
+  color: #e5e7eb;
+  padding: 16px 16px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  z-index: 1500;
+  box-shadow: 4px 0 18px rgba(15, 23, 42, 0.45);
+}
+
+.oz-sidebar-header {
+  font-size: 18px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.oz-sidebar-section-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  color: #9ca3af;
+}
+
+.oz-sidebar-card {
+  border-radius: 10px;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  padding: 10px;
+  background: rgba(15, 23, 42, 0.7);
+}
+
+.oz-sidebar-card--secondary {
+  background: rgba(15, 23, 42, 0.5);
+}
+
+.oz-sidebar-subitem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  color: #e5e7eb;
+  background-color: rgba(15, 23, 42, 0.4);
+}
+
+.oz-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.oz-sidebar-nav-button {
+  border: none;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  background-color: transparent;
+  color: #e5e7eb;
+}
+
+.oz-sidebar-nav-button--active {
+  background-color: #e5e7eb;
+  color: #0f172a;
+}
+
+.oz-sidebar-nav-button--disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.oz-sidebar-footer-button {
+  margin-top: auto;
+  border: none;
+  border-radius: 9999px;
+  padding: 6px 10px;
+  font-size: 12px;
+  background-color: rgba(15, 23, 42, 0.9);
+  color: #e5e7eb;
+  cursor: pointer;
+}
+
+/* Кнопка сворачивания сайдбара */
+.oz-sidebar-toggle {
+  position: fixed;
+  top: 16px;
+  left: 16px;
+  z-index: 1600;
+  border-radius: 9999px;
+  border: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  padding: 4px 10px;
+  font-size: 13px;
+  cursor: pointer;
+  box-shadow: 0 4px 10px rgba(15, 23, 42, 0.15);
+}
+
+.oz-sidebar-toggle--shifted {
+  left: 252px;
+}
+
+/* Основной контейнер контента с учётом сайдбара */
+.oz-content-with-sidebar {
+  margin-left: 260px;
+  transition: margin-left 0.2s ease;
+}
+
+.oz-content-with-sidebar--collapsed {
+  margin-left: 0;
+}
+
+/* Карточки дашборда на главно�� */
+.oz-dashboard-card {
+  margin-bottom: 20px;
+}
+
+.oz-dashboard-card-header {
+  padding: 12px 16px 0;
+}
+
+.oz-dashboard-card-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.oz-dashboard-card-subtitle {
+  display: block;
+  margin-top: 2px;
+  margin-bottom: 8px;
+  font-size: 12px;
+  color: #9ca3af;
+}
+
+.oz-dashboard-card-body {
+  padding: 8px 16px 16px;
+}
+
+.oz-dashboard-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 16px;
+}
+
+.oz-dashboard-metric {
+  padding: 16px;
+  border-radius: 12px;
+  border: 1px solid #e5e7eb;
+}
+
+.oz-dashboard-metric__label {
+  font-size: 12px;
+  text-transform: uppercase;
+}
+
+.oz-dashboard-metric__value {
+  font-size: 28px;
+  font-weight: 600;
+  margin-top: 6px;
+}
+
+.oz-dashboard-metric__description {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+/* Варианты фона для разных метрик */
+.oz-dashboard-metric--blue {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+.oz-dashboard-metric--amber {
+  background: #fef3c7;
+  border-color: #fde68a;
+}
+
+.oz-dashboard-metric--green {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+}
+
+.oz-dashboard-metric--purple {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+
+/* Модалка */
+.oz-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 2000;
+}
+
+.oz-modal {
+  background: #ffffff;
+  padding: 20px;
+  border-radius: 12px;
+  max-height: 80vh;
+  overflow-y: auto;
+  width: 600px;
+  box-shadow: 0 12px 30px rgba(15, 23, 42, 0.25);
+}
+
+.oz-modal-footer {
+  margin-top: 15px;
+  text-align: right;
+}

@@ -40,7 +40,7 @@ const isValidImageUrl = (value) => {
   return /^https?:\/\//i.test(trimmed);
 };
 
-const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
+export const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) => {
   if (!priceLoading && !priceInfo && !priceError) {
     return null;
   }
@@ -102,7 +102,7 @@ const PriceInfoPanel = ({ priceInfo, priceLoading, priceError, contextLabel }) =
 
 const MAX_UPLOAD_SIZE_BYTES = 8 * 1024 * 1024; // 8MB
 
-const ImagesManager = ({
+export const ImagesManager = ({
   title = 'Изображения',
   images = [],
   primaryImage = '',
@@ -230,6 +230,35 @@ const ImagesManager = ({
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
+    }
+  };
+
+  const handleDownload = async (url) => {
+    try {
+      const response = await fetch(url);
+      if (!response.ok) {
+        // eslint-disable-next-line no-console
+        console.error('Image download failed', response.status, response.statusText);
+        return;
+      }
+      const blob = await response.blob();
+      const objectUrl = URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      anchor.href = objectUrl;
+      try {
+        const urlObj = new URL(url);
+        const parts = urlObj.pathname.split('/');
+        anchor.download = parts[parts.length - 1] || 'image.jpg';
+      } catch {
+        anchor.download = 'image.jpg';
+      }
+      document.body.appendChild(anchor);
+      anchor.click();
+      document.body.removeChild(anchor);
+      URL.revokeObjectURL(objectUrl);
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error('Image download error', err);
     }
   };
 
@@ -469,6 +498,42 @@ const ImagesManager = ({
                   >
                     Удалить
                   </button>
+                  <a
+                    href={url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor: '#fff',
+                      color: '#0d6efd',
+                      textDecoration: 'none',
+                      fontSize: 12,
+                      display: 'inline-flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    Открыть
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => handleDownload(url)}
+                    disabled={disabled}
+                    style={{
+                      padding: '4px 10px',
+                      borderRadius: 4,
+                      border: '1px solid #ced4da',
+                      backgroundColor: '#fff',
+                      color: '#0d6efd',
+                      cursor: disabled ? 'not-allowed' : 'pointer',
+                      fontSize: 12,
+                      display: 'inline-flex',
+                      alignItems: 'center'
+                    }}
+                  >
+                    Скачать
+                  </button>
                 </div>
               </div>
             </div>
@@ -479,7 +544,7 @@ const ImagesManager = ({
   );
 };
 
-const MetaFieldsSection = ({ values, onChange, baseValues }) => {
+export const MetaFieldsSection = ({ values, onChange, baseValues }) => {
   if (!values || !onChange) {
     return null;
   }
@@ -492,33 +557,24 @@ const MetaFieldsSection = ({ values, onChange, baseValues }) => {
   return (
     <div style={{ marginBottom: 16 }}>
       <h4 style={{ margin: '10px 0' }}>Обязательные параметры для OZON</h4>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {fieldGroups.map((group) => (
-          <div key={group.title} style={{ border: '1px solid #e9ecef', borderRadius: 8, padding: 12 }}>
+          <div key={group.title}>
             <div style={{ fontWeight: 'bold', marginBottom: 8 }}>{group.title}</div>
-            <div
-              style={{
-                display: 'grid',
-                gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))',
-                gap: 12
-              }}
-            >
+            <div className="oz-filters-grid">
               {group.fields.map((field) => (
-                <div key={field}>
-                  <label style={{ display: 'block', marginBottom: 4, fontSize: 13 }}>
-                    {BASE_FIELD_LABELS[field] || field}
-                  </label>
+                <div key={field} className="oz-form-group">
+                  <label className="oz-label">{BASE_FIELD_LABELS[field] || field}</label>
                   <input
                     type="text"
+                    className="oz-input"
                     value={values[field] ?? ''}
                     onChange={(e) => onChange(field, e.target.value)}
-                    style={{
-                      width: '100%',
-                      padding: '6px 8px',
-                      borderRadius: 4,
-                      border: '1px solid #ced4da'
-                    }}
-                    placeholder={baseValues && baseValues[field] ? `По умолчанию: ${baseValues[field]}` : ''}
+                    placeholder={
+                      baseValues && baseValues[field]
+                        ? `По умолчанию: ${baseValues[field]}`
+                        : ''
+                    }
                   />
                 </div>
               ))}
@@ -530,28 +586,7 @@ const MetaFieldsSection = ({ values, onChange, baseValues }) => {
   );
 };
 
-const getOrderValue = (attr, fallback = 0) => {
-  const raw =
-    attr?.order ??
-    attr?.position ??
-    attr?.sort_index ??
-    attr?.sortIndex ??
-    attr?.__order ??
-    attr?.__index;
-  if (raw === undefined || raw === null) {
-    return fallback;
-  }
-  const numeric = Number(raw);
-  return Number.isFinite(numeric) ? numeric : fallback;
-};
-
 const attributeComparator = (a = {}, b = {}) => {
-  const orderA = getOrderValue(a, 0);
-  const orderB = getOrderValue(b, 0);
-  if (orderA !== orderB) {
-    return orderA - orderB;
-  }
-
   const idA = Number(a?.id ?? a?.attribute_id ?? a?.attributeId);
   const idB = Number(b?.id ?? b?.attribute_id ?? b?.attributeId);
   if (Number.isFinite(idA) && Number.isFinite(idB) && idA !== idB) {

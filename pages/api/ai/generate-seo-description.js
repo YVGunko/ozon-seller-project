@@ -1,4 +1,6 @@
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions';
+import { withServerContext } from '../../../src/server/apiUtils';
+import { canUseAiText } from '../../../src/domain/services/accessControl';
 
 const buildPrompt = (rows, keywords, baseProductData) => {
   const baseInfo = [
@@ -64,13 +66,22 @@ const parseAiResponse = (text) => {
   }
 };
 
-export default async function handler(req, res) {
+async function handler(req, res, ctx) {
+  const { auth, domain } = ctx;
+
   if (req.method !== 'POST') {
     res.setHeader('Allow', ['POST']);
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
+    const user = domain.user || auth.user || null;
+    const enterprise = domain.activeEnterprise || null;
+
+    if (!user || !canUseAiText(user, enterprise)) {
+      return res.status(403).json({ error: 'AI functions are not allowed for this user' });
+    }
+
     const { rows, keywords, baseProductData } = req.body || {};
 
     if (!Array.isArray(rows) || rows.length === 0) {
@@ -137,3 +148,5 @@ export default async function handler(req, res) {
     return res.status(500).json({ error: error.message || 'Ошибка генерации SEO названий' });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

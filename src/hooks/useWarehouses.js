@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { WarehouseManager, WarehouseStatusMap } from '../utils/warehouseManager';
 
 const buildProfileQuery = (profile) => {
@@ -12,10 +12,14 @@ const getStatusLabel = (status) => {
 };
 
 export const useWarehouses = (profile) => {
-  const [warehouses, setWarehouses] = useState([]);
+  const [warehouses, setWarehouses] = useState(() => {
+    const cached = WarehouseManager.getWarehouses(profile);
+    return Array.isArray(cached) ? cached : [];
+  });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [selectedWarehouse, setSelectedWarehouse] = useState(null);
+  const lastLoadedProfileIdRef = useRef(null);
 
   const selectWarehouse = useCallback(
     (warehouseId) => {
@@ -34,59 +38,92 @@ export const useWarehouses = (profile) => {
     [warehouses, profile]
   );
 
-  const fetchWarehouses = useCallback(async () => {
-    if (!profile) {
-      setWarehouses([]);
-      setSelectedWarehouse(null);
-      setError('');
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      const profileQuery = buildProfileQuery(profile);
-      const query = profileQuery ? `?profileId=${encodeURIComponent(profileQuery)}` : '';
-      const response = await fetch(`/api/warehouses${query}`);
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || 'Не удалось загрузить склады');
-      }
-      const data = await response.json();
-      const list = Array.isArray(data?.result)
-        ? data.result.map((warehouse) => ({
-            ...warehouse,
-            status_label: getStatusLabel(warehouse?.status)
-          }))
-        : [];
-      setWarehouses(list);
+  const fetchWarehouses = useCallback(
+    async (options = {}) => {
+      const { force = false } = options;
+      const profileId = profile?.id ? String(profile.id) : null;
 
-      const stored = WarehouseManager.getCurrentWarehouse(profile);
-      if (stored) {
-        const match = list.find(
-          (warehouse) => String(warehouse.warehouse_id) === String(stored.warehouse_id)
-        );
-        if (match) {
-          setSelectedWarehouse(match);
+      if (!profileId) {
+        lastLoadedProfileIdRef.current = null;
+        setWarehouses([]);
+        setSelectedWarehouse(null);
+        setError('');
+        return;
+      }
+
+      // Попытка использовать кеш из WarehouseManager (in-memory + localStorage),
+      // если не запрашивали принудительное обновление.
+      if (!force) {
+        const cachedList = WarehouseManager.getWarehouses(profile);
+        if (Array.isArray(cachedList) && cachedList.length > 0) {
+          setWarehouses(cachedList);
+          const stored = WarehouseManager.getCurrentWarehouse(profile);
+          if (stored) {
+            const match = cachedList.find(
+              (warehouse) =>
+                String(warehouse.warehouse_id) === String(stored.warehouse_id)
+            );
+            if (match) {
+              setSelectedWarehouse(match);
+            }
+          }
+          lastLoadedProfileIdRef.current = profileId;
           return;
         }
       }
 
-      if (list.length > 0) {
-        const preferred =
-          list.find((warehouse) => warehouse.status === 'created') || list[0];
-        setSelectedWarehouse(preferred);
-        WarehouseManager.setCurrentWarehouse(preferred, profile);
-      } else {
-        setSelectedWarehouse(null);
-        WarehouseManager.clearCurrentWarehouse();
+      setLoading(true);
+      setError('');
+      try {
+        const profileQuery = buildProfileQuery(profile);
+        const query = profileQuery ? `?profileId=${encodeURIComponent(profileQuery)}` : '';
+        const response = await fetch(`/api/warehouses${query}`);
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || 'Не удалось загрузить склады');
+        }
+        const data = await response.json();
+        const list = Array.isArray(data?.result)
+          ? data.result.map((warehouse) => ({
+              ...warehouse,
+              status_label: getStatusLabel(warehouse?.status)
+            }))
+          : [];
+        setWarehouses(list);
+        WarehouseManager.setWarehouses(profile, list);
+
+        const stored = WarehouseManager.getCurrentWarehouse(profile);
+        if (stored) {
+          const match = list.find(
+            (warehouse) => String(warehouse.warehouse_id) === String(stored.warehouse_id)
+          );
+          if (match) {
+            setSelectedWarehouse(match);
+            lastLoadedProfileIdRef.current = profileId;
+            return;
+          }
+        }
+
+        if (list.length > 0) {
+          const preferred =
+            list.find((warehouse) => warehouse.status === 'created') || list[0];
+          setSelectedWarehouse(preferred);
+          WarehouseManager.setCurrentWarehouse(preferred, profile);
+        } else {
+          setSelectedWarehouse(null);
+          WarehouseManager.clearCurrentWarehouse();
+        }
+
+        lastLoadedProfileIdRef.current = profileId;
+      } catch (fetchError) {
+        console.error('Failed to fetch warehouses', fetchError);
+        setError(fetchError.message || 'Не удалось загрузить склады');
+      } finally {
+        setLoading(false);
       }
-    } catch (fetchError) {
-      console.error('Failed to fetch warehouses', fetchError);
-      setError(fetchError.message || 'Не удалось загрузить склады');
-    } finally {
-      setLoading(false);
-    }
-  }, [profile]);
+    },
+    [profile, warehouses.length]
+  );
 
   useEffect(() => {
     fetchWarehouses();

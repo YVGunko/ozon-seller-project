@@ -6,3 +6,5 @@ node_modules/
 *.swp
 *.swo
 *.swx
+*.json
+/config/*

@@ -1,7 +1,23 @@
 import { OzonApiService } from '../../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../../src/server/profileResolver';
+import { resolveServerContext } from '../../../src/server/serverContext';
+import { withServerContext } from '../../../src/server/apiUtils';
+import { extractImportStatusItems } from '../../../src/utils/importStatus';
+import { appendPriceHistory } from '../../../src/server/priceHistoryStore';
+import { appendNetPriceHistory } from '../../../src/server/netPriceHistoryStore';
+import { popPendingPricesByOffers } from '../../../src/server/pendingPriceStore';
+import { popPendingNetPricesByOffers } from '../../../src/server/pendingNetPriceStore';
 
-export default async function handler(req, res) {
+const extractOfferSkuPairs = (items = []) =>
+  items
+    .map((item) => {
+      const offerId = item?.offer_id ?? item?.offerId;
+      const sku = item?.product_id ?? item?.productId ?? item?.id ?? item?.sku;
+      if (!offerId || !sku) return null;
+      return { offerId: String(offerId), sku: String(sku) };
+    })
+    .filter(Boolean);
+
+async function handler(req, res /* ctx */) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -12,9 +28,47 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'taskId is required' });
     }
 
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
     const response = await ozon.getProductImportStatus(taskId);
+
+    try {
+      const items = extractImportStatusItems(response);
+      const offerSkuPairs = extractOfferSkuPairs(items);
+      if (offerSkuPairs.length) {
+        const resolvedPrices = await popPendingPricesByOffers({
+          offerSkuPairs,
+          profileId: profile?.id ?? null
+        });
+        await Promise.all(
+          resolvedPrices.map((record) =>
+            appendPriceHistory({
+              sku: record.sku,
+              price: record.price,
+              priceData: record.data,
+              ts: record.ts
+            })
+          )
+        );
+
+        const resolvedNet = await popPendingNetPricesByOffers({
+          offerSkuPairs,
+          profileId: profile?.id ?? null
+        });
+        await Promise.all(
+          resolvedNet.map((record) =>
+            appendNetPriceHistory({
+              sku: record.sku,
+              netPrice: record.net_price,
+              ts: record.ts
+            })
+          )
+        );
+      }
+    } catch (applyError) {
+      console.error('[products/import-status] Failed to resolve pending prices', applyError);
+    }
+
     return res.status(200).json(response);
   } catch (error) {
     console.error('[products/import-status] Failed', error);
@@ -24,3 +78,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });

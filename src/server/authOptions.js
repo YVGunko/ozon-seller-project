@@ -11,15 +11,21 @@ const buildAuthOptions = () => ({
         password: { label: 'Password', type: 'password' }
       },
       async authorize(credentials) {
-        const user = findUserByCredentials(credentials?.username, credentials?.password);
-        if (user) {
-          return {
-            id: user.id,
-            name: user.name,
-            allowedProfiles: user.allowedProfiles || []
-          };
+        const user = await findUserByCredentials(
+          credentials?.username,
+          credentials?.password
+        );
+        if (!user) {
+          return null;
         }
-        return null;
+        return {
+          id: user.id,
+          name: user.name,
+          allowedProfiles: user.allowedProfiles || [],
+          roles: user.roles || [],
+          enterpriseIds: user.enterpriseIds || [],
+          enterpriseId: user.enterpriseId || null
+        };
       }
     })
   ],
@@ -27,6 +33,9 @@ const buildAuthOptions = () => ({
     async jwt({ token, user }) {
       if (user) {
         token.allowedProfiles = user.allowedProfiles || [];
+        token.roles = user.roles || [];
+        token.enterpriseIds = user.enterpriseIds || [];
+        token.enterpriseId = user.enterpriseId || null;
       }
       return token;
     },
@@ -34,6 +43,9 @@ const buildAuthOptions = () => ({
       if (session?.user) {
         session.user.id = token.sub;
         session.user.allowedProfiles = token.allowedProfiles || [];
+        session.user.roles = token.roles || [];
+        session.user.enterpriseIds = token.enterpriseIds || [];
+        session.user.enterpriseId = token.enterpriseId || null;
       }
       return session;
     }

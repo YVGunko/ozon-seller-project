@@ -114,13 +114,51 @@ export class OzonApiService {
       body: JSON.stringify(body)
     });
 
-    const data = await response.json();
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      data = null;
+    }
     if (!response.ok) {
       const error = new Error(data?.message || `OZON API error: ${response.status}`);
       error.status = response.status;
       error.data = data;
       throw error;
     }
+    return data;
+  }
+
+  async requestGet(endpoint, params = {}) {
+    const url = new URL(`${this.baseUrl}${endpoint}`);
+    Object.entries(params || {}).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === '') return;
+      if (Array.isArray(value)) {
+        value.forEach((item) => url.searchParams.append(key, item));
+      } else {
+        url.searchParams.append(key, value);
+      }
+    });
+
+    const response = await fetch(url.toString(), {
+      method: 'GET',
+      headers: this.headers
+    });
+
+    let data;
+    try {
+      data = await response.json();
+    } catch (parseError) {
+      data = null;
+    }
+
+    if (!response.ok) {
+      const error = new Error(data?.message || `OZON API error: ${response.status}`);
+      error.status = response.status;
+      error.data = data;
+      throw error;
+    }
+
     return data;
   }
 
@@ -173,6 +211,10 @@ export class OzonApiService {
     });
 
     return data;
+  }
+
+  async getDescriptionCategoryTree(language = 'DEFAULT') {
+    return this.request('/v1/description-category/tree', { language });
   }
 
   async getWarehouses() {
@@ -501,6 +543,106 @@ export class OzonApiService {
     return this.createProductsBatch(normalizedItems);
   }
 
+  async getActions(params = {}) {
+    return this.requestGet('/v1/actions', params);
+  }
+
+  async getActionCandidates({ action_id, limit = 100, last_id = null } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для запроса кандидатов');
+    }
+    const payload = {
+      action_id,
+      limit: Number(limit) || 100
+    };
+    if (last_id !== undefined && last_id !== null && last_id !== '') {
+      payload.last_id = last_id;
+    }
+    return this.request('/v1/actions/candidates', payload);
+  }
+
+  async getActionProducts({ action_id, limit = 100, last_id = null } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для запроса товаров акции');
+    }
+    const payload = {
+      action_id,
+      limit: Number(limit) || 100
+    };
+    if (last_id !== undefined && last_id !== null && last_id !== '') {
+      payload.last_id = last_id;
+    }
+    return this.request('/v1/actions/products', payload);
+  }
+
+  async activateActionProducts({ action_id, products = [] } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для активации товаров в акции');
+    }
+    if (!Array.isArray(products) || !products.length) {
+      throw new Error('Не переданы товары для активации в акции');
+    }
+    const payload = {
+      action_id,
+      products: products.map((p) => ({
+        product_id: Number(p.product_id),
+        action_price: Number(p.action_price),
+        stock:
+          p.stock === undefined || p.stock === null || p.stock === ''
+            ? undefined
+            : Number(p.stock)
+      }))
+    };
+
+    const result = await this.request('/v1/actions/products/activate', payload);
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[OzonApiService] /v1/actions/products/activate result:',
+        JSON.stringify(result, null, 2)
+      );
+    } catch {
+      // ignore logging issues
+    }
+
+    return result;
+  }
+
+  async deactivateActionProducts({ action_id, product_ids = [] } = {}) {
+    if (!action_id && action_id !== 0) {
+      throw new Error('action_id обязателен для удаления товаров из акции');
+    }
+    if (!Array.isArray(product_ids) || !product_ids.length) {
+      throw new Error('Не переданы product_ids для удаления из акции');
+    }
+
+    const payload = {
+      action_id,
+      product_ids: product_ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    };
+
+    if (!payload.product_ids.length) {
+      throw new Error('После нормализации не осталось валидных product_ids');
+    }
+
+    const result = await this.request('/v1/actions/products/deactivate', payload);
+
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[OzonApiService] /v1/actions/products/deactivate result:',
+        JSON.stringify(result, null, 2)
+      );
+    } catch {
+      // ignore logging issues
+    }
+
+    return result;
+  }
+
   async getProductImportStatus(taskId) {
     if (!taskId) {
       throw new Error('Не передан task_id');
@@ -531,6 +673,50 @@ export class OzonApiService {
     });
   }
 
+  async getProductInfoPrices({
+    offer_ids = [],
+    product_ids = [],
+    limit = 100,
+    cursor = ''
+  } = {}) {
+    const payload = {
+      filter: {},
+      limit: Math.min(Math.max(Number(limit) || 100, 1), 1000)
+    };
+
+    if (Array.isArray(offer_ids) && offer_ids.length) {
+      payload.filter.offer_id = offer_ids.filter(Boolean).map(String);
+    }
+    if (Array.isArray(product_ids) && product_ids.length) {
+      payload.filter.product_id = product_ids
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id));
+    }
+    if (cursor) {
+      payload.cursor = String(cursor);
+    }
+
+    return this.request('/v5/product/info/prices', payload);
+  }
+
+  async importPrices(prices = []) {
+    if (!Array.isArray(prices) || !prices.length) {
+      throw new Error('Не переданы цены для импорта');
+    }
+    return this.request('/v1/product/import/prices', {
+      prices
+    });
+  }
+
+  async getProductRatingBySku({ skus = [] } = {}) {
+    if (!Array.isArray(skus) || skus.length === 0) {
+      throw new Error('skus array is required');
+    }
+    return this.request('/v1/product/rating-by-sku', {
+      skus: skus.map((sku) => String(sku))
+    });
+  }
+
   async getProductInfoAttributes({ limit = 50, last_id = '', offer_ids = [], sku = [] } = {}) {
     const payload = {
       limit: Number(limit) || 50,
@@ -551,6 +737,30 @@ export class OzonApiService {
     }
 
     return this.request('/v4/product/info/attributes', payload);
+  }
+
+  async getFbsUnfulfilledPostings({
+    dir = 'asc',
+    limit = 50,
+    last_id = '',
+    filter = {},
+    withOptions = {}
+  } = {}) {
+    const payload = {
+      dir: dir === 'desc' ? 'desc' : 'asc',
+      limit: Math.min(Math.max(Number(limit) || 50, 1), 1000),
+      last_id: last_id ? String(last_id) : '',
+      filter,
+      with: {
+        analytics_data: Boolean(withOptions.analytics_data),
+        barcodes: Boolean(withOptions.barcodes),
+        financial_data: Boolean(withOptions.financial_data),
+        legal_info: Boolean(withOptions.legal_info),
+        translit: Boolean(withOptions.translit)
+      }
+    };
+
+    return this.request('/v3/posting/fbs/unfulfilled/list', payload);
   }
 
   async generateBarcodes(productIds = []) {

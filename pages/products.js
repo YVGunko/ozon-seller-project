@@ -1,10 +1,10 @@
 // pages/products.js
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { ProfileManager } from '../src/utils/profileManager';
 import { apiClient } from '../src/services/api-client';
 import { useProductAttributes } from '../src/hooks/useProductAttributes';
+import { useCurrentContext } from '../src/hooks/useCurrentContext';
 import {
   REQUIRED_BASE_FIELDS,
   NUMERIC_BASE_FIELDS,
@@ -61,7 +61,7 @@ export default function ProductsPage() {
   const autoOpenHandled = useRef(false);
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [currentProfile, setCurrentProfile] = useState(null);
+  const { profile: currentProfile } = useCurrentContext();
   const [filters, setFilters] = useState({
     offer_id: '',
     archived: 'all',
@@ -79,14 +79,7 @@ export default function ProductsPage() {
   const [savingAttributesLabel, setSavingAttributesLabel] = useState('Отправляем...');
   const [attributesUpdateStatus, setAttributesUpdateStatus] = useState({ message: '', error: '' });
   const [selectedProduct, setSelectedProduct] = useState(null);
-
-  const [copyModalOpen, setCopyModalOpen] = useState(false);
   const [copyLoading, setCopyLoading] = useState(false);
-  const [copySourceProduct, setCopySourceProduct] = useState(null);
-  const [copyForm, setCopyForm] = useState({
-    new_offer_id: '',
-    name: ''
-  });
 
   const [error, setError] = useState(null);
 
@@ -99,14 +92,63 @@ export default function ProductsPage() {
     error: attributesError,
     loadAttributes
   } = useProductAttributes(apiClient, currentProfile);
+  const [ratingMap, setRatingMap] = useState(new Map());
+  const ratingMapRef = useRef(new Map());
+  const [ratingLoading, setRatingLoading] = useState(false);
+  const [ratingError, setRatingError] = useState('');
+  const [ratingModal, setRatingModal] = useState(null);
+  const [ratingSortOrder, setRatingSortOrder] = useState('desc');
+  const startNewProduct = useCallback(() => {
+    if (!currentProfile) {
+      alert('Сначала выберите профиль на главной странице');
+      return;
+    }
+    const offerId = `new-${Date.now()}`;
+    router.push(`/products/${offerId}/attributes?mode=new`);
+  }, [router, currentProfile]);
 
-  // load profile once
-  useEffect(() => {
-    const profile = ProfileManager.getCurrentProfile();
-    setCurrentProfile(profile);
-  }, []);
+  // currentProfile теперь приходит из useCurrentContext
 
   // fetchProducts function
+  const loadRatingsForSkus = useCallback(
+    async (skus = []) => {
+      if (!currentProfile) return;
+      const uniqueSkus = Array.from(new Set(skus.filter(Boolean)));
+      const toFetch = uniqueSkus.filter((sku) => !ratingMapRef.current.has(sku));
+      if (!toFetch.length) return;
+    setRatingLoading(true);
+      try {
+        let map = new Map(ratingMapRef.current);
+        const chunkSize = 50;
+        for (let i = 0; i < toFetch.length; i += chunkSize) {
+          const chunk = toFetch.slice(i, i + chunkSize);
+          const response = await fetch('/api/products/rating-by-sku', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ skus: chunk, profileId: currentProfile.id })
+          });
+          const data = await response.json();
+          if (response.ok && Array.isArray(data?.products)) {
+            data.products.forEach((entry) => {
+              map.set(String(entry.sku), entry);
+            });
+          } else {
+            console.warn('Failed to fetch rating chunk', data);
+          }
+        }
+        ratingMapRef.current = map;
+        setRatingMap(map);
+        setRatingError('');
+      } catch (error) {
+        console.error('Failed to load product ratings', error);
+        setRatingError('Не удалось загрузить рейтинги');
+      } finally {
+        setRatingLoading(false);
+      }
+    },
+    [currentProfile]
+  );
+
   const fetchProducts = useCallback(async (reset = false) => {
     if (!currentProfile) return;
     if (loading) return;
@@ -142,7 +184,8 @@ export default function ProductsPage() {
             sku: derivedSku
           };
         });
-        setProducts(prev => reset ? items : [...prev, ...items]);
+        setProducts((prev) => (reset ? items : [...prev, ...items]));
+        loadRatingsForSkus(items.map((entry) => entry.sku));
         setPagination(prev => ({
           ...prev,
           last_id: result?.result?.last_id || result?.last_id || '',
@@ -534,14 +577,22 @@ export default function ProductsPage() {
           throw new Error(`Товар ${offerId}: добавьте хотя бы одно изображение`);
         }
 
-        if (!areImageListsEqual(normalizedImages, originalImages)) {
-          payload.images = normalizedImages;
-          hasMediaUpdates = true;
-        }
+        // Массив images является обязательным — всегда передаём его в payload,
+        // даже если ссылки не менялись.
+        payload.images = normalizedImages;
+        hasMediaUpdates = true;
 
-        if (normalizedPrimary !== originalPrimary) {
-          payload.primary_image = normalizedPrimary || '';
-          hasMediaUpdates = true;
+        // Всегда явно передаём primary_image, даже если он не менялся.
+        // Если пользователь не задал primary_image, используем первое изображение из списка.
+        const effectivePrimary =
+          normalizedPrimary || (normalizedImages.length ? normalizedImages[0] : '');
+        if (effectivePrimary) {
+          payload.primary_image = effectivePrimary;
+          // Если primary совпадает с оригинальным и images не менялись,
+          // это не считается обновлением медиа — флаг не трогаем.
+          if (effectivePrimary !== originalPrimary) {
+            hasMediaUpdates = true;
+          }
         }
 
         const baseFieldUpdates = {};
@@ -694,36 +745,23 @@ export default function ProductsPage() {
     }
   };
 
-  const openCopyModal = (product) => {
-    setCopySourceProduct(product);
-    setCopyForm({
-      new_offer_id: `${product.offer_id}-copy`,
-      name: product.name || ''
-    });
-    setCopyModalOpen(true);
-  };
-
-  const copyProduct = async () => {
-    const trimmedNewOffer = copyForm.new_offer_id.trim();
-    const trimmedName = copyForm.name.trim();
-    if (!trimmedNewOffer) {
-      alert('Пожалуйста, введите новый артикул');
-      return;
-    }
+  const handleCopyClick = async (product) => {
     if (!currentProfile) {
-      alert('Пожалуйста, выберите профиль');
+      alert('Сначала выберите профиль на главной странице');
       return;
     }
-    if (!copySourceProduct) {
-      alert('Не выбран исходный товар для копирования');
+    if (!product?.offer_id) {
+      alert('Не найден offer_id исходного товара');
       return;
     }
+
+    const newOfferId = `${product.offer_id}-copy`;
+    const trimmedNewOffer = newOfferId.trim();
+    const trimmedName = (product.name || '').trim();
 
     setCopyLoading(true);
     try {
-      console.log('[copy] source product', copySourceProduct);
-      const sourceRaw = JSON.parse(JSON.stringify(copySourceProduct));
-      console.log('[copy] raw clone', sourceRaw);
+      const sourceRaw = JSON.parse(JSON.stringify(product));
 
       sourceRaw.offer_id = trimmedNewOffer;
       sourceRaw.offerId = trimmedNewOffer;
@@ -740,23 +778,20 @@ export default function ProductsPage() {
 
       REQUIRED_BASE_FIELDS.forEach((field) => {
         const primaryValue = sourceRaw[field];
-        const fallbackValue = copySourceProduct?.[field];
+        const fallbackValue = product?.[field];
         const resolved = hasValue(primaryValue) ? primaryValue : fallbackValue;
         if (hasValue(resolved)) {
           sourceRaw[field] = resolved;
-          console.log('[copy] field resolved', field, resolved);
-        } else {
-          console.warn('[copy] field missing', field);
         }
       });
 
       const missingPriceFields = PRICE_FIELDS.filter(
         (field) => !hasValue(sourceRaw[field])
       );
-      if (missingPriceFields.length && copySourceProduct?.offer_id && currentProfile?.id) {
+      if (missingPriceFields.length && product?.offer_id && currentProfile?.id) {
         try {
           const infoQuery = new URLSearchParams({
-            offer_id: copySourceProduct.offer_id,
+            offer_id: product.offer_id,
             profileId: currentProfile.id
           });
           const infoResponse = await fetch(
@@ -774,15 +809,9 @@ export default function ProductsPage() {
                 const resolved = resolveInfoPriceField(infoItem, field);
                 if (hasValue(resolved)) {
                   sourceRaw[field] = String(resolved);
-                  console.log('[copy] info-list resolved', field, resolved);
                 }
               });
-            } else {
-              console.warn('[copy] info-list: item not found for', copySourceProduct.offer_id);
             }
-          } else {
-            const infoText = await infoResponse.text();
-            console.error('[copy] info-list request failed', infoResponse.status, infoText);
           }
         } catch (infoError) {
           console.error('[copy] failed to fetch info-list', infoError);
@@ -811,22 +840,12 @@ export default function ProductsPage() {
           availableAttributes = Array.isArray(metaResponse?.attributes)
             ? metaResponse.attributes
             : [];
-          console.log('[copy] loaded description attributes', {
-            count: availableAttributes.length,
-            descriptionCategoryId,
-            typeId
-          });
         } catch (metaError) {
           console.error(
             '[copy] failed to load description attributes',
             metaError
           );
         }
-      } else if (!descriptionCategoryId || !typeId) {
-        console.warn('[copy] missing description category or type_id', {
-          descriptionCategoryId,
-          typeId
-        });
       }
 
       sourceRaw.available_attributes = availableAttributes;
@@ -845,28 +864,30 @@ export default function ProductsPage() {
         }
       });
 
-      setAttributes({
-        result: [sourceRaw],
-        isNewProduct: true
-      });
-      setEditableAttributes([sourceEditable]);
-      setSelectedProduct(trimmedNewOffer);
-      setAttributesUpdateStatus({ message: '', error: '' });
-      setCopyModalOpen(false);
-      setCopySourceProduct(null);
+      if (typeof window !== 'undefined') {
+        const payload = {
+          offer_id: trimmedNewOffer,
+          source_offer_id: product.offer_id,
+          attributes: {
+            result: [sourceRaw],
+            isNewProduct: true
+          },
+          editable: sourceEditable
+        };
+        window.localStorage.setItem('attributesCopyDraft', JSON.stringify(payload));
+      }
+
+      router.push(
+        `/products/${encodeURIComponent(
+          trimmedNewOffer
+        )}/attributes?mode=new&source=${encodeURIComponent(product.offer_id)}`
+      );
     } catch (err) {
       console.error('copyProduct error', err);
       alert('Ошибка при подготовке копии: ' + (err.message || err));
     } finally {
       setCopyLoading(false);
     }
-  };
-
-  const handleCopyFormChange = (field, value) => {
-    setCopyForm((prev) => ({
-      ...prev,
-      [field]: value
-    }));
   };
 
   const applyFilters = () => {
@@ -897,144 +918,275 @@ export default function ProductsPage() {
     return true;
   });
 
+  const sortedProducts = useMemo(() => {
+    const array = [...filteredProducts];
+    const getRatingValue = (product) => {
+      const sku = product?.sku;
+      if (!sku) return -1;
+      const entry = ratingMap.get(String(sku));
+      if (!entry) return -1;
+      return Number.isFinite(entry.rating) ? entry.rating : -1;
+    };
+    array.sort((a, b) => {
+      const ra = getRatingValue(a);
+      const rb = getRatingValue(b);
+      if (ra === rb) return 0;
+      return ratingSortOrder === 'asc' ? ra - rb : rb - ra;
+    });
+    return array;
+  }, [filteredProducts, ratingMap, ratingSortOrder]);
+
+  const toggleRatingSort = () => {
+    setRatingSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+  };
+
   return (
-    <div style={{ padding: 20, maxWidth: 1200, margin: '0 auto', fontFamily: 'Arial, sans-serif' }}>
-      <div style={{ marginBottom: 15 }}>
-        <a href="/" style={{ color: '#0070f3', textDecoration: 'none', fontSize: 14 }}>← На главную</a>
-      </div>
-
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 20 }}>
-        <h1 style={{ margin: 0 }}>Управление товарами OZON</h1>
-
-        {currentProfile ? (
-          <div style={{ fontSize: 14, color: '#666', textAlign: 'right' }}>
-            <div style={{ fontWeight: 'bold', color: '#28a745' }}>✅ {currentProfile.name}</div>
-            <div style={{ fontSize: 12 }}>Client ID: {currentProfile?.client_hint || '—'}</div>
-          </div>
-        ) : (
-          <div style={{ fontSize: 14, color: '#dc3545', textAlign: 'right' }}>
-            <div>⚠️ Профиль не выбран</div>
-            <a href="/" style={{ fontSize: 12, color: '#0070f3' }}>Выбрать на главной</a>
-          </div>
-        )}
-      </div>
-
-      {/* Filters (left unchanged visually) */}
-      {/* ... same filters UI from your original file ... */}
-      {/* For brevity, use existing UI; they work with the new code because applyFilters/resetFilters call fetchProducts */}
-      <div style={{
-        backgroundColor: '#f5f5f5',
-        padding: '20px',
-        borderRadius: '8px',
-        marginBottom: '20px',
-        display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-        gap: '15px'
-      }}>
-        <div>
-          <label style={{ display: 'block', marginBottom: '5px', fontWeight: 'bold' }}>
-            Артикул (offer_id):
-          </label>
-          <input
-            type="text"
-            value={filters.offer_id}
-            onChange={(e) => setFilters(prev => ({ ...prev, offer_id: e.target.value }))}
-            placeholder="Введите артикул"
-            style={{
-              width: '100%',
-              padding: '8px',
-              border: '1px solid #ddd',
-              borderRadius: '4px'
-            }}
-          />
+    <div className="oz-page">
+      {/* Заголовок страницы */}
+      <div className="oz-page-header">
+        <div className="oz-breadcrumb">
+          <Link href="/" className="oz-breadcrumb-link">
+            Главная
+          </Link>
+          <span className="oz-breadcrumb-separator"> / </span>
+          <span className="oz-breadcrumb-link">Товары</span>
         </div>
-        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-          <button
-            onClick={applyFilters}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#0070f3',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Применить
-          </button>
-          <button
-            onClick={resetFilters}
-            style={{
-              padding: '10px 20px',
-              backgroundColor: '#6c757d',
-              color: 'white',
-              border: 'none',
-              borderRadius: '4px',
-              cursor: 'pointer'
-            }}
-          >
-            Сбросить
-          </button>
+
+        <div className="oz-page-title-block">
+          <h1 className="oz-page-title">Управление товарами OZON</h1>
+          <p className="oz-page-subtitle">
+            Просмотр, редактирование, копирование и анализ контент‑рейтинга
+          </p>
         </div>
       </div>
-      {/* show error */}
-      {error && <div style={{ color: 'red', marginBottom: 10 }}>Ошибка: {error}</div>}
 
-      <div style={{ marginBottom: 20, color: '#666' }}>
-        Показано: {filteredProducts.length} товаров
-        {products.length !== filteredProducts.length && ` (отфильтровано из ${products.length})`}
-      </div>
+      <div className="oz-main">
+        {/* Карточка профиля и создания товара */}
+        <div className="oz-card oz-card-meta">
+          <div className="oz-card-body">
+            <div
+              style={{
+                display: 'flex',
+                alignItems: 'flex-start',
+                gap: 16,
+                flexWrap: 'wrap'
+              }}
+            >
+              <div>
+                {currentProfile ? (
+                  <div
+                    style={{
+                      display: 'flex',
+                      flexWrap: 'wrap',
+                      gap: 16,
+                      alignItems: 'baseline',
+                      fontSize: 13
+                    }}
+                  >
+                    <div>
+                      <span
+                        className="oz-meta-label"
+                        style={{ marginRight: 4 }}
+                      >
+                        Активный профиль:
+                      </span>
+                      <span className="oz-meta-value">{currentProfile.name}</span>
+                    </div>
+                    <div>
+                      <span
+                        className="oz-meta-label"
+                        style={{ marginRight: 4 }}
+                      >
+                        Client ID:
+                      </span>
+                      <span className="oz-meta-code">
+                        {currentProfile?.client_hint || '—'}
+                      </span>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="oz-alert oz-alert-error">
+                    Профиль не выбран — вернитесь на главную и выберите профиль.
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
 
-      {/* Table — same structure, but use fetchAttributes / openCopyModal */}
-      <div style={{ overflowX: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', backgroundColor: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
+        {/* Карточка с фильтрами и таблицей */}
+        <div className="oz-card">
+          <div className="oz-card-header">
+            <h2 className="oz-card-title">Список товаров</h2>
+            <span className="oz-card-subtitle">
+              Фильтруйте по артикулу и открывайте карточку для редактирования
+            </span>
+          </div>
+
+          <div className="oz-card-body">
+            {/* Фильтры */}
+            <div className="oz-card-filters">
+              <div
+                style={{
+                  display: 'flex',
+                  flexWrap: 'wrap',
+                  gap: 12,
+                  alignItems: 'flex-end'
+                }}
+              >
+                <div className="oz-form-group" style={{ flex: '1 1 260px' }}>
+                  <label className="oz-label">Артикул (offer_id)</label>
+                  <input
+                    type="text"
+                    className="oz-input"
+                    value={filters.offer_id}
+                    onChange={(e) =>
+                      setFilters((prev) => ({ ...prev, offer_id: e.target.value }))
+                    }
+                    placeholder="Введите артикул"
+                  />
+                </div>
+                <div
+                  style={{
+                    display: 'flex',
+                    flexWrap: 'wrap',
+                    gap: 8,
+                    alignItems: 'center'
+                  }}
+                >
+                  <button
+                    type="button"
+                    className="oz-btn oz-btn-primary"
+                    onClick={applyFilters}
+                  >
+                    Применить
+                  </button>
+                  <button
+                    type="button"
+                    className="oz-btn oz-btn-secondary"
+                    onClick={resetFilters}
+                  >
+                    Сбросить
+                  </button>
+                  <div
+                    style={{
+                      width: 1,
+                      alignSelf: 'stretch',
+                      backgroundColor: '#e5e7eb',
+                      margin: '0 4px'
+                    }}
+                  />
+                  <button
+                    type="button"
+                    onClick={startNewProduct}
+                    className="oz-btn oz-btn-success"
+                  >
+                    Новый товар
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Ошибка загрузки */}
+            {error && (
+              <div className="oz-alert oz-alert-error">Ошибка: {error}</div>
+            )}
+
+            {/* Сводка по количеству */}
+            <div style={{ marginBottom: 8, fontSize: 13, color: '#6b7280' }}>
+              Показано: {filteredProducts.length} товаров
+              {products.length !== filteredProducts.length &&
+                ` (отфильтровано из ${products.length})`}
+            </div>
+
+            {/* Таблица товаров */}
+            <div className="oz-table-wrapper">
+              <table className="oz-table">
           <thead>
             <tr style={{ backgroundColor: '#f8f9fa' }}>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Product ID</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Артикул</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Название</th>
               <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>SKU</th>
-              
-              <th style={{ padding: 12, textAlign: 'left', borderBottom: '1px solid #dee2e6' }}>Действия</th>
+              <th style={{ padding: 12, textAlign: 'center', borderBottom: '1px solid #dee2e6' }}>
+                <button
+                  type="button"
+                  onClick={toggleRatingSort}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 4,
+                    fontWeight: 'bold'
+                  }}
+                >
+                  Контент-рейтинг
+                  <span>{ratingSortOrder === 'asc' ? '▲' : '▼'}</span>
+                  {ratingLoading && <span style={{ fontSize: 12 }}>⌛</span>}
+                </button>
+                {ratingError && (
+                  <div style={{ fontSize: 11, color: '#b91c1c' }}>{ratingError}</div>
+                )}
+              </th>
+              <th>Действия</th>
             </tr>
           </thead>
           <tbody>
-            {filteredProducts.map((product) => (
-              <tr key={product.product_id || product.offer_id} style={{ borderBottom: '1px solid #dee2e6' }}>
-                <td style={{ padding: 12 }}>{product.product_id || product.id || '—'}</td>
-              <td style={{ padding: 12, fontWeight: 'bold' }}>{product.offer_id}</td>
-              <td style={{ padding: 12 }}>{product.name || '—'}</td>
-              <td style={{ padding: 12 }}>{product.sku || '—'}</td>
-                <td style={{ padding: 12 }}>
-                  <div style={{ display: 'flex', gap: 8 }}>
+            {sortedProducts.map((product) => (
+              <tr key={product.product_id || product.offer_id}>
+                <td className="oz-cell-mono">
+                  {product.product_id || product.id || '—'}
+                </td>
+                <td className="oz-cell-mono" style={{ fontWeight: 600 }}>
+                  {product.offer_id}
+                </td>
+                <td>{product.name || '—'}</td>
+                <td className="oz-cell-mono">{product.sku || '—'}</td>
+                <td style={{ textAlign: 'center', fontSize: 14 }}>
+                  {(() => {
+                    const sku = product.sku;
+                    const entry = sku ? ratingMap.get(String(sku)) : null;
+                    const showLoading = ratingLoading && !entry;
+                    if (entry) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => setRatingModal({ sku, ...entry })}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#0d6efd',
+                            cursor: 'pointer',
+
+                            padding: 12
+                          }}
+                        >
+                          {entry.rating !== undefined ? Number(entry.rating).toFixed(1) : '—'}
+                        </button>
+                      );
+                    }
+                    return showLoading ? '…' : '—';
+                  })()}
+                </td>
+                <td>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap' }}>
+                    <Link href={`/products/${product.offer_id}/attributes`} legacyBehavior>
+                      <a
+                        className="oz-btn oz-btn-primary"
+                        style={{ padding: '6px 12px', fontSize: 12 }}
+                      >
+                        Атрибуты
+                      </a>
+                    </Link>
                     <button
-                      onClick={() => fetchAttributes(product.offer_id)}
-                      disabled={loadingAttributes && selectedProduct === product.offer_id}
-                      style={{
-                        padding: '6px 12px',
-                        backgroundColor: '#17a2b8',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 4,
-                        cursor: loadingAttributes && selectedProduct === product.offer_id ? 'not-allowed' : 'pointer',
-                        fontSize: 12
-                      }}
+                      onClick={() => handleCopyClick(product)}
+                      disabled={copyLoading}
+                      className="oz-btn oz-btn-secondary"
+                      style={{ padding: '6px 12px', fontSize: 12 }}
                     >
-                      {loadingAttributes && selectedProduct === product.offer_id ? 'Загрузка...' : 'Атрибуты'}
-                    </button>
-                    <button
-                      onClick={() => openCopyModal(product)}
-                      style={{
-                        padding: '6px 12px',
-                        backgroundColor: '#28a745',
-                        color: 'white',
-                        border: 'none',
-                        borderRadius: 4,
-                        cursor: 'pointer',
-                        fontSize: 12
-                      }}
-                    >
-                      Копировать
+                      {copyLoading ? 'Копируем…' : 'Копировать'}
                     </button>
                   </div>
                 </td>
@@ -1043,35 +1195,31 @@ export default function ProductsPage() {
           </tbody>
         </table>
         {filteredProducts.length === 0 && !loading && (
-          <div style={{ textAlign: 'center', padding: 40, color: '#6c757d', backgroundColor: 'white' }}>
+          <div className="oz-empty" style={{ textAlign: 'center', padding: 24 }}>
             Товары не найдены
           </div>
         )}
-      </div>
+            </div>
 
-      {pagination.hasMore && (
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <button
-            onClick={() => fetchProducts(false)}
-            disabled={loading}
-            style={{
-              padding: '12px 30px',
-              backgroundColor: loading ? '#6c757d' : '#0070f3',
-              color: 'white',
-              border: 'none',
-              borderRadius: 4,
-              cursor: loading ? 'not-allowed' : 'pointer',
-              fontSize: 16
-            }}
-          >
-            {loading ? 'Загрузка...' : 'Загрузить еще'}
-          </button>
+            {/* Пагинация */}
+            {pagination.hasMore && (
+              <div className="oz-pagination">
+                <button
+                  type="button"
+                  onClick={() => fetchProducts(false)}
+                  disabled={loading}
+                  className={`oz-btn oz-btn-primary ${loading ? 'oz-btn-disabled' : ''}`}
+                >
+                  {loading ? 'Загрузка…' : 'Загрузить ещё'}
+                </button>
+              </div>
+            )}
+
+            {!pagination.hasMore && products.length > 0 && (
+              <div className="oz-empty">Все товары загружены</div>
+            )}
+          </div>
         </div>
-      )}
-
-      {!pagination.hasMore && products.length > 0 && (
-        <div style={{ textAlign: 'center', marginTop: 20, color: '#6c757d', padding: 10 }}>Все товары загружены</div>
-      )}
 
       {/* Модальные окна: атрибуты и копирование — оставлены как в твоём UI, но используют state / функции выше */}
       <AttributesModal
@@ -1100,109 +1248,92 @@ export default function ProductsPage() {
         offerId={selectedProduct}
         priceContextLabel={selectedProduct ? `Товар ${selectedProduct}` : undefined}
       />
-      {copyModalOpen && (
+      {ratingModal && (
         <div
           style={{
             position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            backgroundColor: 'rgba(0,0,0,0.5)',
+            inset: 0,
+            backgroundColor: 'rgba(0,0,0,0.4)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 1000,
-            padding: 20
+            zIndex: 1100
           }}
+          onClick={() => setRatingModal(null)}
         >
           <div
             style={{
+              width: 'min(640px, 90vw)',
+              maxHeight: '80vh',
+              overflowY: 'auto',
               backgroundColor: '#fff',
-              borderRadius: 8,
-              padding: 24,
-              maxWidth: 500,
-              width: '100%',
-              position: 'relative',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+              padding: 20,
+              borderRadius: 10
             }}
+            onClick={(event) => event.stopPropagation()}
           >
-            <h2 style={{ marginTop: 0, marginBottom: 16 }}>Копирование товара</h2>
-            <p style={{ marginTop: 0, color: '#6c757d', fontSize: 14 }}>
-              Источник: <strong>{copySourceProduct?.offer_id}</strong>
-            </p>
-
-            <p style={{ fontSize: 13, color: '#6c757d', marginBottom: 15 }}>
-              Укажите новый артикул и название. Остальные атрибуты можно будет скорректировать в следующем шаге.
-            </p>
-
-            <label style={{ display: 'block', marginBottom: 10 }}>
-              Новый артикул (offer_id)
-              <input
-                type="text"
-                value={copyForm.new_offer_id}
-                onChange={(e) => handleCopyFormChange('new_offer_id', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: 8,
-                  borderRadius: 4,
-                  border: '1px solid #ced4da',
-                  marginTop: 4
-                }}
-              />
-            </label>
-
-            <label style={{ display: 'block', marginBottom: 10 }}>
-              Название
-              <input
-                type="text"
-                value={copyForm.name}
-                onChange={(e) => handleCopyFormChange('name', e.target.value)}
-                style={{
-                  width: '100%',
-                  padding: 8,
-                  borderRadius: 4,
-                  border: '1px solid #ced4da',
-                  marginTop: 4
-                }}
-              />
-            </label>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10, marginTop: 20 }}>
-              <button
-                type="button"
-                onClick={() => {
-                  setCopyModalOpen(false);
-                  setCopySourceProduct(null);
-                }}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: 4,
-                  border: '1px solid #ced4da',
-                  background: 'transparent',
-                  cursor: 'pointer'
-                }}
-              >
-                Отмена
-              </button>
-              <button
-                type="button"
-                onClick={copyProduct}
-                disabled={copyLoading}
-                style={{
-                  padding: '8px 16px',
-                  borderRadius: 4,
-                  border: 'none',
-                  backgroundColor: '#28a745',
-                  color: '#fff',
-                  cursor: copyLoading ? 'not-allowed' : 'pointer'
-                }}
-              >
-                {copyLoading ? 'Подготавливаем…' : 'Продолжить'}
-              </button>
+            <div style={{ marginBottom: 12, fontWeight: 'bold' }}>
+              Контент-рейтинг SKU {ratingModal.sku}: {ratingModal.rating ?? '—'}
             </div>
+            {Array.isArray(ratingModal.groups) && ratingModal.groups.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontWeight: 'bold' }}>Группы</div>
+                {ratingModal.groups.map((group) => (
+                  <div key={group.key || group.name} style={{ marginTop: 6 }}>
+                    <div>
+                      {group.name}: рейтинг {Number(group.rating ?? 0).toFixed(1)}, вес{' '}
+                      {group.weight ?? 0}%
+                    </div>
+                    {group.improve_at_least && (
+                      <div style={{ fontSize: 12, color: '#6b7280' }}>
+                        Заполните {group.improve_at_least} атрибутов:
+                        {Array.isArray(group.improve_attributes)
+                          ? group.improve_attributes.map((attr) => ` ${attr.name}`)
+                          : ''}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+            {Array.isArray(ratingModal.conditions) && ratingModal.conditions.length > 0 && (
+              <div style={{ marginBottom: 12 }}>
+                <div style={{ fontWeight: 'bold' }}>Условия</div>
+                {ratingModal.conditions.map((condition) => (
+                  <div
+                    key={condition.key}
+                    style={{
+                      marginTop: 6,
+                      padding: 8,
+                      borderRadius: 8,
+                      backgroundColor: condition.fulfilled ? '#ecfdf5' : '#fef3c7'
+                    }}
+                  >
+                    <div>{condition.description}</div>
+                    <div style={{ fontSize: 12, color: '#6c757d' }}>
+                      {condition.fulfilled ? 'Выполнено' : 'Не выполнено'} — {condition.cost} баллов
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+            <button
+              type="button"
+              onClick={() => setRatingModal(null)}
+              style={{
+                padding: '6px 12px',
+                borderRadius: 6,
+                border: '1px solid #d1d5db',
+                backgroundColor: '#fff',
+                cursor: 'pointer'
+              }}
+            >
+              Закрыть
+            </button>
           </div>
         </div>
       )}
-    </div>)
+      </div>
+    </div>
+  );
 }

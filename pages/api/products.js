@@ -1,6 +1,7 @@
 // pages/api/products.js
 import { OzonApiService } from '../../src/services/ozon-api';
-import { resolveProfileFromRequest } from '../../src/server/profileResolver';
+import { resolveServerContext } from '../../src/server/serverContext';
+import { withServerContext } from '../../src/server/apiUtils';
 
 /**
  * Универсальный API route для получения списка товаров OZON.
@@ -10,14 +11,14 @@ import { resolveProfileFromRequest } from '../../src/server/profileResolver';
  * /api/products?limit=50&profile={...}
  */
 
-export default async function handler(req, res) {
+async function handler(req, res /* ctx */) {
   try {
     if (req.method !== 'GET') {
       return res.status(405).json({ error: 'Method not allowed' });
     }
 
     const { limit = 20, last_id = '', offer_id } = req.query;
-    const { profile } = await resolveProfileFromRequest(req, res);
+    const { profile } = await resolveServerContext(req, res, { requireProfile: true });
     const ozon = new OzonApiService(profile.ozon_api_key, profile.ozon_client_id);
 
     const options = {
@@ -34,17 +35,22 @@ export default async function handler(req, res) {
     return res.status(200).json(products);
   } catch (error) {
     const handledStatuses = new Set([400, 403, 404, 409]);
-    if (handledStatuses.has(error.status)) {
+    const isTimeoutError =
+      error?.code === 'UND_ERR_CONNECT_TIMEOUT' ||
+      error?.cause?.code === 'UND_ERR_CONNECT_TIMEOUT';
+
+    if (handledStatuses.has(error.status) || isTimeoutError) {
       console.warn('⚠️ /api/products handled error:', {
-        status: error.status,
+        status: error.status || (isTimeoutError ? 'timeout' : undefined),
         message: error.message || 'Unknown error',
-        details: error.data
+        details: error.data || error.cause || null
       });
       return res.status(200).json({
         result: [],
         total: 0,
         last_id: '',
-        warning: error.message || 'Запрос не вернул данных'
+        warning:
+          error.message || (isTimeoutError ? 'Не удалось подключиться к OZON API' : 'Запрос не вернул данных')
       });
     }
 
@@ -55,3 +61,5 @@ export default async function handler(req, res) {
     });
   }
 }
+
+export default withServerContext(handler, { requireAuth: true });
