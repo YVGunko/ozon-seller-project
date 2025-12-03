@@ -364,30 +364,29 @@ export default function ActionItemsPage() {
   }, [taxPercent, commissionPercent, discountPercent, minMarkup]);
 
   const calcRow = (item) => {
-    const price = Number(item?.price);
-    const actionPrice = Number(item?.action_price); // установлена для товаров уже в акции
-    const maxActionPrice = Number(item?.max_action_price); // предложенна Озон
+    
     const net = Number(item?.net_price);
     const min = Number(item?.min_price);
-
-    // базой для расчёта my_action_price берём price; если его нет, используем action_price как запасной вариант
-    const basePrice = Number.isFinite(price) ? price : Number.isFinite(actionPrice) ? actionPrice : null;
-    //const maxActionPrice = Number.isFinite(max_action_price) ? max_action_price : Number.isFinite(max_action_price) ? max_action_price : null;
-    const validActionPrice = Number.isFinite(actionPrice) ? actionPrice : null;
     const validNet = Number.isFinite(net) && net > 0 ? net : null;
     const validMin = Number.isFinite(min) && min > 0 ? min : null;
+
+    // базой для расчёта my_action_price берём price; если его нет, используем action_price как запасной вариант
+    const validPrice = Number.isFinite(Number(item?.price)) ? Number(item?.price) : 0;
+    //const maxActionPrice = Number.isFinite(max_action_price) ? max_action_price : Number.isFinite(max_action_price) ? max_action_price : null;
+    const validActionPrice = Number.isFinite(Number(item?.action_price)) ? Number(item?.action_price) : 0;
+    const validMaxActionPrice = Number.isFinite(Number(item?.max_action_price)) ? Number(item?.max_action_price) : 0; // предложенна Озон
+
     console.log('[ActionRow] values', {
       offer_id: item?.offer_id ?? item?.offerId,
-      price,
-      actionPrice,
-      basePrice,
+      validPrice,
       validActionPrice,
+      validMaxActionPrice,
       validMin,
-      maxActionPrice,
+      validNet,
     });
     //ActionPrice - цена по акции предлагаемая Озон
     const myActionPrice =
-      (validActionPrice !== null & validActionPrice !== 0) ? validActionPrice : Math.round(basePrice * (1 - calculations.discount / 100));
+      (validActionPrice !== null & validActionPrice !== 0) ? validActionPrice : Math.round(validPrice * (1 - calculations.discount / 100));
 
     console.log('[myActionPrice] values', {
       offer_id: item?.offer_id ?? item?.offerId,
@@ -398,12 +397,12 @@ export default function ActionItemsPage() {
       (myActionPrice !== null && validNet !== null && validNet !== 0)
         ? myActionPrice * (1 - calculations.tax / 100 - calculations.commission / 100) -
         validNet
-        : (maxActionPrice !== null && maxActionPrice !== 0 && validMin !== 0) ? maxActionPrice - validMin : 0;
+        : (validMaxActionPrice !== null && validMaxActionPrice !== 0 && validPrice !== 0) ? validMaxActionPrice - validPrice : 0;
 
     const marginCost =
       (profit !== null && validNet)
         ? (profit / validNet) * 100
-        : (profit !== null && validMin) ? (profit / validMin) * 100 : 0;
+        : (profit !== null && validPrice) ? (profit / validPrice) * 100 : 0;
     
     return {
       ...item,
