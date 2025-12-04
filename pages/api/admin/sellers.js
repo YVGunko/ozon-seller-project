@@ -141,9 +141,25 @@ async function handler(req, res, ctx) {
       .json({ error: 'ozon_api_key обязателен для нового продавца' });
   }
 
-  const normalizedEnterpriseId = enterpriseId
-    ? String(enterpriseId)
-    : baseSeller.enterpriseId || null;
+  // Для нового продавца enterpriseId обязателен — без привязки к существующему
+  // Enterprise создание магазина считается ошибкой.
+  if (existingIndex === -1) {
+    if (!enterpriseId) {
+      return res
+        .status(400)
+        .json({ error: 'enterpriseId обязателен для нового продавца' });
+    }
+    if (!targetEnterprise) {
+      return res
+        .status(400)
+        .json({ error: 'Указанный enterpriseId не найден' });
+    }
+  }
+
+  const normalizedEnterpriseId =
+    enterpriseId != null && enterpriseId !== ''
+      ? String(enterpriseId)
+      : baseSeller.enterpriseId || null;
 
   const updatedSeller = {
     ...baseSeller,
