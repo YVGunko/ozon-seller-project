@@ -98,6 +98,15 @@ async function handler(req, res, ctx) {
   const enterprises = await configStorage.getEnterprises();
   const enterprisesArr = Array.isArray(enterprises) ? enterprises : [];
 
+  const normalizedClientId =
+    ozon_client_id != null ? String(ozon_client_id).trim() : '';
+
+  if (!normalizedClientId) {
+    return res
+      .status(400)
+      .json({ error: 'ozon_client_id обязателен для продавца' });
+  }
+
   const targetEnterprise = enterpriseId
     ? enterprisesArr.find((ent) => String(ent.id) === String(enterpriseId)) || null
     : null;
@@ -115,19 +124,46 @@ async function handler(req, res, ctx) {
   const rawSellers = await configStorage.getSellers();
   let sellers = Array.isArray(rawSellers) ? [...rawSellers] : [];
 
-  const sellerId = id ? String(id) : String(ozon_client_id);
+  const hasExplicitId = typeof id === 'string' && id.trim().length > 0;
+  const sellerId = hasExplicitId ? String(id) : normalizedClientId;
 
-  // Для нового Seller ozon_client_id и ozon_api_key обязательны.
+  // Обновляем или создаём Seller.
   // Для существующего — можно не передавать ozon_api_key, тогда он не изменяется.
-  if (!sellerId || !ozon_client_id) {
-    return res
-      .status(400)
-      .json({ error: 'ozon_client_id обязателен для продавца' });
+  const existingIndex = hasExplicitId
+    ? sellers.findIndex((s) => String(s.id) === sellerId)
+    : -1;
+  const baseSeller = existingIndex >= 0 ? sellers[existingIndex] : {};
+  const isNewSeller = existingIndex === -1;
+
+  const existingByClientId = sellers.find((s) => {
+    const storedClientId =
+      s.ozon_client_id != null
+        ? String(s.ozon_client_id).trim()
+        : s.ozonClientId != null
+        ? String(s.ozonClientId).trim()
+        : '';
+    return storedClientId && storedClientId === normalizedClientId;
+  });
+
+  if (isNewSeller && existingByClientId) {
+    return res.status(400).json({
+      error: 'Магазин с таким ozon_client_id уже существует',
+      details: {
+        id: String(existingByClientId.id),
+        enterpriseId: existingByClientId.enterpriseId || null
+      }
+    });
   }
 
-  // Обновляем или создаём Seller
-  const existingIndex = sellers.findIndex((s) => String(s.id) === sellerId);
-  const baseSeller = existingIndex >= 0 ? sellers[existingIndex] : {};
+  if (!isNewSeller && existingByClientId && String(existingByClientId.id) !== sellerId) {
+    return res.status(400).json({
+      error: 'Магазин с таким ozon_client_id уже существует',
+      details: {
+        id: String(existingByClientId.id),
+        enterpriseId: existingByClientId.enterpriseId || null
+      }
+    });
+  }
 
   const nextApiKey =
     typeof ozon_api_key === 'string' && ozon_api_key.trim().length > 0
@@ -143,7 +179,7 @@ async function handler(req, res, ctx) {
 
   // Для нового продавца enterpriseId обязателен — без привязки к существующему
   // Enterprise создание магазина считается ошибкой.
-  if (existingIndex === -1) {
+  if (isNewSeller) {
     if (!enterpriseId) {
       return res
         .status(400)

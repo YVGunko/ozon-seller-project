@@ -71,6 +71,49 @@ describe('/api/admin/sellers', () => {
     jest.clearAllMocks();
   });
 
+  test('POST: новый seller с уже существующим ozon_client_id → 400', async () => {
+    canManageEnterprises.mockReturnValue(true);
+    canManageSellers.mockReturnValue(true);
+    configStorage.getEnterprises.mockResolvedValue([
+      { id: 'ent1', name: 'E1' },
+      { id: 'ent2', name: 'E2' }
+    ]);
+    configStorage.getSellers.mockResolvedValue([
+      {
+        id: '724103',
+        name: 'Marmelad Market',
+        enterpriseId: 'ent1',
+        ozon_client_id: '724103',
+        ozon_api_key: 'KEY1'
+      }
+    ]);
+
+    const req = {
+      method: 'POST',
+      body: {
+        // эмулируем "Новый магазин" без явного id
+        name: 'Marmelad Market (duplicate)',
+        ozon_client_id: '724103',
+        ozon_api_key: 'KEY2',
+        enterpriseId: 'ent2'
+      },
+      _ctx: {
+        auth: {
+          user: { id: 'manager', enterpriseId: 'ent2', roles: ['manager'] }
+        }
+      }
+    };
+    const res = makeRes();
+
+    await handler(req, res);
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body.error).toBe(
+      'Магазин с таким ozon_client_id уже существует'
+    );
+    expect(configStorage.saveSellers).not.toHaveBeenCalled();
+  });
+
   test('POST: новый seller без enterpriseId → 400', async () => {
     canManageEnterprises.mockReturnValue(true);
     canManageSellers.mockReturnValue(true);
@@ -174,4 +217,3 @@ describe('/api/admin/sellers', () => {
     expect(saved.ozon_api_key).toBe('OLD_KEY'); // ключ не изменился
   });
 });
-
