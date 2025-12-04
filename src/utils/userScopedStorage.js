@@ -7,9 +7,7 @@
 //   - кеш списков складов (warehousesCache).
 
 import { ProfileManager } from './profileManager';
-
-const WAREHOUSE_STORAGE_KEY = 'currentWarehouse';
-const WAREHOUSES_CACHE_KEY = 'warehousesCache';
+import { WarehouseManager } from './warehouseManager';
 
 export function clearUserScopedStorage() {
   if (typeof window === 'undefined') return;
@@ -22,14 +20,14 @@ export function clearUserScopedStorage() {
   }
 
   try {
-    window.localStorage.removeItem(WAREHOUSE_STORAGE_KEY);
+    WarehouseManager.clearCurrentWarehouse();
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('[userScopedStorage] failed to clear currentWarehouse', error);
   }
 
   try {
-    window.localStorage.removeItem(WAREHOUSES_CACHE_KEY);
+    WarehouseManager.clearAllWarehouses();
   } catch (error) {
     // eslint-disable-next-line no-console
     console.error('[userScopedStorage] failed to clear warehousesCache', error);

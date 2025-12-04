@@ -82,21 +82,34 @@ export function useCurrentContext() {
       }
     };
 
-    let initialProfile = ProfileManager.getCurrentProfile(rawUserId);
+    const initialProfile = ProfileManager.getCurrentProfile(rawUserId);
+    syncFromProfile(initialProfile);
 
     // Если профиль не сохранён или невалиден, а профили доступны —
-    // автоматически выбираем первый доступный профиль по id.
+    // пытаемся автоматически выбрать первый доступный профиль
+    // на основе данных /api/profiles (чтобы получить корректное name/client_hint).
     if (!initialProfile && allowedProfiles.length > 0) {
-      initialProfile = {
-        id: allowedProfiles[0],
-        name: allowedProfiles[0],
-        client_hint: '',
-        description: ''
-      };
-      ProfileManager.setCurrentProfile(initialProfile, rawUserId);
+      const allowedSet = new Set(allowedProfiles);
+      (async () => {
+        try {
+          const res = await fetch('/api/profiles');
+          if (!res.ok) return;
+          const data = await res.json();
+          const list = Array.isArray(data?.profiles) ? data.profiles : [];
+          const candidate =
+            list.find((p) => allowedSet.has(String(p.id))) || null;
+          if (candidate) {
+            ProfileManager.setCurrentProfile(candidate, rawUserId);
+          }
+        } catch (e) {
+          // eslint-disable-next-line no-console
+          console.error(
+            '[useCurrentContext] failed to autoselect profile from /api/profiles',
+            e
+          );
+        }
+      })();
     }
-
-    syncFromProfile(initialProfile);
 
     const unsubscribe = ProfileManager.subscribe((nextProfile) => {
       syncFromProfile(nextProfile);

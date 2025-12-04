@@ -140,5 +140,16 @@ export const WarehouseManager = {
       delete warehousesCache[profileKey];
       saveWarehousesCache();
     }
+  },
+
+  clearAllWarehouses() {
+    if (typeof window === 'undefined') return;
+    warehousesCache = {};
+    try {
+      window.localStorage.removeItem(WAREHOUSES_STORAGE_KEY);
+    } catch (error) {
+      // eslint-disable-next-line no-console
+      console.error('WarehouseManager.clearAllWarehouses error', error);
+    }
   }
 };

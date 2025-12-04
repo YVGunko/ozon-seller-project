@@ -65,7 +65,22 @@ export const useWarehouses = (profile) => {
             );
             if (match) {
               setSelectedWarehouse(match);
+              lastLoadedProfileIdRef.current = profileId;
+              return;
             }
+          }
+
+          // Если сохранённого склада для этого профиля нет,
+          // или он не найден в кешированном списке — выбираем
+          // "предпочтительный" склад из кеша (как после сетевого запроса).
+          const preferred =
+            cachedList.find((warehouse) => warehouse.status === 'created') ||
+            cachedList[0];
+          setSelectedWarehouse(preferred || null);
+          if (preferred) {
+            WarehouseManager.setCurrentWarehouse(preferred, profile);
+          } else {
+            WarehouseManager.clearCurrentWarehouse();
           }
           lastLoadedProfileIdRef.current = profileId;
           return;
