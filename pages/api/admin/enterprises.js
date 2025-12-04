@@ -5,6 +5,7 @@
 //   POST   — создать Enterprise
 //   PATCH  — частично обновить Enterprise по id
 
+import { randomUUID } from 'crypto';
 import { withServerContext } from '../../../src/server/apiUtils';
 import {
   reloadEnterprisesFromBlob
@@ -81,7 +82,7 @@ async function handlePost(req, res, user) {
   const enterprises = Array.isArray(list) ? [...list] : [];
 
   // Уникальность id/slug
-  const newId = id || `ent-${Date.now()}`;
+  const newId = id || randomUUID();
   if (enterprises.some((e) => String(e.id) === newId)) {
     return res.status(409).json({ error: 'Enterprise с таким id уже существует' });
   }
