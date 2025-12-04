@@ -147,7 +147,7 @@ describe('/api/admin/users', () => {
     const req = {
       method: 'POST',
       body: {
-        username: 'u1',
+        username: 'username1',
         roles: ['manager', 'admin']
       },
       _ctx: {
@@ -189,7 +189,7 @@ describe('/api/admin/users', () => {
       method: 'POST',
       body: {
         id: 'admin',
-        username: 'admin',
+        username: 'adminuser',
         roles: ['admin']
       },
       _ctx: {
@@ -225,7 +225,7 @@ describe('/api/admin/users', () => {
     const req = {
       method: 'POST',
       body: {
-        username: 'u-new',
+        username: 'user-new1',
         password: 'pass',
         roles: ['manager'],
         profiles: ['1']
@@ -242,7 +242,9 @@ describe('/api/admin/users', () => {
     expect(res.statusCode).toBe(200);
     expect(configStorage.saveUsers).toHaveBeenCalledTimes(1);
     const savedUsers = configStorage.saveUsers.mock.calls[0][0];
-    const created = savedUsers.find((u) => u.id === 'u-new' || u.username === 'u-new');
+    const created = savedUsers.find(
+      (u) => u.id === 'user-new1' || u.username === 'user-new1'
+    );
     expect(created).toBeDefined();
     expect(created.enterprises).toEqual(['ent-1']);
   });

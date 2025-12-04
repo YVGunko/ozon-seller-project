@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
+import { useSession } from 'next-auth/react';
 import UserProfiles from '../src/components/UserProfiles';
 import { useWarehouses } from '../src/hooks/useWarehouses';
 import { signOut } from 'next-auth/react';
@@ -10,6 +11,7 @@ import { clearUserScopedStorage } from '../src/utils/userScopedStorage';
 
 export default function Home() {
   const router = useRouter();
+  const { data: session } = useSession();
 
   const isOrdersActive = router.pathname.startsWith('/postings');
   const isActionsActive = router.pathname.startsWith('/actions');
@@ -28,6 +30,14 @@ export default function Home() {
 
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [productsMenuOpen, setProductsMenuOpen] = useState(false);
+
+  const sessionUser = session?.user || null;
+
+  const displayUserName =
+    (user && (user.name || user.username || user.id)) ||
+    (sessionUser &&
+      (sessionUser.name || sessionUser.email || sessionUser.id)) ||
+    null;
 
   const {
     warehouses,
@@ -63,9 +73,9 @@ export default function Home() {
               Магазин: {currentProfile ? currentProfile.name : 'Профиль не выбран'}
             </div>
 
-            {user && (
+            {displayUserName && (
               <div>
-                Пользователь: {user.name || user.username || user.id}
+                Пользователь: {displayUserName}
               </div>
             )}
             <div style={{ marginTop: 8, display: 'flex', gap: 6 }}>

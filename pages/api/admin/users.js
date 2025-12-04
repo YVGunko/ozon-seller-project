@@ -18,6 +18,8 @@ import {
 } from '../../../src/domain/services/accessControl';
 import { configStorage } from '../../../src/services/configStorage';
 
+const USERNAME_REGEX = /^[a-zA-Z0-9._-]{8,32}$/;
+
 async function handler(req, res, ctx) {
   if (req.method !== 'GET' && req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
@@ -133,6 +135,16 @@ async function handler(req, res, ctx) {
     return res.status(400).json({ error: 'username обязателен' });
   }
 
+  const normalizedUsername =
+    typeof username === 'string' ? username.trim() : '';
+
+  if (!USERNAME_REGEX.test(normalizedUsername)) {
+    return res.status(400).json({
+      error:
+        'username должен содержать от 8 до 32 символов (латиница, цифры, ".", "_" или "-")'
+    });
+  }
+
   // Ограничения для ролей: manager не может назначать admin/root_admin.
   const roles = Array.isArray(incomingRoles)
     ? incomingRoles.map((r) => String(r)).filter(Boolean)
@@ -187,7 +199,7 @@ async function handler(req, res, ctx) {
     users = Array.isArray(authUsers) ? [...authUsers] : [];
   }
 
-  const userId = id ? String(id) : String(username);
+  const userId = id ? String(id) : String(normalizedUsername);
   const existingIndex = users.findIndex(
     (u) => String(u.id || u.username) === userId
   );
@@ -254,7 +266,7 @@ async function handler(req, res, ctx) {
   const updatedUser = {
     ...base,
     id: userId,
-    username,
+    username: normalizedUsername,
     password: nextPassword,
     name: name || base.name || username,
     email: email || base.email || (username.includes('@') ? username : ''),
