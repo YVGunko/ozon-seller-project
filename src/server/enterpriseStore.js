@@ -9,7 +9,6 @@
 //     "id": "ent-main",
 //     "name": "Nakito / LED AUTO",
 //     "slug": "nakito-led-auto",
-//     "profileIds": ["76251", "3497256"],
 //     "settings": {
 //       "ai": { "textEnabled": true, "imageEnabled": true }
 //     }
@@ -23,7 +22,7 @@ const { CONFIG_ENTERPRISES_BLOB_PREFIX } = process.env;
 const ENTERPRISES_BLOB_PREFIX = CONFIG_ENTERPRISES_BLOB_PREFIX || 'config/enterprises.json';
 
 /**
- * Внутренний кэш Enterprise (без привязки к profileIds).
+ * Внутренний кэш Enterprise.
  * @type {import('../domain/entities/enterprise').Enterprise[]|null}
  */
 let cachedEnterprises = null;

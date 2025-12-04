@@ -10,7 +10,10 @@
 import { useEffect, useState } from 'react';
 import { useSession } from 'next-auth/react';
 import { ProfileManager } from '../utils/profileManager';
-import { mapProfileToEnterpriseAndSeller, mapAuthToUser } from '../domain/services/identityMapping';
+import {
+  mapProfileToEnterpriseAndSeller,
+  mapAuthToUser
+} from '../domain/services/identityMapping';
 
 export function useCurrentContext() {
   const { data: session } = useSession();
@@ -20,11 +23,34 @@ export function useCurrentContext() {
   const [user, setUser] = useState(null);
 
   useEffect(() => {
-    const syncFromProfile = (storedProfile) => {
-      setProfile(storedProfile || null);
+    const rawUserId = session?.user?.id || session?.user?.email || null;
+    const allowedProfiles = Array.isArray(session?.user?.allowedProfiles)
+      ? session.user.allowedProfiles.map((p) => String(p))
+      : [];
 
-      if (storedProfile) {
-        const { enterprise: ent, seller: sel } = mapProfileToEnterpriseAndSeller(storedProfile);
+    const sanitizeProfile = (storedProfile) => {
+      if (!storedProfile) return null;
+      const id = String(storedProfile.id);
+      // Если список allowedProfiles пустой (root/admin или фолбэк) —
+      // не режем профиль на клиенте.
+      if (allowedProfiles.length === 0) return storedProfile;
+      return allowedProfiles.includes(id) ? storedProfile : null;
+    };
+
+    const syncFromProfile = (storedProfile) => {
+      const safeProfile = sanitizeProfile(storedProfile);
+
+      if (!safeProfile && storedProfile) {
+        // Профиль есть в localStorage, но не входит в allowedProfiles
+        // текущего пользователя — очищаем кеш.
+        ProfileManager.clearProfile();
+      }
+
+      setProfile(safeProfile || null);
+
+      if (safeProfile) {
+        const { enterprise: ent, seller: sel } =
+          mapProfileToEnterpriseAndSeller(safeProfile);
         setEnterprise(ent);
         setSeller(sel);
 
@@ -56,7 +82,20 @@ export function useCurrentContext() {
       }
     };
 
-    const initialProfile = ProfileManager.getCurrentProfile();
+    let initialProfile = ProfileManager.getCurrentProfile(rawUserId);
+
+    // Если профиль не сохранён или невалиден, а профили доступны —
+    // автоматически выбираем первый доступный профиль по id.
+    if (!initialProfile && allowedProfiles.length > 0) {
+      initialProfile = {
+        id: allowedProfiles[0],
+        name: allowedProfiles[0],
+        client_hint: '',
+        description: ''
+      };
+      ProfileManager.setCurrentProfile(initialProfile, rawUserId);
+    }
+
     syncFromProfile(initialProfile);
 
     const unsubscribe = ProfileManager.subscribe((nextProfile) => {

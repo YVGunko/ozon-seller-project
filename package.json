@@ -5,7 +5,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "jest"
+    "test": "jest",
+    "test:integration:admin": "NODE_ENV=development node scripts/integration/adminApis.js"
   },
   "dependencies": {
     "@vercel/blob": "^0.25.1",

@@ -42,9 +42,11 @@ async function handleGet(req, res, user) {
   let visible = all;
   if (!canManageEnterprises(user)) {
     // manager — только Enterprise, явно указанные в профиле пользователя
-    const enterpriseIds = Array.isArray(user.enterprises)
-      ? user.enterprises.map(String)
-      : [];
+    const enterpriseIds = Array.isArray(user.enterpriseIds)
+      ? user.enterpriseIds.map(String)
+      : Array.isArray(user.enterprises)
+        ? user.enterprises.map(String)
+        : [];
     if (enterpriseIds.length > 0) {
       const allowedSet = new Set(enterpriseIds);
       visible = all.filter((ent) => allowedSet.has(String(ent.id)));

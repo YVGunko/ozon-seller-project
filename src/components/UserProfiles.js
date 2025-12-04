@@ -1,14 +1,17 @@
 import { useEffect, useState } from 'react';
+import { useSession } from 'next-auth/react';
 import { ProfileManager } from '../utils/profileManager';
 
 export default function UserProfiles({ onProfileChange }) {
+  const { data: session } = useSession();
   const [profiles, setProfiles] = useState([]);
   const [currentProfile, setCurrentProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    const stored = ProfileManager.getCurrentProfile();
+    const userId = session?.user?.id || session?.user?.email || null;
+    const stored = ProfileManager.getCurrentProfile(userId);
     if (stored) {
       setCurrentProfile(stored);
     }
@@ -28,7 +31,8 @@ export default function UserProfiles({ onProfileChange }) {
       const loadedProfiles = data?.profiles || [];
       setProfiles(loadedProfiles);
 
-      const storedProfile = ProfileManager.getCurrentProfile();
+      const userId = session?.user?.id || session?.user?.email || null;
+      const storedProfile = ProfileManager.getCurrentProfile(userId);
       if (storedProfile) {
         const exists = loadedProfiles.some((profile) => profile.id === storedProfile.id);
         if (!exists) {
@@ -47,7 +51,8 @@ export default function UserProfiles({ onProfileChange }) {
   };
 
   const handleSwitch = (profile) => {
-    ProfileManager.setCurrentProfile(profile);
+    const userId = session?.user?.id || session?.user?.email || null;
+    ProfileManager.setCurrentProfile(profile, userId);
     setCurrentProfile(profile);
     if (onProfileChange) {
       onProfileChange(profile);

@@ -167,6 +167,48 @@ async function handler(req, res, ctx) {
 
   await configStorage.saveSellers(sellers);
 
+  // Если создаём новый магазин и он привязан к Enterprise,
+  // добавляем его profileId всем менеджерам этого Enterprise.
+  if (existingIndex === -1 && normalizedEnterpriseId) {
+    try {
+      const rawUsers = await configStorage.getUsers();
+      const users = Array.isArray(rawUsers) ? [...rawUsers] : [];
+      const entId = String(normalizedEnterpriseId);
+
+      const updatedUsers = users.map((u) => {
+        const roles = Array.isArray(u.roles) ? u.roles : [];
+        const isManager = roles.includes('manager');
+        const userEnterprises = Array.isArray(u.enterprises)
+          ? u.enterprises.map((e) => String(e))
+          : [];
+
+        if (!isManager || !userEnterprises.includes(entId)) {
+          return u;
+        }
+
+        const profiles = Array.isArray(u.profiles)
+          ? u.profiles.map((p) => String(p))
+          : [];
+        if (profiles.includes(sellerId)) {
+          return u;
+        }
+
+        return {
+          ...u,
+          profiles: [...profiles, sellerId]
+        };
+      });
+
+      await configStorage.saveUsers(updatedUsers);
+    } catch (e) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[admin/sellers] failed to auto-attach new seller to manager profiles',
+        e
+      );
+    }
+  }
+
   return res.status(200).json({
     seller: {
       id: sellerId,

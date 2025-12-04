@@ -1,36 +1,34 @@
 // src/server/serverContext.js
 //
-// Единая точка для получения server-side контекста:
-// session (next-auth), profile, enterprise, seller, user.
-// Используется в API-роутах вместо ручных вызовов getServerSession / profileResolver.
+// Устаревший server-side контекст, используемый продуктовыми / атрибутными
+// API‑роутами. Постепенно вытесняется serverContextV2 + DomainResolver.
+//
+// Теперь основан на configStorage (config:sellers / config:users),
+// а не на profileStore (config/profiles.json).
 
-import { getServerSession } from 'next-auth/next';
-import { authOptions } from './authOptions';
-import { getProfileById, ensureProfilesLoaded } from './profileStore';
 import {
   mapProfileToEnterpriseAndSeller,
   mapAuthToUser
 } from '../domain/services/identityMapping';
-
-const isProfileAllowed = (profileId, allowedProfiles = []) => {
-  if (!Array.isArray(allowedProfiles) || allowedProfiles.length === 0) {
-    return true;
-  }
-  return allowedProfiles.includes(profileId);
-};
+import { getAuthContext } from './authContext';
+import { configStorage } from '../services/configStorage';
 
 /**
  * @typedef {Object} ServerContext
- * @property {import('next-auth').Session|null} session
+ * @property {null} session          // для обратной совместимости, не используется
  * @property {import('../domain/entities/user').User|null} user
- * @property {Object|null} profile
+ * @property {Object|null} profile   // { id, name, ozon_client_id, ozon_api_key, ... }
  * @property {string|null} profileId
  * @property {import('../domain/entities/enterprise').Enterprise|null} enterprise
  * @property {import('../domain/entities/seller').Seller|null} seller
  */
 
 /**
- * Получить server-side контекст.
+ * Получить server-side контекст (устаревший формат).
+ *
+ * Сейчас:
+ *  - user берётся из getAuthContext (JWT + Redis);
+ *  - profile/seller строятся на основе config:sellers и profileId из запроса.
  *
  * @param {import('next').NextApiRequest} req
  * @param {import('next').NextApiResponse} res
@@ -40,9 +38,9 @@ const isProfileAllowed = (profileId, allowedProfiles = []) => {
 export async function resolveServerContext(req, res, options = {}) {
   const { requireProfile = false } = options;
 
-  const session = await getServerSession(req, res, authOptions);
+  const auth = await getAuthContext(req, res);
 
-  if (!session) {
+  if (!auth.isAuthenticated) {
     if (requireProfile) {
       const error = new Error('Unauthorized');
       error.statusCode = 401;
@@ -58,6 +56,8 @@ export async function resolveServerContext(req, res, options = {}) {
     };
   }
 
+  const rawUser = auth.user;
+
   const profileIdFromReq =
     (req.query && (req.query.profileId || req.query.profile_id)) ||
     (req.body && (req.body.profileId || req.body.profile_id)) ||
@@ -66,26 +66,50 @@ export async function resolveServerContext(req, res, options = {}) {
   let profile = null;
   let enterprise = null;
   let seller = null;
-  let profileId = profileIdFromReq;
+  let profileId = profileIdFromReq ? String(profileIdFromReq) : null;
 
-  if (profileIdFromReq) {
-    // Перед любым использованием профилей убеждаемся, что конфиг загружен (Blob/ENV).
-    await ensureProfilesLoaded();
-    if (!isProfileAllowed(profileIdFromReq, session.user?.allowedProfiles)) {
+  if (profileId) {
+    const allowedProfiles = Array.isArray(rawUser.allowedProfiles)
+      ? rawUser.allowedProfiles.map((p) => String(p))
+      : [];
+
+    // Если у пользователя есть ограничения по профилям — строго проверяем доступ.
+    if (allowedProfiles.length > 0 && !allowedProfiles.includes(profileId)) {
       const error = new Error('Profile is not allowed for current user');
       error.statusCode = 403;
       throw error;
     }
-    const found = getProfileById(profileIdFromReq);
-    if (!found) {
+
+    // Ищем seller в config:sellers.
+    const rawSellers = await configStorage.getSellers();
+    const sellersArr = Array.isArray(rawSellers) ? rawSellers : [];
+    const sellerRow =
+      sellersArr.find((s) => String(s.id) === profileId) || null;
+
+    if (!sellerRow) {
       const error = new Error('Profile not found');
       error.statusCode = 404;
       throw error;
     }
-    profile = found;
-    profileId = found.id;
 
-    const mapped = mapProfileToEnterpriseAndSeller(found);
+    const ozonClientId =
+      sellerRow.ozon_client_id ?? sellerRow.ozonClientId ?? null;
+    const ozonApiKey = sellerRow.ozon_api_key ?? null;
+
+    profile = {
+      id: String(sellerRow.id),
+      name: sellerRow.name || `Профиль ${sellerRow.id}`,
+      ozon_client_id: ozonClientId,
+      ozon_api_key: ozonApiKey,
+      client_hint:
+        sellerRow.client_hint ||
+        (ozonClientId ? String(ozonClientId).slice(0, 8) : ''),
+      description: sellerRow.description || ''
+    };
+
+    profileId = profile.id;
+
+    const mapped = mapProfileToEnterpriseAndSeller(profile);
     enterprise = mapped.enterprise;
     seller = mapped.seller;
   } else if (requireProfile) {
@@ -95,18 +119,17 @@ export async function resolveServerContext(req, res, options = {}) {
   }
 
   let user = null;
-  const rawUser = session.user || {};
-  const rawUserId = rawUser.id || rawUser.email || null;
-
-  if (rawUserId) {
-    const username = rawUser.username || rawUserId;
-    const email = rawUser.email || (username.includes('@') ? username : `${rawUserId}@local`);
+  if (rawUser && rawUser.id) {
+    const username = rawUser.username || rawUser.id;
+    const email =
+      rawUser.email ||
+      (username.includes('@') ? username : `${rawUser.id}@local`);
     const name = rawUser.name || '';
-    const enterpriseId = enterprise?.id || `ent-${rawUserId}`;
+    const enterpriseId = enterprise?.id || rawUser.enterpriseId || `ent-${rawUser.id}`;
     const sellerIds = seller ? [seller.id] : [];
 
     user = mapAuthToUser({
-      userId: rawUserId,
+      userId: rawUser.id,
       username,
       email,
       name,
@@ -117,7 +140,7 @@ export async function resolveServerContext(req, res, options = {}) {
   }
 
   return {
-    session,
+    session: null,
     user,
     profile,
     profileId,

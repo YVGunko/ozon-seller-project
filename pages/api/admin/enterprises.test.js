@@ -150,7 +150,7 @@ describe('/api/admin/enterprises', () => {
   test('POST: конфликт по slug → 409', async () => {
     canManageEnterprises.mockReturnValue(true);
     configStorage.getEnterprises.mockResolvedValue([
-      { id: 'ent1', name: 'E1', slug: 'acme', settings: {}, profileIds: [] }
+      { id: 'ent1', name: 'E1', slug: 'acme', settings: {} }
     ]);
 
     const req = {
@@ -166,7 +166,7 @@ describe('/api/admin/enterprises', () => {
     expect(res.body).toEqual({ error: 'Enterprise с таким slug уже существует' });
   });
 
-  test('PATCH: обновляет name и profileIds', async () => {
+  test('PATCH: обновляет name', async () => {
     canManageEnterprises.mockReturnValue(true);
     const existing = [
       { id: 'ent1', name: 'Old', slug: 'old', settings: {} },
@@ -217,8 +217,8 @@ describe('/api/admin/enterprises', () => {
   test('PATCH: конфликт по slug → 409', async () => {
     canManageEnterprises.mockReturnValue(true);
     const existing = [
-      { id: 'ent1', name: 'E1', slug: 'slug1', settings: {}, profileIds: [] },
-      { id: 'ent2', name: 'E2', slug: 'slug2', settings: {}, profileIds: [] }
+      { id: 'ent1', name: 'E1', slug: 'slug1', settings: {} },
+      { id: 'ent2', name: 'E2', slug: 'slug2', settings: {} }
     ];
     configStorage.getEnterprises.mockResolvedValue(existing);
 

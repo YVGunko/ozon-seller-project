@@ -6,6 +6,7 @@ import { useWarehouses } from '../src/hooks/useWarehouses';
 import { signOut } from 'next-auth/react';
 import { useCurrentContext } from '../src/hooks/useCurrentContext';
 import { useAccess } from '../src/hooks/useAccess';
+import { clearUserScopedStorage } from '../src/utils/userScopedStorage';
 
 export default function Home() {
   const router = useRouter();
@@ -78,8 +79,7 @@ export default function Home() {
                 className="oz-btn oz-btn-secondary"
                 style={{ opacity: user ? 1 : 0.6 }}
                 onClick={() => {
-                  // Профиль очищается внутри UserProfiles / ProfileManager,
-                  // здесь достаточно выйти из сессии.
+                  clearUserScopedStorage();
                   signOut({ callbackUrl: '/auth/signin' });
                 }}
               >

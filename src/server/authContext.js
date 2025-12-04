@@ -5,6 +5,7 @@
 
 import { getServerSession } from 'next-auth/next';
 import { authOptions } from './authOptions';
+import { configStorage } from '../services/configStorage';
 
 /**
  * Возвращает только:
@@ -27,16 +28,49 @@ export async function getAuthContext(req, res) {
     const raw = session.user;
 
     const roles = Array.isArray(raw.roles) ? raw.roles : [];
-    const allowedProfiles = Array.isArray(raw.allowedProfiles)
+    let allowedProfiles = Array.isArray(raw.allowedProfiles)
       ? raw.allowedProfiles.map((p) => String(p))
       : [];
-    const enterpriseIds = Array.isArray(raw.enterpriseIds)
+    let enterpriseIds = Array.isArray(raw.enterpriseIds)
       ? raw.enterpriseIds.map((id) => String(id))
       : [];
-    const enterpriseId =
+    let enterpriseId =
       typeof raw.enterpriseId === 'string' && raw.enterpriseId
-        ? raw.enterpriseId
+        ? String(raw.enterpriseId)
         : enterpriseIds[0] || null;
+
+    // Попытка синхронизировать allowedProfiles / enterprises
+    // с основным хранилищем (Redis config:users).
+    try {
+      const rawUsers = await configStorage.getUsers();
+      if (Array.isArray(rawUsers) && rawUsers.length > 0) {
+        const dbUser = rawUsers.find(
+          (u) =>
+            String(u.id || u.username) === String(raw.id || raw.email)
+        );
+        if (dbUser) {
+          if (Array.isArray(dbUser.profiles)) {
+            allowedProfiles = dbUser.profiles.map((p) => String(p));
+          }
+          const dbEnterpriseIds = Array.isArray(dbUser.enterprises)
+            ? dbUser.enterprises.map((id) => String(id))
+            : [];
+          if (dbEnterpriseIds.length > 0) {
+            enterpriseIds = dbEnterpriseIds;
+            enterpriseId =
+              typeof dbUser.enterpriseId === 'string' && dbUser.enterpriseId
+                ? String(dbUser.enterpriseId)
+                : dbEnterpriseIds[0];
+          }
+        }
+      }
+    } catch (syncError) {
+      // eslint-disable-next-line no-console
+      console.error(
+        '[getAuthContext] failed to sync user from configStorage',
+        syncError
+      );
+    }
 
     return {
       isAuthenticated: true,
