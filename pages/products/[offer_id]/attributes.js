@@ -1189,16 +1189,51 @@ export default function ProductAttributesPage() {
 
     const price = editableProduct.price ?? priceInfo?.price ?? productInfo?.price ?? null;
     const vat = editableProduct.vat ?? productInfo?.vat ?? null;
+    const resolvedCategoryId =
+      editableProduct.description_category_id ||
+      productInfo?.description_category_id ||
+      editableProduct.descriptionCategoryId ||
+      '';
+    const resolvedTypeId =
+      editableProduct.type_id || productInfo?.type_id || editableProduct.typeId || '';
+
+    let categoryName = '';
+    let typeName = '';
+
+    if (resolvedCategoryId) {
+      const categoryMetaNode = categoryMap?.get(String(resolvedCategoryId));
+      if (categoryMetaNode) {
+        categoryName = categoryMetaNode.name || '';
+        if (resolvedTypeId && Array.isArray(categoryMetaNode.types)) {
+          const typeMeta = categoryMetaNode.types.find(
+            (item) => String(item.id) === String(resolvedTypeId)
+          );
+          if (typeMeta && typeMeta.name) {
+            typeName = typeMeta.name;
+          }
+        }
+      }
+    }
+
+    if (!categoryName) {
+      categoryName =
+        editableProduct.category_name ||
+        productInfo?.category_name ||
+        editableProduct.description_category_name ||
+        '';
+    }
+    if (!typeName) {
+      typeName =
+        editableProduct.type_name || productInfo?.type_name || editableProduct.typeName || '';
+    }
 
     return {
       offer_id: editableProduct.offer_id || (typeof offer_id === 'string' ? offer_id : ''),
       name: editableProduct.name || productInfo?.name || '',
-      category_id:
-        editableProduct.description_category_id ||
-        productInfo?.description_category_id ||
-        editableProduct.descriptionCategoryId ||
-        '',
-      type_id: editableProduct.type_id || productInfo?.type_id || editableProduct.typeId || '',
+      category_id: resolvedCategoryId,
+      type_id: resolvedTypeId,
+      category_name: categoryName,
+      type_name: typeName,
       brand,
       images: Array.isArray(editableProduct.images)
         ? editableProduct.images
@@ -1220,7 +1255,8 @@ export default function ProductAttributesPage() {
     availableAttributesMeta,
     offer_id,
     priceInfo,
-    productInfo
+    productInfo,
+    categoryMap
   ]);
 
   const callAiForMode = useCallback(

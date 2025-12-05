@@ -363,9 +363,7 @@ async function handler(req, res, ctx) {
           product,
           products,
           baseProductData,
-          keywords,
-          withWatermark,
-          watermarkText
+          keywords
         };
         const extraSystem = renderTemplate(
           activePrompt.systemTemplate || '',

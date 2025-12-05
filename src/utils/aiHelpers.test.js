@@ -33,6 +33,111 @@ describe('buildAiInputsFromProduct', () => {
     );
     expect(hasRichKeys).toBe(false);
   });
+
+  test('удаляет служебные поля и сохраняет человекочитаемую категорию/тип', () => {
+    const product = {
+      offer_id: 'SKU-55',
+      id: 'db-id',
+      name: 'Напольная ваза',
+      brand: 'InHouse',
+      category_id: 123456,
+      type_id: 999,
+      category_name: 'Домашний декор',
+      type_name: 'Напольные вазы',
+      price: 12990,
+      net_price: 10000,
+      old_price: 14990,
+      min_price: 9990,
+      vat: '20',
+      section: 'internal-only',
+      withWatermark: true,
+      watermarkText: 'LOGO',
+      templateValues: { name: 'template-field' },
+      createdAt: '2024-01-01T00:00:00Z',
+      updated_at: '2024-02-02T00:00:00Z',
+      custom_note: 'подходит для современных интерьеров',
+      attributes: {
+        'Материал': 'Керамика, ручная работа',
+        'Цвет товара': 'Белый',
+        'Страна производства': 'Россия',
+        '#Хештеги': '#ваза #декор',
+        'Rich-контент JSON': '{ "obsolete": true }'
+      },
+      seo_keywords: ['напольная ваза', 'керамика']
+    };
+
+    const { products, keywords } = buildAiInputsFromProduct(product, {
+      mode: 'slides'
+    });
+
+    expect(Array.isArray(products)).toBe(true);
+    const row = products[0];
+
+    // Служебных полей быть не должно
+    [
+      'offer_id',
+      'id',
+      'category_id',
+      'type_id',
+      'price',
+      'net_price',
+      'old_price',
+      'min_price',
+      'vat',
+      'section',
+      'withWatermark',
+      'watermarkText',
+      'createdAt',
+      'updated_at'
+    ].forEach((key) => {
+      expect(Object.prototype.hasOwnProperty.call(row, key)).toBe(false);
+    });
+
+    // Но человекочитаемые названия и ключевые атрибуты остаются
+    expect(row).toMatchObject({
+      name: 'Напольная ваза',
+      brand: 'InHouse',
+      category_name: 'Домашний декор',
+      type_name: 'Напольные вазы',
+      keywords_text: 'напольная ваза, керамика',
+      material: 'Керамика, ручная работа',
+      color: 'Белый',
+      country: 'Россия'
+    });
+
+    expect(row).not.toHaveProperty('custom_note');
+
+    // Полезные атрибуты остаются в whitelisted полях, хештеги и rich — нет
+    expect(row).not.toHaveProperty('Материал');
+    expect(row).not.toHaveProperty('#Хештеги');
+    expect(row).not.toHaveProperty('Rich-контент JSON');
+
+    // keywords сворачиваются в одну строку
+    expect(keywords).toBe('напольная ваза, керамика');
+  });
+
+  test('mode=hashtags добавляет contextPrice при наличии цены', () => {
+    const product = {
+      name: 'Фитнес-гантели',
+      brand: 'SportPro',
+      category_name: 'Спорттовары',
+      type_name: 'Гантели',
+      price: '2590.50',
+      attributes: {
+        'Вес, кг': '2x3',
+        'Материал': 'Сталь, неопрен',
+        'Стиль': 'Hi-Tech'
+      }
+    };
+
+    const { products } = buildAiInputsFromProduct(product, { mode: 'hashtags' });
+    const row = products[0];
+
+    expect(row).toHaveProperty('contextPrice', '2590.5');
+    expect(row).toHaveProperty('material', 'Сталь, неопрен');
+    expect(row).toHaveProperty('style', 'Hi-Tech');
+    expect(row).not.toHaveProperty('price');
+  });
 });
 
 describe('buildRichJsonPrompt', () => {

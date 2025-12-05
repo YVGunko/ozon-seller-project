@@ -232,13 +232,15 @@ function buildProductsContext(products = []) {
     .slice(0, 50)
     .map((row) => {
       const templateValues = row.templateValues || {};
+      const sanitizedRow = { ...row };
+      delete sanitizedRow.images;
       const header = typeof row.index === 'number' ? `#${row.index + 1}` : '#товар';
       const parts = [
         header,
         templateValues.name && `Название: ${templateValues.name}`,
         templateValues.part_number && `Партномер: ${templateValues.part_number}`,
         // Универсальное описание остальных полей
-        describeObject(row, { excludeKeys: ['index', 'templateValues'] })
+        describeObject(sanitizedRow, { excludeKeys: ['index', 'templateValues'] })
       ]
         .filter(Boolean)
         .join('\n');
@@ -246,6 +248,19 @@ function buildProductsContext(products = []) {
       return parts;
     })
     .join('\n\n');
+}
+
+function buildKeyAttributesSection(baseProductData = {}) {
+  if (!baseProductData || typeof baseProductData !== 'object') return '';
+  const entries = [];
+  if (baseProductData.material) entries.push(`Материал: ${baseProductData.material}`);
+  if (baseProductData.size) entries.push(`Размер: ${baseProductData.size}`);
+  if (baseProductData.color) entries.push(`Цвет: ${baseProductData.color}`);
+  if (baseProductData.purpose) entries.push(`Назначение: ${baseProductData.purpose}`);
+  if (baseProductData.style) entries.push(`Стиль: ${baseProductData.style}`);
+  if (baseProductData.country) entries.push(`Страна: ${baseProductData.country}`);
+  if (!entries.length) return '';
+  return ['Ключевые характеристики:', ...entries].join('\n');
 }
 
 /**
@@ -298,26 +313,57 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
   const mode = typeof options.mode === 'string' ? options.mode.toLowerCase() : '';
 
   const {
-    offer_id,
     name,
-    category_id,
-    type_id,
     brand,
-    images,
-    price,
-    vat,
-    section,
     seo_keywords,
     attributes,
     withWatermark,
     watermarkText,
-    ...rest
+    price,
+    category_name,
+    category_label,
+    category_display,
+    categoryName,
+    description_category_name,
+    type_name,
+    type_label,
+    type_display,
+    typeName
   } = product;
 
   const attributesFlat = {};
+  const keyAttributes = {};
+
+  const toAttributeString = (rawValue) => {
+    if (rawValue === null || rawValue === undefined || rawValue === '') {
+      return '';
+    }
+    if (Array.isArray(rawValue)) {
+      return rawValue
+        .map((item) => (item === null || item === undefined ? '' : String(item)))
+        .filter(Boolean)
+        .join(', ');
+    }
+    if (typeof rawValue === 'object') {
+      return describeObject(rawValue);
+    }
+    return String(rawValue);
+  };
+
   if (attributes && typeof attributes === 'object') {
+    const unhandledAttributes = [];
     Object.entries(attributes).forEach(([key, value]) => {
       const lowerKey = String(key || '').toLowerCase();
+
+       const canonicalKey = detectKeyAttributeName(lowerKey);
+       if (canonicalKey && !keyAttributes[canonicalKey]) {
+         const normalized = toAttributeString(value);
+         if (normalized) {
+           keyAttributes[canonicalKey] = normalized;
+         }
+         return;
+       }
+
       if (mode === 'hashtags') {
         // Не подсказываем модели уже существующие хештеги
         if (lowerKey.includes('#хештеги') || lowerKey.includes('#hashtags')) {
@@ -334,7 +380,12 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
           return;
         }
       }
-      if (mode === 'seo-name' || mode === 'title' || mode === 'description') {
+      if (
+        mode === 'seo-name' ||
+        mode === 'title' ||
+        mode === 'description' ||
+        mode === 'slides'
+      ) {
         // Для текстовых задач тоже можно не мешать текущими rich / хештегами
         if (
           lowerKey.includes('#хештеги') ||
@@ -346,18 +397,45 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
           return;
         }
       }
-      if (value === null || value === undefined || value === '') return;
-      if (Array.isArray(value)) {
-        attributesFlat[key] = value.join(', ');
-      } else if (typeof value === 'object') {
-        const described = describeObject(value);
-        if (described) {
-          attributesFlat[key] = described;
-        }
-      } else {
-        attributesFlat[key] = String(value);
-      }
+      const normalized = toAttributeString(value);
+      if (!normalized) return;
+      attributesFlat[key] = normalized;
+      unhandledAttributes.push({ name: key, value: normalized });
     });
+
+    if (unhandledAttributes.length > 0) {
+      // TODO: сложить эти атрибуты в отдельный блок otherAttributes и передавать в LLM отдельно
+      if (typeof window === 'undefined') {
+        // eslint-disable-next-line no-console
+        console.log(
+          '[aiHelpers] unhandled attributes for AI payload',
+          unhandledAttributes
+        );
+      }
+    }
+  }
+
+  const keywordsText =
+    Array.isArray(seo_keywords) ? seo_keywords.join(', ') : (seo_keywords || '');
+
+  const categoryText =
+    category_display ||
+    category_label ||
+    category_name ||
+    categoryName ||
+    description_category_name ||
+    '';
+  const typeText =
+    type_display || type_label || type_name || typeName || '';
+
+  let contextPrice = null;
+  if (price !== undefined && price !== null && price !== '') {
+    const numericPrice = Number(
+      typeof price === 'string' ? price.replace(',', '.') : price
+    );
+    if (Number.isFinite(numericPrice) && numericPrice > 0) {
+      contextPrice = numericPrice.toString();
+    }
   }
 
   const productRow = {
@@ -365,29 +443,27 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
     templateValues: {
       name: name || ''
     },
-    offer_id,
     name,
-    category_id,
-    type_id,
     brand,
-    price,
-    images: Array.isArray(images) ? images.join(', ') : images,
-    seo_keywords,
-    withWatermark,
-    watermarkText,
-    ...rest,
+    category_name: categoryText,
+    type_name: typeText,
+    keywords_text: keywordsText,
+    ...keyAttributes,
     ...attributesFlat
   };
 
+  if (mode === 'hashtags' && contextPrice) {
+    productRow.contextPrice = contextPrice;
+  }
+
   const baseProductData = normalizeProductData({
-    category_id,
-    price,
-    vat,
-    section
+    category: categoryText || undefined,
+    type: typeText || undefined,
+    brand: brand || undefined,
+    ...keyAttributes
   });
 
-  const keywords =
-    Array.isArray(seo_keywords) ? seo_keywords.join(', ') : seo_keywords;
+  const keywords = keywordsText;
 
   return {
     products: [productRow],
@@ -408,6 +484,7 @@ export function buildSeoNamePrompt({ products, keywords, baseProductData }) {
 
   const baseInfo = describeObject(baseProductData);
   const productsContext = buildProductsContext(products);
+  const keyAttributesSection = buildKeyAttributesSection(baseProductData);
   const kws =
     Array.isArray(keywords) ? keywords.join(', ') : (keywords || 'не заданы');
 
@@ -432,6 +509,7 @@ export function buildSeoNamePrompt({ products, keywords, baseProductData }) {
     '',
     `Ключевые слова: ${kws}.`,
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,
+    keyAttributesSection,
     '',
     'Данные товаров:',
     productsContext,
@@ -545,6 +623,7 @@ export function buildSeoDescriptionPrompt({ products, keywords, baseProductData 
 
   const baseInfo = describeObject(baseProductData);
   const productsContext = buildProductsContext(products);
+  const keyAttributesSection = buildKeyAttributesSection(baseProductData);
   const kws =
     Array.isArray(keywords) ? keywords.join(', ') : (keywords || 'не заданы');
 
@@ -580,6 +659,7 @@ export function buildSeoDescriptionPrompt({ products, keywords, baseProductData 
     '',
     `Ключевые слова от пользователя (если есть): ${kws}.`,
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,
+    keyAttributesSection,
     '',
     'Данные товаров:',
     productsContext,
@@ -683,6 +763,7 @@ export function buildHashtagsPrompt({ products, baseProductData }) {
 
   const baseInfo = describeObject(baseProductData);
   const productsContext = buildProductsContext(products);
+  const keyAttributesSection = buildKeyAttributesSection(baseProductData);
 
   const system = `
 Ты формируешь атрибут "#Хештеги" для карточек Ozon.
@@ -705,6 +786,7 @@ export function buildHashtagsPrompt({ products, baseProductData }) {
     '{"hashtags":[{"index":0,"values":["#пример1","#пример2", ...]}, ...]}',
     '',
     baseInfo && `Базовые параметры товара:\n${baseInfo}`,
+    keyAttributesSection,
     '',
     'Данные товаров:',
     productsContext
@@ -804,14 +886,8 @@ export function buildRichJsonPrompt({ products, baseProductData }) {
 Не добавляй комментарии, пояснения или текст вне JSON.
 `;
 
-  // Пытаемся выделить основное изображение товара, чтобы подставить его в img.src
-  let primaryImageUrl = '';
-  if (Array.isArray(products) && products[0]) {
-    const rawImages = products[0].images;
-    if (typeof rawImages === 'string' && rawImages.trim()) {
-      primaryImageUrl = rawImages.split(',')[0].trim();
-    }
-  }
+  // Поле images исключено из LLM-запросов, поэтому явно сбрасываем ссылку на изображение.
+  const primaryImageUrl = '';
 
   const user = [
     'Создай Rich-контент для карточки товара Ozon в формате JSON.',
@@ -1109,4 +1185,60 @@ export async function generateSlides({
     watermarkText,
     prompt
   });
+}
+const KEY_ATTRIBUTE_ALIASES = {
+  material: [
+    'материал',
+    'материал корпуса',
+    'основной материал',
+    'материал товара'
+  ],
+  size: [
+    'размер',
+    'габариты',
+    'размер товара',
+    'размеры',
+    'высота',
+    'ширина',
+    'длина',
+    'габариты товара'
+  ],
+  color: [
+    'цвет',
+    'основной цвет',
+    'цвет товара',
+    'цвет изделия'
+  ],
+  purpose: [
+    'назначение',
+    'тип товара',
+    'тип продукта',
+    'тип использования',
+    'область применения',
+    'тип'
+  ],
+  style: [
+    'стиль',
+    'дизайн',
+    'коллекция'
+  ],
+  country: [
+    'страна',
+    'страна производства',
+    'страна бренда'
+  ]
+};
+
+function detectKeyAttributeName(key) {
+  if (!key) return null;
+  const normalized = String(key).trim().toLowerCase();
+  if (!normalized) return null;
+  for (const [canonical, aliases] of Object.entries(KEY_ATTRIBUTE_ALIASES)) {
+    if (
+      aliases.some((alias) => normalized === alias || normalized.includes(alias))
+    ) {
+      return canonical;
+    }
+  }
+  return null;
 }
