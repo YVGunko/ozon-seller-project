@@ -1092,6 +1092,8 @@ export default function ProductAttributesPage() {
   const currentImages = Array.isArray(editableProduct?.images)
     ? editableProduct.images
     : [];
+  const hasAnyImagesForOzon =
+    currentImages.length > 0 || Boolean(normalizePrimaryImage(primaryImage));
   const baseFieldIssues = useMemo(() => {
     if (!editableProduct) return [];
     const issues = [];
@@ -2374,7 +2376,7 @@ export default function ProductAttributesPage() {
               }}
               disabled={!editableProduct || savingAttributes || loadingAttributes}
             />
-            {!currentImages.length && (
+            {!hasAnyImagesForOzon && (
               <div
                 style={{
                   marginTop: 12,

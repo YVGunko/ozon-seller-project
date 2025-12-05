@@ -567,11 +567,17 @@ export default function ProductsPage() {
 
         const normalizedPrimary = normalizePrimaryImage(item.primary_image);
         const originalPrimary = normalizePrimaryImage(originalProduct.primary_image);
-        const normalizedImages = clampImageListToLimit(
+        let normalizedImages = clampImageListToLimit(
           Array.isArray(item.images) ? item.images : [],
           normalizedPrimary
         );
         const originalImages = normalizeImageList(originalProduct.images || []);
+
+        // Если пользователь указал только главное изображение, но не заполнил массив images,
+        // автоматически считаем его единственным изображением товара, не беспокоя пользователя.
+        if (!normalizedImages.length && normalizedPrimary) {
+          normalizedImages = [normalizedPrimary];
+        }
 
         if (!normalizedImages.length) {
           throw new Error(`Товар ${offerId}: добавьте хотя бы одно изображение`);
