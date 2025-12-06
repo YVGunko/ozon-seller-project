@@ -971,25 +971,55 @@ export default function ProductsPage() {
     setRatingSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
   };
 
+  const shouldEnqueueAiRichForProduct = useCallback(
+    (product) => {
+      const sku = product?.sku;
+      if (!sku) return false;
+      const entry = ratingMap.get(String(sku));
+      if (!entry || !Array.isArray(entry.groups)) return false;
+
+      const textGroup = entry.groups.find(
+        (group) => group && group.key === 'text'
+      );
+      if (!textGroup) return false;
+
+      const hasUnfulfilledTextRich =
+        Array.isArray(textGroup.conditions) &&
+        textGroup.conditions.some(
+          (cond) => cond && cond.key === 'text_rich' && cond.fulfilled === false
+        );
+      if (!hasUnfulfilledTextRich) {
+        return false;
+      }
+
+      const hasRichAttribute =
+        Array.isArray(textGroup.improve_attributes) &&
+        textGroup.improve_attributes.some(
+          (attr) => Number(attr?.id) === 11254
+        );
+
+      return hasRichAttribute;
+    },
+    [ratingMap]
+  );
+
   const handleEnqueueRichForLowRating = async () => {
     if (!currentProfile) {
       alert('Сначала выберите профиль на главной странице');
       return;
     }
 
-    const THRESHOLD = 75;
     const items = sortedProducts
-      .filter((product) => {
-        const rating = getRatingValue(product);
-        return rating >= 0 && rating < THRESHOLD;
-      })
+      .filter((product) => shouldEnqueueAiRichForProduct(product))
       .map((product) => ({
         profileId: currentProfile.id,
         offerId: product.offer_id
       }));
 
     if (!items.length) {
-      alert(`В текущем списке нет товаров с контент‑рейтингом ниже ${THRESHOLD}.`);
+      alert(
+        'В текущем списке нет товаров, для которых OZON явно рекомендует заполнить Rich‑контент (условие text_rich не выполнено).'
+      );
       return;
     }
 
@@ -1005,7 +1035,6 @@ export default function ProductsPage() {
           payload: {
             mode: 'rich',
             profileId: currentProfile.id,
-            ratingThreshold: THRESHOLD,
             applyToOzon: true
           }
         })
@@ -1018,7 +1047,7 @@ export default function ProductsPage() {
       setJobs((prev) => [data, ...prev]);
       fetchJobs();
       alert(
-        `Задача на генерацию Rich‑контента поставлена.\nID: ${data.id}\nТоваров: ${data.totalItems}`
+        `Задача на увеличение контент‑рейтинга через Rich‑контент поставлена.\nID: ${data.id}\nТоваров: ${data.totalItems}`
       );
     } catch (err) {
       console.error('handleEnqueueRichForLowRating error', err);
@@ -1178,7 +1207,7 @@ export default function ProductsPage() {
                     className="oz-btn oz-btn-secondary"
                     disabled={jobsLoading || ratingLoading}
                   >
-                    AI Rich для рейтинга &lt; 75
+                    AI увеличение рейтинга
                   </button>
                   <button
                     type="button"
