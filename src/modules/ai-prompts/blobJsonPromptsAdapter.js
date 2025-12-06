@@ -60,15 +60,29 @@ export class BlobJsonPromptsAdapter extends AiPromptsAdapter {
     const root = `${this.prefix}/`;
     const { blobs } = await list({ prefix: root });
 
+    /** @type {AiPrompt|null} */
+    let latest = null;
+
     for (const blob of blobs) {
       const downloadUrl = blob.downloadUrl || blob.url;
       const res = await fetch(downloadUrl);
       const text = await res.text();
       const data = JSON.parse(text);
-      if (data.id === id) return /** @type {AiPrompt} */ (data);
+      if (data.id !== id) continue;
+
+      if (!latest) {
+        latest = /** @type {AiPrompt} */ (data);
+        continue;
+      }
+
+      const latestTs = new Date(latest.updatedAt || latest.createdAt || 0).getTime();
+      const currentTs = new Date(data.updatedAt || data.createdAt || 0).getTime();
+      if (currentTs > latestTs) {
+        latest = /** @type {AiPrompt} */ (data);
+      }
     }
 
-    return null;
+    return latest;
   }
 
   /**
@@ -84,19 +98,49 @@ export class BlobJsonPromptsAdapter extends AiPromptsAdapter {
     const prefix = `${this.prefix}/${userSegment}/`;
 
     const { blobs } = await list({ prefix });
-    const results = [];
+    const results = await Promise.all(
+      blobs.map(async (blob) => {
+        try {
+          const downloadUrl = blob.downloadUrl || blob.url;
+          const res = await fetch(downloadUrl);
+          const text = await res.text();
+          const data = JSON.parse(text);
+          if (mode && data.mode !== mode) return null;
+          return /** @type {AiPrompt} */ (data);
+        } catch (error) {
+          // eslint-disable-next-line no-console
+          console.error('[BlobJsonPromptsAdapter] failed to load prompt blob', {
+            pathname: blob.pathname || blob.url || '',
+            error: error?.message || String(error)
+          });
+          return null;
+        }
+      })
+    );
 
-    for (const blob of blobs) {
-      const downloadUrl = blob.downloadUrl || blob.url;
-      const res = await fetch(downloadUrl);
-      const text = await res.text();
-      const data = JSON.parse(text);
-      if (mode && data.mode !== mode) continue;
-      results.push(/** @type {AiPrompt} */ (data));
+    const filtered = results.filter(Boolean);
+
+    // Дедупликация по id: оставляем самую "свежую" версию
+    const byId = new Map();
+    for (const prompt of filtered) {
+      const key = prompt.id;
+      if (!key) continue;
+      const existing = byId.get(key);
+      if (!existing) {
+        byId.set(key, prompt);
+        continue;
+      }
+      const existingTs = new Date(existing.updatedAt || existing.createdAt || 0).getTime();
+      const currentTs = new Date(prompt.updatedAt || prompt.createdAt || 0).getTime();
+      if (currentTs > existingTs) {
+        byId.set(key, prompt);
+      }
     }
 
+    const unique = Array.from(byId.values());
+
     // Сортируем по updatedAt DESC, затем по createdAt DESC
-    return results.sort((a, b) => {
+    return unique.sort((a, b) => {
       const aTime = a.updatedAt || a.createdAt || '';
       const bTime = b.updatedAt || b.createdAt || '';
       return aTime < bTime ? 1 : -1;
@@ -116,4 +160,3 @@ export class BlobJsonPromptsAdapter extends AiPromptsAdapter {
     return false;
   }
 }
-

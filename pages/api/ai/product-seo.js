@@ -31,7 +31,10 @@ function renderTemplate(template, variables) {
   if (!template || typeof template !== 'string') return '';
   const vars = variables || {};
 
-  return template.replace(/{{\s*([a-zA-Z0-9_.]+)\s*}}/g, (_, path) => {
+  // Поддерживаем латиницу и кириллицу в именах полей,
+  // чтобы можно было использовать плейсхолдеры вида {{products.0.Аннотация}}.
+  // (Unicode property escapes \p{L} здесь недоступны, поэтому перечисляем явно.)
+  return template.replace(/{{\s*([0-9A-Za-zА-Яа-яЁё_.]+)\s*}}/g, (_, path) => {
     const keys = path.split('.');
     let value = vars;
     for (const key of keys) {
@@ -79,8 +82,16 @@ async function handler(req, res, ctx) {
       baseProductData,
       keywords,
       withWatermark,
-      watermarkText
+      watermarkText,
+      attributesFlat
     } = buildAiInputsFromProduct(product, { mode: normalizedMode });
+
+    // Расширенная версия product, доступная в плейсхолдерах промптов:
+    // {{product.attributesFlat}} даёт плоский список характеристик "ключ: значение".
+    const productForPrompt =
+      attributesFlat && attributesFlat.length
+        ? { ...product, attributesFlat }
+        : product;
 
     let items;
     let promptMeta = null;
@@ -115,7 +126,7 @@ async function handler(req, res, ctx) {
 
       if (activePrompt) {
         const templateVars = {
-          product,
+          product: productForPrompt,
           products,
           baseProductData,
           keywords
@@ -131,6 +142,19 @@ async function handler(req, res, ctx) {
 
         const finalSystem = extraSystem || basePrompt.system;
         const finalUser = extraUser || basePrompt.user;
+
+        // Отладочный лог: какой именно промпт реально используется для SEO‑названия.
+        // Помогает убедиться, что подхватился обновлённый шаблон из Blob.
+        // eslint-disable-next-line no-console
+        console.log('[api/ai/product-seo][seo-name] activePrompt in use', {
+          id: activePrompt.id,
+          mode: activePrompt.mode,
+          isDefault: activePrompt.isDefault,
+          systemTemplatePreview: String(activePrompt.systemTemplate || '').slice(0, 160),
+          userTemplatePreview: String(activePrompt.userTemplate || '').slice(0, 160),
+          finalSystemPreview: finalSystem.slice(0, 160),
+          finalUserPreview: finalUser.slice(0, 160)
+        });
 
         promptMeta = {
           system: finalSystem,
@@ -178,7 +202,7 @@ async function handler(req, res, ctx) {
 
       if (activePrompt) {
         const templateVars = {
-          product,
+          product: productForPrompt,
           products,
           baseProductData,
           keywords
@@ -240,7 +264,7 @@ async function handler(req, res, ctx) {
 
       if (activePrompt) {
         const templateVars = {
-          product,
+          product: productForPrompt,
           products,
           baseProductData,
           keywords
@@ -300,7 +324,7 @@ async function handler(req, res, ctx) {
 
       if (activePrompt) {
         const templateVars = {
-          product,
+          product: productForPrompt,
           products,
           baseProductData,
           keywords
@@ -360,7 +384,7 @@ async function handler(req, res, ctx) {
 
       if (activePrompt) {
         const templateVars = {
-          product,
+          product: productForPrompt,
           products,
           baseProductData,
           keywords

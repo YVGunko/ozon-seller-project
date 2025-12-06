@@ -1,6 +1,7 @@
 // src/utils/aiHelpers.js
 
 import { runReplicate } from './replicateClient';
+import { normalizeImageList } from './imageHelpers';
 
 const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_MODEL =
@@ -224,21 +225,46 @@ function describeObject(obj, options = {}) {
 }
 
 /**
+ * Грубое удаление HTML‑тегов и лишних пробелов
+ */
+function stripHtml(input) {
+  if (input === null || input === undefined) return '';
+  const withoutTags = String(input).replace(/<\/?[^>]+>/g, ' ');
+  return withoutTags.replace(/\s+/g, ' ').trim();
+}
+
+/**
  * Подготовка текстового контекста по товарам
  * products: [{ index, templateValues?, ...произвольные поля }]
+ * options:
+ *   - includeImages: boolean — добавлять ли блок с изображениями
+ *   - maxImages: number — максимум ссылок на изображения
  */
-function buildProductsContext(products = []) {
+function buildProductsContext(products = [], options = {}) {
+  const { includeImages = false, maxImages = 8 } = options || {};
+
   return products
     .slice(0, 50)
     .map((row) => {
       const templateValues = row.templateValues || {};
       const sanitizedRow = { ...row };
+      let imagesBlock = '';
+
+      if (includeImages && Array.isArray(row.images) && row.images.length) {
+        const limited = row.images.slice(0, maxImages);
+        imagesBlock = [
+          'Изображения:',
+          ...limited.map((url) => `- ${url}`)
+        ].join('\n');
+      }
+
       delete sanitizedRow.images;
       const header = typeof row.index === 'number' ? `#${row.index + 1}` : '#товар';
       const parts = [
         header,
         templateValues.name && `Название: ${templateValues.name}`,
         templateValues.part_number && `Партномер: ${templateValues.part_number}`,
+        imagesBlock,
         // Универсальное описание остальных полей
         describeObject(sanitizedRow, { excludeKeys: ['index', 'templateValues'] })
       ]
@@ -317,6 +343,7 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
     brand,
     seo_keywords,
     attributes,
+    images,
     withWatermark,
     watermarkText,
     price,
@@ -415,6 +442,39 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
     }
   }
 
+  // Плоское текстовое представление оставшихся атрибутов
+  const attributesFlatText = (() => {
+    const entries =
+      attributesFlat && typeof attributesFlat === 'object'
+        ? Object.entries(attributesFlat)
+        : [];
+    if (!entries.length) return '';
+
+    const lines = entries
+      .filter(([key]) => {
+        const k = String(key || '').toLowerCase();
+        if (!k) return false;
+        // Исключаем поля, которые уже передаются отдельно
+        // или содержат "шумный" rich/seo‑контент.
+        if (k === 'бренд' || k.startsWith('бренд ')) return false;
+        if (k === 'название' || k.startsWith('название ')) return false;
+        if (k.includes('rich-контент') || k.includes('rich content')) return false;
+        if (k.includes('#хештеги') || k.includes('#hashtags')) return false;
+        if (k.includes('seo-название')) return false;
+        if (k.includes('варианты seo')) return false;
+        if (k.includes('аннотац')) return false;
+        return true;
+      })
+      .map(([key, value]) => {
+        const clean = stripHtml(value);
+        if (!clean) return null;
+        return `${key}: ${clean}`;
+      })
+      .filter(Boolean);
+
+    return lines.length ? lines.join('\n') : '';
+  })();
+
   const keywordsText =
     Array.isArray(seo_keywords) ? seo_keywords.join(', ') : (seo_keywords || '');
 
@@ -438,6 +498,16 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
     }
   }
 
+  // Для Rich‑режима дополнительно готовим список изображений (только URL)
+  let richImages = [];
+  if (mode === 'rich' && images) {
+    const normalizedImages = normalizeImageList(images);
+    if (normalizedImages.length) {
+      const MAX_RICH_IMAGES = 8;
+      richImages = normalizedImages.slice(0, MAX_RICH_IMAGES);
+    }
+  }
+
   const productRow = {
     index: 0,
     templateValues: {
@@ -452,6 +522,10 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
     ...attributesFlat
   };
 
+  if (richImages.length) {
+    productRow.images = richImages;
+  }
+
   if (mode === 'hashtags' && contextPrice) {
     productRow.contextPrice = contextPrice;
   }
@@ -465,10 +539,30 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
 
   const keywords = keywordsText;
 
-  return {
+  const aiInputs = {
     products: [productRow],
     baseProductData,
     keywords,
+    attributesFlat: attributesFlatText
+  };
+
+  // Логируем "whitelist" данных, которые реально уходят в AI LLM.
+  // Здесь уже отфильтрованы служебные поля и лишние атрибуты.
+  if (typeof window === 'undefined') {
+    try {
+      // eslint-disable-next-line no-console
+      console.log(
+        '[aiHelpers] AI whitelist inputs snapshot:',
+        JSON.stringify(aiInputs, null, 2)
+      );
+    } catch (logError) {
+      // eslint-disable-next-line no-console
+      console.warn('[aiHelpers] failed to log AI whitelist inputs snapshot', logError);
+    }
+  }
+
+  return {
+    ...aiInputs,
     withWatermark: Boolean(withWatermark),
     watermarkText: watermarkText || ''
   };
@@ -877,7 +971,10 @@ export function buildRichJsonPrompt({ products, baseProductData }) {
   }
 
   const baseInfo = describeObject(baseProductData);
-  const productsContext = buildProductsContext(products);
+  const productsContext = buildProductsContext(products, {
+    includeImages: true,
+    maxImages: 8
+  });
 
   const system = `
 Ты генерируешь Rich-контент JSON для Ozon.

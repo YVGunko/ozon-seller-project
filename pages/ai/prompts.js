@@ -319,29 +319,85 @@ export default function AiPromptsPage() {
               minWidth: 320,
               border: '1px solid #e5e7eb',
               borderRadius: 12,
-              padding: 16
+              padding: 16,
+              display: 'flex',
+              flexDirection: 'column',
+              height: 'calc(100vh - 140px)'
             }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'flex-start',
+                marginBottom: 12
+              }}
+            >
               <div>
                 <div style={{ fontSize: 13, fontWeight: 600 }}>Редактирование промпта</div>
                 <div style={{ fontSize: 11, color: '#6b7280' }}>
                   mode: {selectedPrompt.mode} • id: {selectedPrompt.id}
                 </div>
               </div>
-              <label style={{ fontSize: 12 }}>
-                <input
-                  type="checkbox"
-                  checked={Boolean(selectedPrompt.isDefault)}
-                  onChange={(e) => handleFieldChange('isDefault', e.target.checked)}
-                  style={{ marginRight: 4 }}
-                />
-                Сделать дефолтным
-              </label>
+              <div
+                style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 12
+                }}
+              >
+                <label style={{ fontSize: 12, display: 'flex', alignItems: 'center' }}>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(selectedPrompt.isDefault)}
+                    onChange={(e) => handleFieldChange('isDefault', e.target.checked)}
+                    style={{ marginRight: 4 }}
+                  />
+                  Сделать дефолтным
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 9999,
+                    border: 'none',
+                    backgroundColor: saving ? '#6b7280' : '#2563eb',
+                    color: '#fff',
+                    fontSize: 13,
+                    cursor: saving ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  {saving ? 'Сохранение…' : 'Сохранить промпт'}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDelete}
+                  disabled={saving || !selectedPrompt}
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: 9999,
+                    border: '1px solid #fecaca',
+                    backgroundColor: '#fee2e2',
+                    color: '#b91c1c',
+                    fontSize: 13,
+                    cursor: saving || !selectedPrompt ? 'not-allowed' : 'pointer'
+                  }}
+                >
+                  Удалить промпт
+                </button>
+              </div>
             </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-              <label style={{ fontSize: 13 }}>
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                marginBottom: 12
+              }}
+            >
+              <label style={{ fontSize: 13, flex: 1 }}>
                 Название
                 <input
                   type="text"
@@ -353,12 +409,13 @@ export default function AiPromptsPage() {
                     padding: '6px 8px',
                     fontSize: 13,
                     borderRadius: 6,
-                    border: '1px solid #d1d5db'
+                    border: '1px solid #d1d5db',
+                    height: 36
                   }}
                 />
               </label>
 
-              <label style={{ fontSize: 13 }}>
+              <label style={{ fontSize: 13, flex: 1 }}>
                 Описание
                 <textarea
                   value={selectedPrompt.description || ''}
@@ -371,83 +428,91 @@ export default function AiPromptsPage() {
                     fontSize: 13,
                     borderRadius: 6,
                     border: '1px solid #d1d5db',
-                    resize: 'vertical'
-                  }}
-                />
-              </label>
-
-              <label style={{ fontSize: 13 }}>
-                System‑prompt
-                <textarea
-                  value={selectedPrompt.systemTemplate || ''}
-                  onChange={(e) => handleFieldChange('systemTemplate', e.target.value)}
-                  rows={12}
-                  style={{
-                    marginTop: 4,
-                    width: '100%',
-                    padding: '6px 8px',
-                    fontSize: 12,
-                    fontFamily: 'Menlo, ui-monospace, SFMono-Regular, monospace',
-                    borderRadius: 6,
-                    border: '1px solid #d1d5db',
-                    resize: 'vertical'
-                  }}
-                />
-              </label>
-
-              <label style={{ fontSize: 13 }}>
-                User‑prompt
-                <textarea
-                  value={selectedPrompt.userTemplate || ''}
-                  onChange={(e) => handleFieldChange('userTemplate', e.target.value)}
-                  rows={18}
-                  style={{
-                    marginTop: 4,
-                    width: '100%',
-                    padding: '6px 8px',
-                    fontSize: 12,
-                    fontFamily: 'Menlo, ui-monospace, SFMono-Regular, monospace',
-                    borderRadius: 6,
-                    border: '1px solid #d1d5db',
-                    resize: 'vertical'
+                    resize: 'none',
+                    height: 36
                   }}
                 />
               </label>
             </div>
 
-            <div style={{ marginTop: 16, display: 'flex', gap: 12 }}>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
+            <div
+              style={{
+                display: 'flex',
+                gap: 12,
+                alignItems: 'stretch',
+                flex: 1,
+                minHeight: 0
+              }}
+            >
+              <div
                 style={{
-                  padding: '8px 14px',
-                  borderRadius: 9999,
-                  border: 'none',
-                  backgroundColor: saving ? '#6b7280' : '#2563eb',
-                  color: '#fff',
-                  fontSize: 13,
-                  cursor: saving ? 'not-allowed' : 'pointer'
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column'
                 }}
               >
-                {saving ? 'Сохранение…' : 'Сохранить промпт'}
-              </button>
-              <button
-                type="button"
-                onClick={handleDelete}
-                disabled={saving || !selectedPrompt}
+                <label
+                  style={{
+                    fontSize: 13,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1
+                  }}
+                >
+                  System‑prompt
+                  <textarea
+                    value={selectedPrompt.systemTemplate || ''}
+                    onChange={(e) => handleFieldChange('systemTemplate', e.target.value)}
+                    style={{
+                      marginTop: 4,
+                      width: '100%',
+                      padding: '6px 8px',
+                      fontSize: 12,
+                      fontFamily: 'Menlo, ui-monospace, SFMono-Regular, monospace',
+                      borderRadius: 6,
+                      border: '1px solid #d1d5db',
+                      resize: 'none',
+                      flex: 1,
+                      minHeight: '100%'
+                    }}
+                  />
+                </label>
+              </div>
+
+              <div
                 style={{
-                  padding: '8px 14px',
-                  borderRadius: 9999,
-                  border: '1px solid #fecaca',
-                  backgroundColor: '#fee2e2',
-                  color: '#b91c1c',
-                  fontSize: 13,
-                  cursor: saving || !selectedPrompt ? 'not-allowed' : 'pointer'
+                  flex: 1,
+                  display: 'flex',
+                  flexDirection: 'column'
                 }}
               >
-                Удалить промпт
-              </button>
+                <label
+                  style={{
+                    fontSize: 13,
+                    display: 'flex',
+                    flexDirection: 'column',
+                    flex: 1
+                  }}
+                >
+                  User‑prompt
+                  <textarea
+                    value={selectedPrompt.userTemplate || ''}
+                    onChange={(e) => handleFieldChange('userTemplate', e.target.value)}
+                    style={{
+                      marginTop: 4,
+                      width: '100%',
+                      padding: '6px 8px',
+                      fontSize: 12,
+                      fontFamily: 'Menlo, ui-monospace, SFMono-Regular, monospace',
+                      borderRadius: 6,
+                      border: '1px solid #d1d5db',
+                      resize: 'none',
+                      flex: 1,
+                      minHeight: '100%'
+                    }}
+                  />
+                </label>
+              </div>
             </div>
           </div>
         )}

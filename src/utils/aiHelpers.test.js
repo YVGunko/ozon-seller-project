@@ -1,6 +1,7 @@
 import {
   buildAiInputsFromProduct,
-  buildRichJsonPrompt
+  buildRichJsonPrompt,
+  buildSeoNamePrompt
 } from './aiHelpers';
 
 describe('buildAiInputsFromProduct', () => {
@@ -138,6 +139,52 @@ describe('buildAiInputsFromProduct', () => {
     expect(row).toHaveProperty('style', 'Hi-Tech');
     expect(row).not.toHaveProperty('price');
   });
+
+  test('не включает images в products row', () => {
+    const product = {
+      name: 'Тестовый товар',
+      images: [
+        'https://example.com/img1.jpg',
+        'https://example.com/img2.jpg'
+      ],
+      attributes: {
+        'Описание': 'Нержавеющая сталь, длина 28 см'
+      }
+    };
+
+    const { products } = buildAiInputsFromProduct(product, { mode: 'seo-name' });
+
+    expect(Array.isArray(products)).toBe(true);
+    expect(products).toHaveLength(1);
+
+    const row = products[0];
+    expect(row).not.toHaveProperty('images');
+  });
+
+  test('SEO-name промпт не содержит URL изображений', () => {
+    const product = {
+      name: 'Тестовый товар',
+      category_name: 'Категория',
+      type_name: 'Тип',
+      images: [
+        'https://example.com/img1.jpg',
+        'https://example.com/img2.jpg'
+      ],
+      attributes: {
+        'Описание': 'Нержавеющая сталь, длина 28 см'
+      }
+    };
+
+    const { products, baseProductData, keywords } = buildAiInputsFromProduct(product, {
+      mode: 'seo-name'
+    });
+
+    const prompt = buildSeoNamePrompt({ products, baseProductData, keywords });
+
+    expect(prompt).toHaveProperty('user');
+    expect(prompt.user).not.toContain('https://example.com/img1.jpg');
+    expect(prompt.user).not.toContain('https://example.com/img2.jpg');
+  });
 });
 
 describe('buildRichJsonPrompt', () => {
@@ -147,7 +194,7 @@ describe('buildRichJsonPrompt', () => {
       name: 'Кухонный топорик для мяса',
       price: 950,
       category_id: 17027907,
-      images: 'https://example.com/img1.jpg, https://example.com/img2.jpg',
+      images: ['https://example.com/img1.jpg', 'https://example.com/img2.jpg'],
       attributes: {
         'Материал': 'Нержавеющая сталь',
         'Длина, см': '28',
@@ -188,5 +235,9 @@ describe('buildRichJsonPrompt', () => {
 
     // В prompt попадает фактическое имя товара
     expect(user).toContain('Кухонный топорик для мяса');
+
+    // Для Rich-промпта теперь передаём ссылки на изображения
+    expect(user).toContain('https://example.com/img1.jpg');
+    expect(user).toContain('https://example.com/img2.jpg');
   });
 });
