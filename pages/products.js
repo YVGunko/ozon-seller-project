@@ -1178,7 +1178,12 @@ export default function ProductsPage() {
                 </td>
                 <td>
                   <div style={{ display: 'flex', gap: 8, flexWrap: 'nowrap' }}>
-                    <Link href={`/products/${product.offer_id}/attributes`} legacyBehavior>
+                    <Link
+                      href={`/products/${encodeURIComponent(
+                        product.offer_id
+                      )}/attributes`}
+                      legacyBehavior
+                    >
                       <a
                         className="oz-btn oz-btn-primary"
                         style={{ padding: '6px 12px', fontSize: 12 }}
