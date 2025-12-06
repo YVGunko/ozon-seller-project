@@ -1009,12 +1009,76 @@ export default function ProductsPage() {
       return;
     }
 
-    const items = sortedProducts
-      .filter((product) => shouldEnqueueAiRichForProduct(product))
-      .map((product) => ({
+    const TARGET_MIN_RATING = 75;
+
+    const items = [];
+
+    sortedProducts.forEach((product) => {
+      if (!shouldEnqueueAiRichForProduct(product)) return;
+      const sku = product?.sku;
+      if (!sku) return;
+      const entry = ratingMap.get(String(sku));
+      if (!entry) return;
+
+      const textGroup =
+        Array.isArray(entry.groups) && entry.groups.length
+          ? entry.groups.find((group) => group && group.key === 'text')
+          : null;
+
+      const textRichCondition =
+        textGroup && Array.isArray(textGroup.conditions)
+          ? textGroup.conditions.find(
+              (cond) => cond && cond.key === 'text_rich'
+            )
+          : null;
+
+      const richAttribute =
+        textGroup && Array.isArray(textGroup.improve_attributes)
+          ? textGroup.improve_attributes.find(
+              (attr) => Number(attr?.id) === 11254
+            )
+          : null;
+
+      const ratingAtEnqueue =
+        typeof entry.rating === 'number' && Number.isFinite(entry.rating)
+          ? entry.rating
+          : null;
+
+      const inputSnapshot = {
+        offerId: product.offer_id,
+        sku,
+        ratingAtEnqueue,
+        ratingEntry: entry,
+        plannedImprovements: {
+          text: {
+            richContent: {
+              shouldGenerate: true,
+              reason: 'text_rich_not_fulfilled',
+              groupKey: 'text',
+              conditionKey: 'text_rich',
+              conditionCost:
+                typeof textRichCondition?.cost === 'number'
+                  ? textRichCondition.cost
+                  : null,
+              attributeId: richAttribute?.id ?? 11254
+            }
+          },
+          name: {
+            shouldGenerate: true,
+            mode: 'seo-name',
+            current: product.name || '',
+            maxLength: 120,
+            reason: 'rating_improve_plan'
+          }
+        }
+      };
+
+      items.push({
         profileId: currentProfile.id,
-        offerId: product.offer_id
-      }));
+        offerId: product.offer_id,
+        inputSnapshot
+      });
+    });
 
     if (!items.length) {
       alert(
@@ -1033,9 +1097,38 @@ export default function ProductsPage() {
           type: 'ai-rich',
           items,
           payload: {
+            version: 1,
+            kind: 'rating-improve',
             mode: 'rich',
             profileId: currentProfile.id,
-            applyToOzon: true
+            target: {
+              minRating: TARGET_MIN_RATING
+            },
+            selection: {
+              source: 'rating-by-sku',
+              fetchedAt: new Date().toISOString(),
+              filters: {
+                ratingBelow: TARGET_MIN_RATING,
+                onlyMissingTextRich: true
+              }
+            },
+            plan: {
+              text: {
+                richContent: {
+                  enabled: true,
+                  attributeId: 11254,
+                  conditionGroupKey: 'text',
+                  conditionKey: 'text_rich',
+                  mode: 'fill_if_missing'
+                }
+              },
+              name: {
+                enabled: true,
+                mode: 'seo-name',
+                maxLength: 120,
+                strategy: 'ai_suggest'
+              }
+            }
           }
         })
       });

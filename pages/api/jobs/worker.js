@@ -14,6 +14,30 @@ import { addRequestLog } from '../../../src/server/requestLogStore';
 const RICH_CONTENT_ATTRIBUTE_ID = 11254;
 const MODEL_CALL_DELAY_MS = 10000;
 
+function shouldRunRichForItem(job, item) {
+  // Для старых задач без специального плана сохраняем прежнее поведение:
+  // всегда запускаем AI‑Rich.
+  if (!job?.payload || job.payload.kind !== 'rating-improve') {
+    return true;
+  }
+
+  const snapshot = item.inputSnapshot || null;
+  const plannedRich =
+    snapshot &&
+    snapshot.plannedImprovements &&
+    snapshot.plannedImprovements.text &&
+    snapshot.plannedImprovements.text.richContent;
+
+  if (!plannedRich) {
+    // Плана по richContent нет — перестраховываемся и считаем,
+    // что автоматическую генерацию для этого товара не планировали.
+    return false;
+  }
+
+  // Явно разрешаем генерацию только если shouldGenerate === true.
+  return plannedRich.shouldGenerate === true;
+}
+
 function buildAiProductFromOzon(infoItem, attributesProduct, offerId) {
   if (!infoItem && !attributesProduct) {
     throw new Error(`Нет данных товара для offer_id ${offerId}`);
@@ -361,9 +385,17 @@ async function handler(req, res) {
 
     try {
       if (item.job.type === 'ai-rich') {
-        // eslint-disable-next-line no-await-in-loop
-        const result = await runAiRichForItem(item.job, item);
-        resultSnapshot = result;
+        if (shouldRunRichForItem(item.job, item)) {
+          // eslint-disable-next-line no-await-in-loop
+          const result = await runAiRichForItem(item.job, item);
+          resultSnapshot = result;
+        } else {
+          // Для задач rating-improve без явного флага shouldGenerate
+          // помечаем элемент как "обработан без действий".
+          resultSnapshot = {
+            skippedByPlan: true
+          };
+        }
       } else {
         status = 'skipped';
       }

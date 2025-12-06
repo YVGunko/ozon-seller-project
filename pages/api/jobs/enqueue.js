@@ -50,7 +50,11 @@ async function handler(req, res, ctx) {
             : item.profile_id != null
               ? String(item.profile_id)
               : null,
-        offerId: String(offerId)
+        offerId: String(offerId),
+        inputSnapshot:
+          item.inputSnapshot && typeof item.inputSnapshot === 'object'
+            ? item.inputSnapshot
+            : null
       };
     })
     .filter(Boolean);
@@ -72,7 +76,8 @@ async function handler(req, res, ctx) {
           sellerId: item.sellerId,
           profileId: item.profileId,
           offerId: item.offerId,
-          status: 'pending'
+          status: 'pending',
+          inputSnapshot: item.inputSnapshot
         }))
       }
     }
