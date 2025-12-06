@@ -33,9 +33,6 @@ async function callGroqChat({ system, user, temperature = 0.5, maxTokens = 1024 
     max_tokens: maxTokens
   };
 
-  // Логируем запрос к Groq без ключа
-  console.log('[Groq] request payload:', JSON.stringify(payload, null, 2));
-
   const response = await fetch(GROQ_API_URL, {
     method: 'POST',
     headers: {
@@ -51,9 +48,6 @@ async function callGroqChat({ system, user, temperature = 0.5, maxTokens = 1024 
     const message = data?.error?.message || 'Ошибка при обращении к Groq API';
     throw new Error(message);
   }
-
-  // Логируем полный ответ модели
-  console.log('[Groq] raw response:', JSON.stringify(data, null, 2));
 
   const content = data?.choices?.[0]?.message?.content;
   if (!content) {
@@ -430,16 +424,7 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
       unhandledAttributes.push({ name: key, value: normalized });
     });
 
-    if (unhandledAttributes.length > 0) {
-      // TODO: сложить эти атрибуты в отдельный блок otherAttributes и передавать в LLM отдельно
-      if (typeof window === 'undefined') {
-        // eslint-disable-next-line no-console
-        console.log(
-          '[aiHelpers] unhandled attributes for AI payload',
-          unhandledAttributes
-        );
-      }
-    }
+    // TODO: сложить эти атрибуты в отдельный блок otherAttributes и передавать в LLM отдельно
   }
 
   // Плоское текстовое представление оставшихся атрибутов
@@ -545,21 +530,6 @@ export function buildAiInputsFromProduct(product = {}, options = {}) {
     keywords,
     attributesFlat: attributesFlatText
   };
-
-  // Логируем "whitelist" данных, которые реально уходят в AI LLM.
-  // Здесь уже отфильтрованы служебные поля и лишние атрибуты.
-  if (typeof window === 'undefined') {
-    try {
-      // eslint-disable-next-line no-console
-      console.log(
-        '[aiHelpers] AI whitelist inputs snapshot:',
-        JSON.stringify(aiInputs, null, 2)
-      );
-    } catch (logError) {
-      // eslint-disable-next-line no-console
-      console.warn('[aiHelpers] failed to log AI whitelist inputs snapshot', logError);
-    }
-  }
 
   return {
     ...aiInputs,

@@ -78,6 +78,19 @@ async function handler(req, res, ctx) {
     }
   });
 
+  try {
+    // Короткий лог постановки задач: какие offer_id попали в Prisma.
+    // eslint-disable-next-line no-console
+    console.log('[jobs/enqueue] created job', {
+      jobId: job.id,
+      type: job.type,
+      totalItems: job.totalItems,
+      offerIds: normalizedItems.map((item) => item.offerId)
+    });
+  } catch {
+    // ignore logging errors
+  }
+
   return res.status(201).json({
     id: job.id,
     type: job.type,
@@ -87,4 +100,3 @@ async function handler(req, res, ctx) {
 }
 
 export default withServerContext(handler, { requireAuth: true });
-

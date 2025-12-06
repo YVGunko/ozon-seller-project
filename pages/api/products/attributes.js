@@ -257,7 +257,8 @@ async function handler(req, res /* ctx */) {
         const updateResult = useImportMode
           ? await ozon.importProductAttributes(sanitizedItems)
           : await ozon.updateProductAttributes(sanitizedItems);
-        const taskId = updateResult?.result?.task_id;
+        const taskId =
+          updateResult?.result?.task_id ?? updateResult?.task_id ?? null;
 
         if (useImportMode) {
           const pendingEntries = priceEntries
@@ -402,7 +403,10 @@ async function handler(req, res /* ctx */) {
             user_id: session?.user?.name || session?.user?.id || 'authenticated-user',
             enterprise_id: serverContext?.enterprise?.id || null,
             seller_id: serverContext?.seller?.id || null,
-            task_id: responseBody?.update?.result?.task_id || null
+            task_id:
+              responseBody?.update?.result?.task_id ??
+              responseBody?.update?.task_id ??
+              null
           });
         } catch (logError) {
           console.error('Failed to record request log:', logError);

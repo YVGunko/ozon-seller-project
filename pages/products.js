@@ -1005,7 +1005,8 @@ export default function ProductsPage() {
           payload: {
             mode: 'rich',
             profileId: currentProfile.id,
-            ratingThreshold: THRESHOLD
+            ratingThreshold: THRESHOLD,
+            applyToOzon: true
           }
         })
       });
@@ -1241,7 +1242,29 @@ export default function ProductsPage() {
                   <tbody>
                     {jobs.map((job) => (
                       <tr key={job.id}>
-                        <td className="oz-cell-mono">{job.id}</td>
+                        <td className="oz-cell-mono">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (typeof window !== 'undefined') {
+                                window.location.href = `/jobs/${encodeURIComponent(job.id)}`;
+                              }
+                            }}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              padding: 0,
+                              margin: 0,
+                              color: '#2563eb',
+                              cursor: 'pointer',
+                              textDecoration: 'underline',
+                              fontFamily: 'monospace',
+                              fontSize: 'inherit'
+                            }}
+                          >
+                            {job.id}
+                          </button>
+                        </td>
                         <td>{job.type}</td>
                         <td>{job.status}</td>
                         <td>{job.totalItems}</td>

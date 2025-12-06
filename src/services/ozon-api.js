@@ -230,7 +230,9 @@ export class OzonApiService {
     return this.request('/v3/product/import', body);
   }
 
-  normalizeAttributeUpdateItems(items) {
+  normalizeAttributeUpdateItems(items, options = {}) {
+    const { requireBaseFields = true } = options;
+
     if (!Array.isArray(items) || items.length === 0) {
       throw new Error('Не переданы товары для обновления');
     }
@@ -293,33 +295,55 @@ export class OzonApiService {
           }
         }
 
-        REQUIRED_BASE_FIELDS.forEach((field) => {
-          if (hasValue(item[field])) {
-            prepared[field] = String(item[field]);
-          }
-        });
+        // Базовые обязательные поля:
+        //  - в режиме import (requireBaseFields = true) они обязательны,
+        //    и мы проверяем, что все заполнены корректно;
+        //  - в режиме partial‑update (requireBaseFields = false) они опциональны:
+        //    если переданы — нормализуем и валидируем, если нет — просто не трогаем.
+        if (requireBaseFields) {
+          REQUIRED_BASE_FIELDS.forEach((field) => {
+            if (hasValue(item[field])) {
+              prepared[field] = String(item[field]);
+            }
+          });
 
-        const missingBaseFields = REQUIRED_BASE_FIELDS.filter((field) => {
-          const value = prepared[field];
-          if (!hasValue(value)) return true;
-          if (NUMERIC_BASE_FIELDS.includes(field)) {
-            const numeric = Number(value);
-            return !Number.isFinite(numeric) || numeric <= 0;
-          }
-          return false;
-        });
+          const missingBaseFields = REQUIRED_BASE_FIELDS.filter((field) => {
+            const value = prepared[field];
+            if (!hasValue(value)) return true;
+            if (NUMERIC_BASE_FIELDS.includes(field)) {
+              const numeric = Number(value);
+              return !Number.isFinite(numeric) || numeric <= 0;
+            }
+            return false;
+          });
 
-        if (missingBaseFields.length) {
-          throw new Error(
-            `Товар ${prepared.offer_id || 'без offer_id'}: заполните поля ${missingBaseFields.join(', ')}`
-          );
+          if (missingBaseFields.length) {
+            throw new Error(
+              `Товар ${prepared.offer_id || 'без offer_id'}: заполните поля ${missingBaseFields.join(', ')}`
+            );
+          }
+        } else {
+          REQUIRED_BASE_FIELDS.forEach((field) => {
+            if (!hasValue(item[field])) return;
+            const raw = item[field];
+            const str = String(raw);
+            if (NUMERIC_BASE_FIELDS.includes(field)) {
+              const numeric = Number(str);
+              if (!Number.isFinite(numeric) || numeric <= 0) {
+                throw new Error(
+                  `Товар ${prepared.offer_id || 'без offer_id'}: поле ${field} должно быть положительным числом`
+                );
+              }
+            }
+            prepared[field] = str;
+          });
         }
 
         return prepared;
       })
       .filter((item) => {
         const hasAttributes = Array.isArray(item.attributes) && item.attributes.length > 0;
-        const hasBaseFields = REQUIRED_BASE_FIELDS.every((field) => hasValue(item[field]));
+        const hasBaseFields = REQUIRED_BASE_FIELDS.some((field) => hasValue(item[field]));
         return item.offer_id && (hasAttributes || hasBaseFields);
       });
 
@@ -532,14 +556,23 @@ export class OzonApiService {
   }
 
   async updateProductAttributes(items) {
-    const normalizedItems = this.normalizeAttributeUpdateItems(items);
+    // Частичное обновление характеристик существующих товаров.
+    // Базовые поля (price, габариты и т.п.) здесь не требуются —
+    // они остаются неизменными, если явно не переданы.
+    const normalizedItems = this.normalizeAttributeUpdateItems(items, {
+      requireBaseFields: false
+    });
     return this.request('/v1/product/attributes/update', {
       items: normalizedItems
     });
   }
 
   async importProductAttributes(items) {
-    const normalizedItems = this.normalizeAttributeUpdateItems(items);
+    // Полное создание / переимпорт товара через /v3/product/import —
+    // требуем заполнения всех базовых полей.
+    const normalizedItems = this.normalizeAttributeUpdateItems(items, {
+      requireBaseFields: true
+    });
     return this.createProductsBatch(normalizedItems);
   }
 
