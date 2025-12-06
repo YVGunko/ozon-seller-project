@@ -98,6 +98,9 @@ export default function ProductsPage() {
   const [ratingError, setRatingError] = useState('');
   const [ratingModal, setRatingModal] = useState(null);
   const [ratingSortOrder, setRatingSortOrder] = useState('desc');
+  const [jobs, setJobs] = useState([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState('');
   const startNewProduct = useCallback(() => {
     if (!currentProfile) {
       alert('Сначала выберите профиль на главной странице');
@@ -211,6 +214,24 @@ export default function ProductsPage() {
     if (currentProfile) fetchProducts(true);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentProfile]);
+
+  const fetchJobs = useCallback(async () => {
+    try {
+      setJobsLoading(true);
+      setJobsError('');
+      const response = await fetch('/api/jobs/list');
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Не удалось загрузить задачи');
+      }
+      setJobs(Array.isArray(data.jobs) ? data.jobs : []);
+    } catch (err) {
+      console.error('fetchJobs error', err);
+      setJobsError(err.message || 'Не удалось загрузить задачи');
+    } finally {
+      setJobsLoading(false);
+    }
+  }, []);
 
   useEffect(() => {
     if (autoOpenHandled.current) return;
@@ -924,15 +945,19 @@ export default function ProductsPage() {
     return true;
   });
 
-  const sortedProducts = useMemo(() => {
-    const array = [...filteredProducts];
-    const getRatingValue = (product) => {
+  const getRatingValue = useCallback(
+    (product) => {
       const sku = product?.sku;
       if (!sku) return -1;
       const entry = ratingMap.get(String(sku));
       if (!entry) return -1;
       return Number.isFinite(entry.rating) ? entry.rating : -1;
-    };
+    },
+    [ratingMap]
+  );
+
+  const sortedProducts = useMemo(() => {
+    const array = [...filteredProducts];
     array.sort((a, b) => {
       const ra = getRatingValue(a);
       const rb = getRatingValue(b);
@@ -944,6 +969,63 @@ export default function ProductsPage() {
 
   const toggleRatingSort = () => {
     setRatingSortOrder((prev) => (prev === 'desc' ? 'asc' : 'desc'));
+  };
+
+  const handleEnqueueRichForLowRating = async () => {
+    if (!currentProfile) {
+      alert('Сначала выберите профиль на главной странице');
+      return;
+    }
+
+    const THRESHOLD = 75;
+    const items = sortedProducts
+      .filter((product) => {
+        const rating = getRatingValue(product);
+        return rating >= 0 && rating < THRESHOLD;
+      })
+      .map((product) => ({
+        profileId: currentProfile.id,
+        offerId: product.offer_id
+      }));
+
+    if (!items.length) {
+      alert(`В текущем списке нет товаров с контент‑рейтингом ниже ${THRESHOLD}.`);
+      return;
+    }
+
+    try {
+      setJobsLoading(true);
+      setJobsError('');
+      const response = await fetch('/api/jobs/enqueue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'ai-rich',
+          items,
+          payload: {
+            mode: 'rich',
+            profileId: currentProfile.id,
+            ratingThreshold: THRESHOLD
+          }
+        })
+      });
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data?.error || 'Не удалось поставить задачу');
+      }
+      // Добавляем созданную задачу в локальный список и обновляем список с сервера.
+      setJobs((prev) => [data, ...prev]);
+      fetchJobs();
+      alert(
+        `Задача на генерацию Rich‑контента поставлена.\nID: ${data.id}\nТоваров: ${data.totalItems}`
+      );
+    } catch (err) {
+      console.error('handleEnqueueRichForLowRating error', err);
+      setJobsError(err.message || 'Ошибка постановки задачи');
+      alert(err.message || 'Ошибка постановки задачи');
+    } finally {
+      setJobsLoading(false);
+    }
   };
 
   return (
@@ -969,7 +1051,7 @@ export default function ProductsPage() {
       <div className="oz-main">
         {/* Карточка профиля и создания товара */}
         <div className="oz-card oz-card-meta">
-          <div className="oz-card-body">
+            <div className="oz-card-body">
             <div
               style={{
                 display: 'flex',
@@ -1089,6 +1171,22 @@ export default function ProductsPage() {
                   >
                     Новый товар
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleEnqueueRichForLowRating}
+                    className="oz-btn oz-btn-secondary"
+                    disabled={jobsLoading || ratingLoading}
+                  >
+                    AI Rich для рейтинга &lt; 75
+                  </button>
+                  <button
+                    type="button"
+                    onClick={fetchJobs}
+                    className="oz-btn oz-btn-secondary"
+                    disabled={jobsLoading}
+                  >
+                    Обновить задачи
+                  </button>
                 </div>
               </div>
             </div>
@@ -1103,6 +1201,66 @@ export default function ProductsPage() {
               Показано: {filteredProducts.length} товаров
               {products.length !== filteredProducts.length &&
                 ` (отфильтровано из ${products.length})`}
+            </div>
+
+            {/* Список задач массовой обработки */}
+            <div style={{ marginBottom: 16 }}>
+              <div
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  marginBottom: 4
+                }}
+              >
+                <span style={{ fontSize: 13, color: '#4b5563' }}>
+                  Задачи массовой обработки (последние 50)
+                </span>
+                {jobsLoading && (
+                  <span style={{ fontSize: 12, color: '#6b7280' }}>Обновление…</span>
+                )}
+              </div>
+              {jobsError && (
+                <div className="oz-alert oz-alert-error" style={{ marginBottom: 8 }}>
+                  {jobsError}
+                </div>
+              )}
+              {jobs.length > 0 ? (
+                <table className="oz-table" style={{ fontSize: 12, marginBottom: 8 }}>
+                  <thead>
+                    <tr>
+                      <th>ID</th>
+                      <th>Тип</th>
+                      <th>Статус</th>
+                      <th>Всего</th>
+                      <th>Обработано</th>
+                      <th>Ошибок</th>
+                      <th>Создана</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {jobs.map((job) => (
+                      <tr key={job.id}>
+                        <td className="oz-cell-mono">{job.id}</td>
+                        <td>{job.type}</td>
+                        <td>{job.status}</td>
+                        <td>{job.totalItems}</td>
+                        <td>{job.processedItems}</td>
+                        <td>{job.failedItems}</td>
+                        <td>
+                          {job.createdAt
+                            ? new Date(job.createdAt).toLocaleString('ru-RU')
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              ) : (
+                <div style={{ fontSize: 12, color: '#9ca3af' }}>
+                  Задач пока нет. Нажмите «AI Rich для рейтинга &lt; 75», чтобы создать первую.
+                </div>
+              )}
             </div>
 
             {/* Таблица товаров */}

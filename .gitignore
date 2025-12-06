@@ -8,3 +8,5 @@ node_modules/
 *.swx
 *.json
 /config/*
+/src/generated/prisma
+.env

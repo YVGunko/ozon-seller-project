@@ -1,0 +1,68 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model ProductJob {
+  id              String   @id @default(cuid())
+  enterpriseId    String?  // id предприятия (если есть своя сущность)
+  createdByUserId String?  // пользователь, запустивший задачу
+
+  /// Тип задачи: ai-rich, ai-seo-name, ai-slides, copy-to-seller и т.п.
+  type   String
+  /// Статус: pending, running, completed, failed, canceled
+  status String   @default("pending")
+
+  /// Параметры запуска (фильтры по товарам, sellers, режимы и т.п.)
+  payload Json?
+
+  totalItems     Int      @default(0)
+  processedItems Int      @default(0)
+  failedItems    Int      @default(0)
+
+  /// Обобщённое сообщение об ошибке по задаче (если есть)
+  errorMessage String?
+
+  createdAt DateTime @default(now())
+  startedAt DateTime?
+  finishedAt DateTime?
+
+  items ProductJobItem[]
+
+  @@index([status, createdAt])
+  @@index([enterpriseId, type])
+}
+
+model ProductJobItem {
+  id    String @id @default(cuid())
+  jobId String
+
+  job ProductJob @relation(fields: [jobId], references: [id], onDelete: Cascade)
+
+  /// Привязка к конкретному магазину / профилю OZON
+  sellerId  String?
+  profileId String?
+
+  /// Артикул (offer_id) товара в Ozon
+  offerId String
+
+  /// Статус: pending, in_progress, done, failed, skipped
+  status   String @default("pending")
+  attempts Int    @default(0)
+
+  lastError      String? // последний текст ошибки (если failed)
+  inputSnapshot  Json?   // опционально: snapshot входного товара
+  resultSnapshot Json?   // опционально: результат AI / копирования
+
+  createdAt DateTime @default(now())
+  startedAt DateTime?
+  finishedAt DateTime?
+
+  @@index([jobId, status])
+  @@index([status, createdAt])
+  @@index([sellerId, offerId])
+}
